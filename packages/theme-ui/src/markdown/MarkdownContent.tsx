@@ -60,6 +60,9 @@ export interface MarkdownContentProps {
 	inlineTokens?: InlineTokenSupport;
 }
 
+/** 绝对路径形式的链接文字（POSIX、Windows 盘符、UNC、~/）。相对路径保留原样，用于同名文件的区分。 */
+const ABSOLUTE_PATH_LABEL = /^(?:\/|[A-Za-z]:[\\/]|\\\\|~\/)/;
+
 function basename(path: string): string {
 	const normalized = path.replace(/[\\/]+$/, "");
 	const idx = Math.max(normalized.lastIndexOf("/"), normalized.lastIndexOf("\\"));
@@ -135,8 +138,8 @@ const MarkdownDocument = memo(function MarkdownDocument({
  * Memo'd markdown renderer for chat text blocks. Host injects file/url handlers and theme.
  *
  * `components` 映射的函数引用必须在 streaming 期间保持稳定：React 把 components.p 等
- * 当成元素类型；引用一变就会整树 remount，`.streaming-chunk` 的 CSS 入场动画对已有
- * 文本整段重播，表现为 text block 高频闪烁。labels / 回调通过 ref 读取，不进 deps。
+ * 当成元素类型；引用一变就会整树 remount，流式短语的 DOM 身份与代码块状态都会重置，
+ * 表现为 text block 高频闪烁。labels / 回调通过 ref 读取，不进 deps。
  */
 export const MarkdownContent = memo(function MarkdownContent({
 	text,
@@ -154,7 +157,7 @@ export const MarkdownContent = memo(function MarkdownContent({
 	const definition = definitionOverride ?? inheritedDefinition;
 	const definitionRef = useRef(definition);
 	definitionRef.current = definition;
-	// displayText 始终是当前宿主快照；hook 只管理 CSS 淡入的 settle 生命周期。
+	// displayText 按到达速率追赶宿主快照；流结束时 hook 会立即 flush 剩余内容。
 	const { displayText, animateChunks } = useStreamingDisplayText(text, isStreamingTail);
 
 	const labelsRef = useRef(labels);
@@ -220,6 +223,9 @@ export const MarkdownContent = memo(function MarkdownContent({
 				const kind = classifyMarkdownLink(href);
 				if (kind.type === "file") {
 					const fileName = basename(kind.path);
+					// 模型偶尔把整条绝对路径写成 label，徽标里只留文件名，完整路径仍在 title 里。
+					const label =
+						typeof children === "string" && ABSOLUTE_PATH_LABEL.test(children.trim()) ? basename(children.trim()) : children;
 					return (
 						<button
 							type="button"
@@ -228,7 +234,7 @@ export const MarkdownContent = memo(function MarkdownContent({
 							onClick={() => onOpenFileRef.current(kind.path)}
 						>
 							<span className={cn(getFileIconClassRef.current(fileName), "h-3.5 w-3.5 shrink-0")} />
-							<span className="truncate">{children}</span>
+							<span className="truncate">{label}</span>
 						</button>
 					);
 				}
@@ -336,9 +342,13 @@ export const MarkdownContent = memo(function MarkdownContent({
 		[theme],
 	);
 
-	// 切块一旦启用就保持到实例卸载：流式结束时 `animateChunks` 要等 settle 才关，若此刻把
-	// 已冻结块并回单一文档，已上屏的节点会整段重挂并再包成 `.streaming-chunk` 重放淡入。
-	// 稳定块只按已闭合的顶层围栏切分，分块与整篇渲染结果一致，因此结束后不需要再合并。
+	// 分段 span 一旦挂上就保留到实例卸载：结束时若把 rehype 插件撤掉，整个尾块会重建 DOM，
+	// 表现为回复结尾「卡一下」。「最新短语略暗」只挂在包裹类上，撤掉包裹类就恢复全亮，DOM 不动。
+	const chunkedRef = useRef(false);
+	if (animateChunks) chunkedRef.current = true;
+	// 流式结束后也保留分块结构；若把已冻结块并回单一文档，已上屏节点会整段重挂，
+	// 导致短语 DOM 身份与代码块状态丢失。稳定块只按已闭合的顶层围栏切分，
+	// 分块与整篇渲染结果一致，因此结束后不需要再合并。
 	const frozenBlocksRef = useRef(false);
 	if (isStreamingTail && !inlineTokens) frozenBlocksRef.current = true;
 	const split = frozenBlocksRef.current && !inlineTokens ? splitStableMarkdownBlocks(displayText) : null;
@@ -362,7 +372,7 @@ export const MarkdownContent = memo(function MarkdownContent({
 			{showTail ? (
 				<MarkdownDocument
 					key="tail"
-					animateChunks={animateChunks}
+					animateChunks={chunkedRef.current}
 					components={components}
 					definition={definition}
 					inlineTokens={inlineTokens}

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
-import { act, renderHook } from "@testing-library/react";
+import { act, cleanup, renderHook } from "@testing-library/react";
 import { getDefaultStore } from "jotai";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
  * 发送链路级联提交的合同：ChatView 把 actions/header memo 成 header slot 元素写进
@@ -19,6 +19,14 @@ vi.mock("react-i18next", () => {
 const { useChatViewModel } = await import("./useChatViewModel.js");
 const atoms = await import("@shared/store/atoms");
 
+const store = getDefaultStore();
+const originalVettaDescriptor = Object.getOwnPropertyDescriptor(window, "vetta");
+const originalAtomState = {
+	activeSession: store.get(atoms.activeSessionAtom),
+	chatMessages: store.get(atoms.chatMessagesAtom),
+	pendingSessionOpen: store.get(atoms.pendingSessionOpenAtom),
+};
+
 function stubVettaWindow(): void {
 	Object.defineProperty(window, "vetta", {
 		configurable: true,
@@ -26,6 +34,9 @@ function stubVettaWindow(): void {
 			window: {
 				isAlwaysOnTop: async () => false,
 				toggleAlwaysOnTop: async () => true,
+			},
+			terminal: {
+				capabilities: vi.fn().mockResolvedValue({ localPty: true }),
 			},
 		},
 	});
@@ -49,6 +60,18 @@ describe("useChatViewModel 引用稳定性", () => {
 		] as never);
 		store.set(atoms.activeSessionAtom, makeActiveSession() as never);
 		store.set(atoms.pendingSessionOpenAtom, null);
+	});
+
+	afterEach(() => {
+		cleanup();
+		store.set(atoms.activeSessionAtom, originalAtomState.activeSession);
+		store.set(atoms.chatMessagesAtom, originalAtomState.chatMessages);
+		store.set(atoms.pendingSessionOpenAtom, originalAtomState.pendingSessionOpen);
+		if (originalVettaDescriptor) {
+			Object.defineProperty(window, "vetta", originalVettaDescriptor);
+		} else {
+			Reflect.deleteProperty(window, "vetta");
+		}
 	});
 
 	it("追加消息（非空→非空）不改变 actions / header 引用", () => {

@@ -26,6 +26,12 @@ function shownText(container: HTMLElement): string {
 	return container.textContent ?? "";
 }
 
+function advance(ms: number): void {
+	act(() => {
+		vi.advanceTimersByTime(ms);
+	});
+}
+
 beforeEach(() => {
 	vi.useFakeTimers();
 });
@@ -35,46 +41,90 @@ afterEach(() => {
 });
 
 describe("TextBlockView streaming tail", () => {
-	it("shows every host batch immediately without a second phrase reveal queue", () => {
-		const initial = `${"A long streamed sentence with enough content to wrap naturally. ".repeat(160)}开始分析。`;
-		const appended = `${initial}\n${"继续输出，不应在浏览器中再次排队。".repeat(80)}`;
-		const { container, rerender } = renderView(initial, true);
-
-		expect(shownText(container)).toBe(initial);
-		rerender(appended, true);
-		expect(shownText(container)).toBe(appended);
-
-		act(() => vi.advanceTimersByTime(15_000));
-		expect(shownText(container)).toBe(appended);
-	});
-
-	it("wraps visible phrases in fade segments while streaming", () => {
+	it("reveals streamed text as a steady flow of whole words", () => {
 		const { container } = renderView(FULL_TEXT, true);
-		const chunks = Array.from(container.querySelectorAll(".streaming-chunk"), (node) => node.textContent);
+		// 挂载时已有积压（切回正在流式的会话）：先追到允许的滞后以内，再匀速放。
+		expect(FULL_TEXT.startsWith(shownText(container))).toBe(true);
+		expect(shownText(container).length).toBeLessThan(FULL_TEXT.length);
 
-		expect(chunks.slice(0, 2)).toEqual(["As twilight falls,", " the city wakes up."]);
+		const snapshots: string[] = [];
+		for (let step = 0; step < 100 && shownText(container) !== FULL_TEXT; step++) {
+			advance(100);
+			const shown = shownText(container);
+			if (shown !== snapshots.at(-1)) snapshots.push(shown);
+		}
+
 		expect(shownText(container)).toBe(FULL_TEXT);
+		// 每一步都是前一步的延伸，且不从单词中间切开。
+		expect(snapshots.length).toBeGreaterThan(3);
+		for (const [index, shown] of snapshots.entries()) {
+			expect(FULL_TEXT.startsWith(shown)).toBe(true);
+			if (index > 0) expect(shown.startsWith(snapshots[index - 1] as string)).toBe(true);
+			const nextChar = FULL_TEXT[shown.length];
+			if (nextChar !== undefined) expect(nextChar).not.toMatch(/[A-Za-z0-9]/);
+		}
 	});
 
-	it("shows an unfinished tail immediately and replaces it with the next host snapshot", () => {
+	it("keeps up with a fast stream instead of falling behind in bursts", () => {
+		const { container, rerender } = renderView("", true);
+		let text = "";
+		for (let tick = 0; tick < 20; tick++) {
+			text += "word ".repeat(12);
+			rerender(text, true);
+			advance(100);
+		}
+		// 放出速率跟随到达速率：积压始终有限。
+		expect(text.length - shownText(container).length).toBeLessThan(100);
+	});
+
+	it("wraps revealed phrases in segments and dims the newest ones", () => {
+		const { container } = renderView(FULL_TEXT, true);
+		advance(1200);
+
+		const chunks = Array.from(container.querySelectorAll(".streaming-chunk"), (node) => node.textContent);
+		expect(chunks[0]).toBe("As twilight falls,");
+		expect(chunks.join("")).toBe(shownText(container));
+		expect(container.querySelector(".streaming-chunk-latest")).not.toBeNull();
+	});
+
+	it("holds back an unfinished word until it completes", () => {
 		const { container, rerender } = renderView("Hello there, gene", true);
-		expect(shownText(container)).toBe("Hello there, gene");
+		advance(500);
+		expect(shownText(container)).toBe("Hello there,");
 
 		rerender("Hello there, general Kenobi. You are", true);
-		expect(shownText(container)).toBe("Hello there, general Kenobi. You are");
+		advance(300);
+		expect(shownText(container)).toBe("Hello there, general Kenobi. You");
 	});
 
-	it("shows the complete final batch synchronously, then only settles the fade wrappers", () => {
-		const { container, rerender } = renderView(FULL_TEXT, true);
-		const finalText = `${FULL_TEXT} The end`;
+	it("releases a stalled unfinished tail instead of hiding it forever", () => {
+		const { container } = renderView("Hello there, gene", true);
+		advance(500);
+		expect(shownText(container)).toBe("Hello there,");
 
-		rerender(finalText, false);
-		expect(shownText(container)).toBe(finalText);
-		expect(container.querySelector(".streaming-chunk")).not.toBeNull();
+		advance(1000);
+		expect(shownText(container)).toBe("Hello there, gene");
+	});
 
-		act(() => vi.advanceTimersByTime(500));
-		expect(shownText(container)).toBe(finalText);
-		expect(container.querySelector(".streaming-chunk")).toBeNull();
+	it("holds back an open link and shows it whole once it closes", () => {
+		const { container, rerender } = renderView("See [report](/tmp/rep", true);
+		advance(300);
+		expect(shownText(container)).toBe("See");
+		expect(container.querySelector("button, a")).toBeNull();
+
+		rerender("See [report](/tmp/report.md) for details", true);
+		advance(300);
+		expect(container.querySelector("button, a")?.textContent).toBe("report");
+		// 末尾的 "details" 还可能没写完，先扣着；停顿后放出。
+		expect(shownText(container)).toBe("See report for");
+		advance(900);
+		expect(shownText(container)).toBe("See report for details");
+	});
+
+	it("releases an open link as plain text after the hold timeout", () => {
+		const { container } = renderView("See [report](/tmp/rep", true);
+		advance(1200);
+		expect(shownText(container)).toBe("See [report](/tmp/rep");
 	});
 
 	it("preserves CommonMark list, quote, and link semantics while the tail grows", () => {
@@ -82,6 +132,7 @@ describe("TextBlockView streaming tail", () => {
 		const final = `${first}\n> continued\n\n[Documentation](https://example.test/docs)`;
 		const { container, rerender } = renderView(first, true);
 		rerender(final, true);
+		advance(3000);
 
 		const list = container.querySelector("ol");
 		expect(list?.querySelectorAll(":scope > li")).toHaveLength(2);
@@ -90,7 +141,24 @@ describe("TextBlockView streaming tail", () => {
 		expect(container.querySelector('a[href="https://example.test/docs"]')?.textContent).toBe("Documentation");
 	});
 
-	it("renders non-streaming text immediately without fade segments", () => {
+	it("shows the rest at once when the tail ends, then only lifts the dimming without rebuilding", () => {
+		const { container, rerender } = renderView(FULL_TEXT, true);
+		advance(1);
+		expect(shownText(container).length).toBeLessThan(FULL_TEXT.length);
+
+		rerender(`${FULL_TEXT} The end`, false);
+		expect(shownText(container)).toBe(`${FULL_TEXT} The end`);
+		const lastChunk = container.querySelector(".streaming-chunk-latest");
+		expect(lastChunk).not.toBeNull();
+		expect(container.querySelector(".markdown-streaming-tail")).not.toBeNull();
+
+		advance(200);
+		// 分段 span 留在原地（不重建 DOM），只是包裹类没了，暗色随之消失。
+		expect(container.querySelector(".markdown-streaming-tail")).toBeNull();
+		expect(container.querySelector(".streaming-chunk-latest")).toBe(lastChunk);
+	});
+
+	it("renders non-streaming text immediately without segments", () => {
 		const { container } = renderView(FULL_TEXT, false);
 		expect(shownText(container)).toBe(FULL_TEXT);
 		expect(container.querySelector(".streaming-chunk")).toBeNull();

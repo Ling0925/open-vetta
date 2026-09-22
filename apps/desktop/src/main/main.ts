@@ -81,7 +81,8 @@ import { prepareRuntimeDependentStartup, startRendererAfterSessionPreparation } 
 import { beginSharedRuntimeShutdown, disposeSharedRuntime, getSharedRuntime } from "./runtime.js";
 import { getRuntimeManager } from "./runtimes/manager.js";
 import { initializeSandboxCapability } from "./sandbox/capability.js";
-import { initScheduler, scheduleTaskInCron, shutdownScheduler, unscheduleTaskInCron } from "./scheduler/scheduler.js";
+import { createDesktopSchedulerDependencies } from "./scheduler/desktop-scheduler-wiring.js";
+import { initScheduler, shutdownScheduler } from "./scheduler/scheduler.js";
 import { initializeDesktopSchedulerService } from "./scheduler/scheduler-service.js";
 import { initializeMainTelemetry, shutdownMainTelemetry } from "./telemetry/index.js";
 import { registerThemeProtocol, THEME_PROTOCOL_PRIVILEGE } from "./themes/theme-protocol.js";
@@ -743,11 +744,7 @@ if (!gotSingleLock) {
 		// 批量项目元数据参与恢复会话的 scenario 判定，需要尽早加载；初始化 Promise
 		// 本身不作为 appLifecycle ready 的门闩。
 		const batchTaskReadyPromise = batchTaskService.initialize();
-		const schedulerService = initializeDesktopSchedulerService({
-			getRuntime: getSharedRuntime,
-			scheduleTask: scheduleTaskInCron,
-			unscheduleTask: unscheduleTaskInCron,
-		});
+		const schedulerService = initializeDesktopSchedulerService(createDesktopSchedulerDependencies(getSharedRuntime));
 		const actionSystem = createAppActionSystem(actionApprovalBroker);
 		const pluginActionService = new PluginActionService(mainWindow.webContents, actionSystem.catalog);
 		const remotePairingService = new DesktopRemotePairingService({

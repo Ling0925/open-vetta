@@ -46,7 +46,7 @@ describe("MarkdownContent 稳定块冻结", () => {
 		expect(screen.getByText(/Beta continues now/)).toBeTruthy();
 	});
 
-	it("流式结束后冻结块节点保持身份，已展示文本不再重新包成淡入片段", () => {
+	it("流式结束后冻结块与短语节点保持身份，只撤销流式调暗状态", () => {
 		const prefix = "Hello frozen paragraph.\n\n```js\nconst a = 1;\n```\n\n";
 		const text = `${prefix}Beta continues now.`;
 		const view = render(<MarkdownContent {...environment} text={text} isStreamingTail />);
@@ -59,20 +59,21 @@ describe("MarkdownContent 稳定块冻结", () => {
 		const chunksBefore = view.container.querySelectorAll(".streaming-chunk").length;
 		expect(chunksBefore).toBeGreaterThan(0);
 
-		// 尾块翻为非流式的那一刻：settle 尚未到期，animateChunks 仍为 true。
+		// 流式结束立即撤销调暗状态，已经展示的节点不应重挂。
 		view.rerender(<MarkdownContent {...environment} text={text} isStreamingTail={false} />);
 		expect(screen.getByText("Hello frozen paragraph.")).toBe(frozen);
 		expect(view.container.querySelector("pre, code")).toBe(frozenCode);
 		expect(screen.getByText(/Beta continues now/)).toBe(tail);
 		expect(view.container.querySelectorAll(".streaming-chunk").length).toBe(chunksBefore);
 
-		// settle 之后撤掉分段，冻结块依旧是同一实例。
+		// 后续收尾也保留分段节点，避免整段重新排版。
 		act(() => {
 			vi.advanceTimersByTime(4000);
 		});
 		expect(screen.getByText("Hello frozen paragraph.")).toBe(frozen);
 		expect(view.container.querySelector("pre, code")).toBe(frozenCode);
-		expect(view.container.querySelector(".streaming-chunk")).toBeNull();
+		expect(screen.getByText(/Beta continues now/)).toBe(tail);
+		expect(view.container.querySelectorAll(".streaming-chunk").length).toBe(chunksBefore);
 		expect(view.container.querySelector(".markdown-streaming-tail")).toBeNull();
 	});
 

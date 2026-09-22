@@ -42,7 +42,7 @@ describe("SyntaxHighlightedCode", () => {
 		vi.unstubAllGlobals();
 	});
 
-	it("keeps a growing Markdown tail plain and complete, then highlights the final code and follows theme changes", async () => {
+	it("keeps a growing Markdown tail plain, reveals it at stream pace, then flushes and highlights the final code", async () => {
 		const firstCode = Array.from({ length: 80 }, (_, index) => `const value${index} = ${index};`).join("\n");
 		const finalLine = "console.log('complete immediately');";
 		const initial = `${"Long streamed prose. ".repeat(200)}\n\n\`\`\`ts\n${firstCode}`;
@@ -53,7 +53,7 @@ describe("SyntaxHighlightedCode", () => {
 
 		expect(view.container.textContent).toContain("value79");
 		view.rerender(<MarkdownContent {...markdownEnvironment} text={completed} theme="dark" isStreamingTail />);
-		expect(view.container.textContent).toContain(finalLine);
+		expect(view.container.textContent).not.toContain(finalLine);
 		expect(codeToHtml).not.toHaveBeenCalled();
 
 		view.rerender(

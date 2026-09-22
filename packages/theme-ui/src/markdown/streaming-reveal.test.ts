@@ -21,7 +21,7 @@ describe("splitStreamingSegments", () => {
 		expect(after.slice(0, before.length)).toEqual(before);
 	});
 
-	test("includes an unfinished tail immediately instead of withholding it", () => {
+	test("keeps an unfinished tail in the visual segment partition", () => {
 		expect(splitStreamingSegments("Hello there, gene")).toEqual(["Hello there,", " gene"]);
 	});
 
