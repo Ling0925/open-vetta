@@ -673,12 +673,11 @@ textarea:focus {
 	margin-bottom: 0 !important;
 }
 
-/* Streaming tail: 逐短语淡入（参照 Gemini 网页端）。TextBlockView 只放出已写完的短语，一次一个、
-   间隔 50~300ms 随积压变化；rehype 插件把流式末尾消息的文字按短语包成 .streaming-chunk，
-   只在「该 span 首次 mount」时跑一次动画 —— 依赖 React reconciliation 复用旧 span 的 DOM，
-   已上屏的片段停留在终态，只有新放出的短语淡入。淡入时长远大于放出间隔，多个短语叠在不同进度上。
-   只动 opacity：保持 inline 排版，不用 inline-block / transform，避免换行位置变化和上下跳动；
-   也不加 will-change，免得长回复里几百个片段被永久提升成合成层。时长与 STREAMING_FADE_MS 一致。 */
+/* Streaming tail: 宿主批量文本每次都完整上屏，不再叠加 JS 逐短语排队时钟。rehype 插件把正文按短语
+   包成 .streaming-chunk；React reconciliation 复用旧 span，新增短语首次 mount 时淡入。流式结束后
+   短暂保留 wrapper，让最后一个宿主批次播完动画，再撤掉分段。只动 opacity：保持 inline 排版，
+   不用 inline-block / transform，避免换行位置变化和上下跳动；也不加 will-change，免得长回复里
+   几百个片段被永久提升成合成层。时长与 STREAMING_FADE_MS 一致。 */
 .markdown-streaming-tail .streaming-chunk {
 	animation: streaming-chunk-fade 400ms ease-out both;
 }

@@ -23,6 +23,7 @@ interface InferredHeightCacheEntry {
 
 const inferredHeightCache = new WeakMap<object, InferredHeightCacheEntry>();
 const itemRevisionCache = new WeakMap<object, string>();
+const blockRevisionCache = new WeakMap<object, string>();
 const measuredHeightCache = new Map<string, number>();
 
 function clampHeight(height: number): number {
@@ -151,12 +152,17 @@ function textRevision(text: string | undefined): string {
 }
 
 function blockRevision(block: ContentBlock): string {
+	const cached = blockRevisionCache.get(block);
+	if (cached !== undefined) return cached;
+
+	let revision: string;
 	switch (block.type) {
 		case "text":
 		case "thinking":
-			return `${block.type}:${block.id}:${textRevision(block.text)}`;
+			revision = `${block.type}:${block.id}:${textRevision(block.text)}`;
+			break;
 		case "tool_call":
-			return [
+			revision = [
 				block.type,
 				block.toolCallId,
 				block.status,
@@ -167,11 +173,18 @@ function blockRevision(block: ContentBlock): string {
 				block.mcpApp ? 1 : 0,
 				block.uiDetails?.planReview?.decision ?? "",
 			].join(":");
+			break;
 		case "tool_result":
-			return `${block.type}:${block.toolCallId}:${textRevision(block.content)}`;
+			revision = `${block.type}:${block.toolCallId}:${textRevision(block.content)}`;
+			break;
 		case "error":
-			return `${block.type}:${block.id}:${textRevision(block.text)}`;
+			revision = `${block.type}:${block.id}:${textRevision(block.text)}`;
+			break;
 	}
+	// Conversation projection replaces a changed block and preserves unchanged block objects.
+	// Cache the content hash at that immutable boundary so a growing tail does not re-hash old tool output.
+	blockRevisionCache.set(block, revision);
+	return revision;
 }
 
 function itemRevision(item: ChatConversationItem): string {

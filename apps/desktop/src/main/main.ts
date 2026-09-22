@@ -35,7 +35,7 @@ import {
 	registerLocalNetworkAccess,
 } from "./diagnostics.js";
 import { FILE_PROTOCOL_PRIVILEGE, registerFileProtocolHandler } from "./file-protocol.js";
-import { fixPath } from "./fix-path.js";
+import { fixPath, startAfterPathReady } from "./fix-path.js";
 import { initAppLanguage } from "./i18n/index.js";
 import { getImHost } from "./im-host/index.js";
 import { syncAppshotGesture } from "./ipc/appshot.js";
@@ -77,7 +77,7 @@ import {
 	stopDesktopRemoteDesktopHost,
 } from "./remote-control/desktop-remote-desktop-host.js";
 import { DesktopRemotePairingService } from "./remote-control/desktop-remote-pairing-service.js";
-import { startRendererAfterSessionPreparation } from "./renderer-startup.js";
+import { prepareRuntimeDependentStartup, startRendererAfterSessionPreparation } from "./renderer-startup.js";
 import { beginSharedRuntimeShutdown, disposeSharedRuntime, getSharedRuntime } from "./runtime.js";
 import { getRuntimeManager } from "./runtimes/manager.js";
 import { initializeSandboxCapability } from "./sandbox/capability.js";
@@ -103,9 +103,9 @@ import {
 	showMainWindow,
 } from "./window-manager.js";
 
-// 启动早期修复 GUI 进程的 PATH(补回 homebrew 等登录 shell 路径),必须先于
-// RuntimeManager.applyEnv() 与 coding-agent 的 bash 执行。详见 fix-path.ts。
-fixPath();
+// 启动早期异步探测 GUI 进程缺失的登录 shell PATH；明确的 ready Promise 会在
+// Agent/MCP/IM 等 PATH 消费者装配前兑现，但不会阻塞窗口与启动骨架首次绘制。
+const pathReadyPromise = fixPath();
 
 const PROTOCOL = "vetta";
 // registerSchemesAsPrivileged 整个进程只能调用一次且须在 ready 前：
@@ -362,6 +362,8 @@ if (!gotSingleLock) {
 		showMainWindow();
 	});
 	app.whenReady().then(async () => {
+		// CLI 没有可见页面壳可先展示，且会直接启动依赖 PATH 的命令；保持旧有的启动前就绪语义。
+		if (isCliMode) await pathReadyPromise;
 		if (pdfCliCommand) {
 			const exitCode = await runPdfCliCommand(pdfCliCommand);
 			// `app.quit()` does not honour `process.exitCode` reliably on macOS —
@@ -667,27 +669,17 @@ if (!gotSingleLock) {
 			mainLog.error("failed to ensure im-gateway conversation dir", err);
 		}
 
-		// 托管运行时(ADR-0011):首启从内置 vendor 拷贝 node/python 到 ~/.vetta/runtimes,
-		// 再把它们 + 国内镜像源注入全局 process.env。必须早于 getImHost().bootstrap()——
-		// 快速应用已经存在的托管运行时路径；vendor seed、系统探测和 shim 修复放到
-		// 首帧之后执行，避免这些维护工作阻塞窗口出现。
+		// 托管运行时(ADR-0011):先等登录 shell PATH 探测安全结束，再把已存在的托管
+		// runtime 前置。此处位于窗口启动骨架显示之后、Agent/MCP/IM 等 PATH 消费者
+		// 装配之前；首启 vendor seed 与系统探测仍在真实内容绘制后异步执行。
 		const runtimeManager = getRuntimeManager();
-		runtimeManager.applyEnv();
+		await startAfterPathReady(pathReadyPromise, () => runtimeManager.applyEnv());
 		// 应用代理紧跟托管运行时的 env 注入：它既装 Provider 传输解析器，也写代理
 		// 环境变量，必须早于 im sidecar bootstrap 和任何模型请求。
 		try {
 			await refreshDesktopProxy();
 		} catch (err) {
 			mainLog.error("failed to apply application proxy", err);
-		}
-		if (remoteControlUrl && remotePairingToken) {
-			void startDesktopRemoteAccess({
-				controlUrl: remoteControlUrl,
-				pairingToken: remotePairingToken,
-				conversationCwd: join(getVettaHomePath(), "conversation"),
-			}).catch((error: unknown) => {
-				mainLog.error("remote access connector failed to start", error);
-			});
 		}
 		const initializeManagedRuntimeAndCli = async (): Promise<void> => {
 			try {
@@ -724,6 +716,26 @@ if (!gotSingleLock) {
 				mainLog.error("failed to install vetta CLI paths", err);
 			}
 		};
+
+		// 启动骨架可见后再做 vendor seed、系统运行时探测与 CLI shim 维护。业务 IPC、
+		// Plugin dev server 与 IM 配置入口都在该门闩之后，避免读取未准备好的 PATH/默认 IM 状态。
+		const imHost = getImHost();
+		const managedRuntimeReadyPromise = prepareRuntimeDependentStartup({
+			visibleShell: rendererBootPaintPromise,
+			prepareEnvironment: initializeManagedRuntimeAndCli,
+			prepareImHost: () => imHost.prepare(),
+		});
+		await managedRuntimeReadyPromise;
+
+		if (remoteControlUrl && remotePairingToken) {
+			void startDesktopRemoteAccess({
+				controlUrl: remoteControlUrl,
+				pairingToken: remotePairingToken,
+				conversationCwd: join(getVettaHomePath(), "conversation"),
+			}).catch((error: unknown) => {
+				mainLog.error("remote access connector failed to start", error);
+			});
+		}
 
 		if (mainWindow.isDestroyed()) return;
 		const actionApprovalBroker = new ActionApprovalBroker(mainWindow.webContents);
@@ -838,12 +850,12 @@ if (!gotSingleLock) {
 					mainLog.warn("app monitor background initialization failed", error);
 				});
 
-				const deferredStartupTimer = setTimeout(() => {
-					void Promise.all([initializeManagedRuntimeAndCli(), initializeSandbox()]).catch((error: unknown) => {
-						mainLog.error("deferred startup initialization failed", error);
+				const deferredSandboxTimer = setTimeout(() => {
+					void initializeSandbox().catch((error: unknown) => {
+						mainLog.error("deferred sandbox initialization failed", error);
 					});
 				}, 500);
-				deferredStartupTimer.unref?.();
+				deferredSandboxTimer.unref?.();
 
 				initializePetWindow();
 				startPetIdleGuard();
@@ -867,14 +879,11 @@ if (!gotSingleLock) {
 					mainLog.error("failed to start knowledge poller:", err);
 				});
 
-				// Bootstrap IM bridge subsystem (im-gateway sidecar). Errors during
-				// bootstrap are non-fatal — IM is an opt-in feature and the rest of
-				// the desktop-app must keep working.
-				void getImHost()
-					.bootstrap()
-					.catch((err: unknown) => {
-						mainLog.error("im-host bootstrap failed", err);
-					});
+				// Persisted IM config was loaded before business IPC registration. Sidecar spawning waits
+				// for content paint, but can no longer race a settings write against default in-memory state.
+				void imHost.bootstrap().catch((err: unknown) => {
+					mainLog.error("im-host bootstrap failed", err);
+				});
 			})
 			.catch((error: unknown) => {
 				mainLog.error("post-renderer startup failed", error);

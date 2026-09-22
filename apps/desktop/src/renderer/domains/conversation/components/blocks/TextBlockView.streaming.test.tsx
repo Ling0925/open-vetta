@@ -26,12 +26,6 @@ function shownText(container: HTMLElement): string {
 	return container.textContent ?? "";
 }
 
-function advance(ms: number): void {
-	act(() => {
-		vi.advanceTimersByTime(ms);
-	});
-}
-
 beforeEach(() => {
 	vi.useFakeTimers();
 });
@@ -41,61 +35,59 @@ afterEach(() => {
 });
 
 describe("TextBlockView streaming tail", () => {
-	it("reveals streamed text one phrase at a time", () => {
-		const { container } = renderView(FULL_TEXT, true);
-		expect(shownText(container)).toBe("");
+	it("shows every host batch immediately without a second phrase reveal queue", () => {
+		const initial = `${"A long streamed sentence with enough content to wrap naturally. ".repeat(160)}开始分析。`;
+		const appended = `${initial}\n${"继续输出，不应在浏览器中再次排队。".repeat(80)}`;
+		const { container, rerender } = renderView(initial, true);
 
-		const snapshots: string[] = [];
-		for (let step = 0; step < 100 && shownText(container) !== FULL_TEXT; step++) {
-			advance(10);
-			const shown = shownText(container);
-			if (shown !== snapshots.at(-1)) snapshots.push(shown);
-		}
+		expect(shownText(container)).toBe(initial);
+		rerender(appended, true);
+		expect(shownText(container)).toBe(appended);
 
-		expect(shownText(container)).toBe(FULL_TEXT);
-		expect(snapshots.slice(0, 3)).toEqual([
-			"As twilight falls,",
-			"As twilight falls, the city wakes up.",
-			"As twilight falls, the city wakes up. Streetlights flicker on,",
-		]);
+		act(() => vi.advanceTimersByTime(15_000));
+		expect(shownText(container)).toBe(appended);
 	});
 
-	it("wraps revealed phrases in fade segments while streaming", () => {
+	it("wraps visible phrases in fade segments while streaming", () => {
 		const { container } = renderView(FULL_TEXT, true);
-		advance(500);
-
 		const chunks = Array.from(container.querySelectorAll(".streaming-chunk"), (node) => node.textContent);
+
 		expect(chunks.slice(0, 2)).toEqual(["As twilight falls,", " the city wakes up."]);
+		expect(shownText(container)).toBe(FULL_TEXT);
 	});
 
-	it("holds back an unfinished tail until the phrase completes", () => {
+	it("shows an unfinished tail immediately and replaces it with the next host snapshot", () => {
 		const { container, rerender } = renderView("Hello there, gene", true);
-		advance(500);
-		expect(shownText(container)).toBe("Hello there,");
+		expect(shownText(container)).toBe("Hello there, gene");
 
 		rerender("Hello there, general Kenobi. You are", true);
-		advance(500);
-		expect(shownText(container)).toBe("Hello there, general Kenobi.");
+		expect(shownText(container)).toBe("Hello there, general Kenobi. You are");
 	});
 
-	it("releases a stalled unfinished tail instead of hiding it forever", () => {
-		const { container } = renderView("Hello there, gene", true);
-		advance(500);
-		expect(shownText(container)).toBe("Hello there,");
-
-		advance(1000);
-		expect(shownText(container)).toBe("Hello there, gene");
-	});
-
-	it("finishes the remaining phrases after the tail ends, then drops the fade segments", () => {
+	it("shows the complete final batch synchronously, then only settles the fade wrappers", () => {
 		const { container, rerender } = renderView(FULL_TEXT, true);
-		advance(1);
-		rerender(`${FULL_TEXT} The end`, false);
-		expect(shownText(container)).toBe("As twilight falls,");
+		const finalText = `${FULL_TEXT} The end`;
 
-		advance(3000);
-		expect(shownText(container)).toBe(`${FULL_TEXT} The end`);
+		rerender(finalText, false);
+		expect(shownText(container)).toBe(finalText);
+		expect(container.querySelector(".streaming-chunk")).not.toBeNull();
+
+		act(() => vi.advanceTimersByTime(500));
+		expect(shownText(container)).toBe(finalText);
 		expect(container.querySelector(".streaming-chunk")).toBeNull();
+	});
+
+	it("preserves CommonMark list, quote, and link semantics while the tail grows", () => {
+		const first = "1. First item\n2. Second item\n\n> quoted line";
+		const final = `${first}\n> continued\n\n[Documentation](https://example.test/docs)`;
+		const { container, rerender } = renderView(first, true);
+		rerender(final, true);
+
+		const list = container.querySelector("ol");
+		expect(list?.querySelectorAll(":scope > li")).toHaveLength(2);
+		expect(container.querySelector("blockquote")?.textContent).toContain("quoted line");
+		expect(container.querySelector("blockquote")?.textContent).toContain("continued");
+		expect(container.querySelector('a[href="https://example.test/docs"]')?.textContent).toBe("Documentation");
 	});
 
 	it("renders non-streaming text immediately without fade segments", () => {

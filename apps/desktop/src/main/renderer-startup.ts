@@ -12,3 +12,16 @@ export async function startRendererAfterSessionPreparation<T>(options: RendererS
 	await options.resetDevelopmentCache?.();
 	return options.startRenderer();
 }
+
+export interface RuntimeDependentStartupOptions {
+	readonly visibleShell: Promise<unknown>;
+	readonly prepareEnvironment: () => Promise<void>;
+	readonly prepareImHost: () => void;
+}
+
+/** Keep the boot shell visible while preparing PATH/runtime state, then load IM state before business IPC opens. */
+export async function prepareRuntimeDependentStartup(options: RuntimeDependentStartupOptions): Promise<void> {
+	await options.visibleShell;
+	await options.prepareEnvironment();
+	options.prepareImHost();
+}

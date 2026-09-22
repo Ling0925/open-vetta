@@ -264,3 +264,11 @@ bun run deadcode:report
 - [ ] 生成当前 workspace 声明后，`bun run check:types:build-surfaces` 通过
 - [ ] husky `.husky/pre-commit` 调用的是 `check:precommit` 而非整仓慢 `check`  
 - [ ] 未新增 oxlint/oxfmt/pnpm 强制依赖  
+
+## Renderer 弹层依赖单实例
+
+`check-ui-singletons.mjs` 随 `check:guards` 执行，按安装后的真实模块路径检查 Desktop、共享 UI 和模型选择器使用的 Radix 依赖图。`@radix-ui/react-focus-scope` 与 `@radix-ui/react-dismissable-layer` 分别维护模块级焦点栈和页面点击锁，版本号相同的两个物理副本也不能共存于这条链路。
+
+根 `package.json#overrides` 将这两个包统一到兼容版本；升级时应同步验证抽屉内连续选择模型、打开思考等级子菜单，以及弹层卸载后的焦点和点击恢复。不要用 `modal={false}` 或手工清空 `body.style.pointerEvents` 代替依赖修复。若增量安装仍解析到旧链接，需重建依赖安装结果，不能忽略检查。
+
+定向验证：`node scripts/quality/check-ui-singletons.mjs`；守卫回归测试是 `scripts/quality/check-ui-singletons.test.mjs`，真实组件流程测试是 `apps/desktop/src/renderer/shared/components/ModelSelect/ModelSelect.drawer.test.tsx`。

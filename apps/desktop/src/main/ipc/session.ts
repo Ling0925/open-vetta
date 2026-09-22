@@ -61,10 +61,10 @@ import { purgeProjectSessions } from "../conversations/project-session-purge.js"
 import { parsePromptRequest } from "../conversations/prompt-request-schema.js";
 import type { DesktopCodingAgentSessionConfig } from "../conversations/resolve-session-config.js";
 import { getDesktopSandboxAuthorizationBroker } from "../conversations/sandbox-authorization-broker.js";
+import { createSessionEventIpcSubscription } from "../conversations/session-event-ipc-subscription.js";
 import { selectSessionHistoryPreview } from "../conversations/session-history-preview.js";
 import { isConversationSubCwd, readSessionCwdFromHeader } from "../conversations/session-paths.js";
 import { listRuntimeSessionProjects, listSessionHistory } from "../conversations/session-query-service.js";
-import { slimSessionEventForIpc } from "../conversations/slim-session-event-for-ipc.js";
 import { getDesktopUserQuestionBroker } from "../conversations/user-question-broker.js";
 import { type DebugRequestData, writeDebugRequest } from "../debug-writer.js";
 import { getAppLogger } from "../logger.js";
@@ -1556,55 +1556,56 @@ export function registerSessionIpc(webContents: WebContents): () => void {
 	ipcMain.handle(CHANNELS.SUBSCRIBE, async (_event, sessionId: unknown) => {
 		assertNonEmptyString(sessionId, "sessionId");
 		const subscriptionId = `${sessionId}:${randomUUID()}`;
-		const unsubscribe = runtime.subscribe(sessionId, (runtimeEvent: SessionEvent) => {
-			// Debug mode: intercept events for request history recording
-			try {
-				if (runtimeEvent.type === "session.lifecycle" && runtimeEvent.phase === "turn_start") {
-					turnStartMap.set(sessionId, Date.now());
-				}
-				const assistantMessage =
-					runtimeEvent.type === "message.final"
-						? runtimeEvent.message
-						: runtimeEvent.channel === "assistant" && runtimeEvent.type === "done"
-							? runtimeEvent.message
-							: runtimeEvent.channel === "assistant" && runtimeEvent.type === "error"
-								? runtimeEvent.error
-								: undefined;
-				if (assistantMessage && readConfigSync().debugMode) {
-					const cwd = sessionCwdMap.get(sessionId);
-					if (cwd) {
-						const projectName = basename(cwd);
-						const seq = (debugSeqMap.get(sessionId) ?? 0) + 1;
-						debugSeqMap.set(sessionId, seq);
-						const msg = assistantMessage as unknown as Record<string, unknown>;
-						const usage = (msg.usage ?? {}) as DebugRequestData["usage"];
-						const turnStart = turnStartMap.get(sessionId) ?? Date.now();
-						const now = Date.now();
-						const data: DebugRequestData = {
-							timestamp: now,
-							sessionId,
-							model: (msg.model as string) ?? "unknown",
-							provider: (msg.provider as string) ?? "unknown",
-							api: (msg.api as string) ?? "unknown",
-							usage,
-							stopReason: (msg.stopReason as string) ?? "unknown",
-							durationMs: now - turnStart,
-							message: msg,
-						};
-						void writeDebugRequest(projectName, sessionId, data, seq);
+		const delivery = createSessionEventIpcSubscription({
+			source: runtime,
+			sessionId,
+			isActive: () => !webContents.isDestroyed(),
+			onDeliveryError: (error) => sessionLog.warn("renderer event delivery failed; subscription stopped", error),
+			emit: (event) => webContents.send(CHANNELS.EVENT, subscriptionId, event),
+			observe: (runtimeEvent) => {
+				// Debug mode: intercept events for request history recording
+				try {
+					if (runtimeEvent.type === "session.lifecycle" && runtimeEvent.phase === "turn_start") {
+						turnStartMap.set(sessionId, Date.now());
 					}
+					const assistantMessage =
+						runtimeEvent.type === "message.final"
+							? runtimeEvent.message
+							: runtimeEvent.channel === "assistant" && runtimeEvent.type === "done"
+								? runtimeEvent.message
+								: runtimeEvent.channel === "assistant" && runtimeEvent.type === "error"
+									? runtimeEvent.error
+									: undefined;
+					if (assistantMessage && readConfigSync().debugMode) {
+						const cwd = sessionCwdMap.get(sessionId);
+						if (cwd) {
+							const projectName = basename(cwd);
+							const seq = (debugSeqMap.get(sessionId) ?? 0) + 1;
+							debugSeqMap.set(sessionId, seq);
+							const msg = assistantMessage as unknown as Record<string, unknown>;
+							const usage = (msg.usage ?? {}) as DebugRequestData["usage"];
+							const turnStart = turnStartMap.get(sessionId) ?? Date.now();
+							const now = Date.now();
+							const data: DebugRequestData = {
+								timestamp: now,
+								sessionId,
+								model: (msg.model as string) ?? "unknown",
+								provider: (msg.provider as string) ?? "unknown",
+								api: (msg.api as string) ?? "unknown",
+								usage,
+								stopReason: (msg.stopReason as string) ?? "unknown",
+								durationMs: now - turnStart,
+								message: msg,
+							};
+							void writeDebugRequest(projectName, sessionId, data, seq);
+						}
+					}
+				} catch {
+					// Debug recording should never break the event pipeline
 				}
-			} catch {
-				// Debug recording should never break the event pipeline
-			}
-			// 渲染进程崩溃后 webContents 短暂处于"frame 已 disposed"状态——
-			// runtime 这边 agent 还在跑，每个事件都尝试 send 就会刷屏
-			// "Render frame was disposed before WebFrameMain could be accessed"。
-			// 此处提前 bail，避免把事件 buffer 灌进死掉的渲染端。
-			if (webContents.isDestroyed()) return;
-			webContents.send(CHANNELS.EVENT, subscriptionId, slimSessionEventForIpc(runtimeEvent));
+			},
 		});
-		subscriptionMap.set(subscriptionId, unsubscribe);
+		subscriptionMap.set(subscriptionId, delivery.dispose);
 
 		// 回放后台任务快照：注册表在主进程内存中跨 renderer 重载存活，但
 		// 后台任务扩展观察只在状态变化时推送——renderer 刷新后 atom
@@ -1615,7 +1616,7 @@ export function registerSessionIpc(webContents: WebContents): () => void {
 			undefined,
 		);
 		if (backgroundTasks.length > 0 && !webContents.isDestroyed()) {
-			webContents.send(CHANNELS.EVENT, subscriptionId, {
+			delivery.push({
 				schemaVersion: 1,
 				channel: "runtime",
 				sessionId,
@@ -1630,7 +1631,7 @@ export function registerSessionIpc(webContents: WebContents): () => void {
 		// 之间才 activate，那次 active_tools_update 就没人接。补一次当前快照堵住这个窗口。
 		if (!webContents.isDestroyed()) {
 			try {
-				webContents.send(CHANNELS.EVENT, subscriptionId, {
+				delivery.push({
 					schemaVersion: 1,
 					channel: "runtime",
 					sessionId,
@@ -1647,7 +1648,7 @@ export function registerSessionIpc(webContents: WebContents): () => void {
 
 		const subagents = await runtime.invokeSessionExtension(sessionId, CODING_AGENT_SUBAGENTS_READ, undefined);
 		if (subagents.length > 0 && !webContents.isDestroyed()) {
-			webContents.send(CHANNELS.EVENT, subscriptionId, {
+			delivery.push({
 				schemaVersion: 1,
 				channel: "runtime",
 				sessionId,

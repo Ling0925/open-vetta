@@ -91,7 +91,7 @@ describe("message height estimates", () => {
 		expect(estimate).toBeLessThan(400);
 	});
 
-	it("reuses a measured row height and ignores it after the message content revision changes", () => {
+	it("invalidates a measured height when only a same-length block changes", () => {
 		const scope = "measured-conversation";
 		const initial = createConversationAgentMessage({
 			id: "measured-agent",
@@ -109,7 +109,7 @@ describe("message height estimates", () => {
 		const changedText = "这段替换内容与原文等长".slice(0, "short".length);
 		const changed = createConversationAgentMessage({
 			id: "measured-agent",
-			text: changedText,
+			text: initial.text,
 			blocks: [{ type: "text", id: "measured-text", text: changedText }],
 		});
 		const [changedEstimate] = buildMessageHeightEstimates([changed], scope);
@@ -139,5 +139,91 @@ describe("message height estimates", () => {
 		itemSize(element, "offsetHeight");
 
 		expect(buildMessageHeightEstimates([item], scope)).toEqual([520]);
+	});
+
+	it("updates a growing text tail while unchanged folded block objects keep the same revision", () => {
+		const scope = "streaming-tail-revision";
+		const foldedResult = {
+			type: "tool_result" as const,
+			toolCallId: "large-folded-result",
+			toolName: "read",
+			content: Array.from({ length: 2_000 }, (_, index) => `hidden result line ${index}`).join("\n"),
+			isError: false,
+		};
+		const firstTail = { type: "text" as const, id: "streaming-tail", text: "Starting" };
+		const initial = createConversationAgentMessage({
+			id: "streaming-revision-agent",
+			phase: "streaming",
+			text: firstTail.text,
+			blocks: [foldedResult, firstTail],
+		});
+		const element = document.createElement("div");
+		element.dataset.itemIndex = "0";
+		Object.defineProperty(element, "offsetHeight", { configurable: true, value: 1_700 });
+		createMessageItemSizeRecorder([initial], scope)(element, "offsetHeight");
+
+		const grownText = Array.from({ length: 120 }, (_, index) => `visible streamed line ${index}`).join("\n");
+		const grownTail = { ...firstTail, text: grownText };
+		const grown = createConversationAgentMessage({
+			id: initial.id,
+			phase: "streaming",
+			text: grownText,
+			blocks: [foldedResult, grownTail],
+		});
+		const [grownEstimate] = buildMessageHeightEstimates([grown], scope);
+
+		expect(grownEstimate).not.toBe(1_700);
+		expect(grownEstimate).toBeGreaterThan(2_500);
+
+		Object.defineProperty(element, "offsetHeight", { configurable: true, value: 2_900 });
+		createMessageItemSizeRecorder([grown], scope)(element, "offsetHeight");
+		const sameRevisionNewItem = createConversationAgentMessage({
+			id: grown.id,
+			phase: "streaming",
+			text: grownText,
+			blocks: grown.blocks,
+		});
+		expect(buildMessageHeightEstimates([sameRevisionNewItem], scope)).toEqual([2_900]);
+	});
+
+	it("isolates measured heights by conversation scope", () => {
+		const item = createConversationAgentMessage({
+			id: "scope-agent",
+			text: "scope text",
+			blocks: [{ type: "text", id: "scope-text", text: "scope text" }],
+		});
+		const element = document.createElement("div");
+		element.dataset.itemIndex = "0";
+		Object.defineProperty(element, "offsetHeight", { configurable: true, value: 1_234 });
+		createMessageItemSizeRecorder([item], "scope-a")(element, "offsetHeight");
+
+		expect(buildMessageHeightEstimates([item], "scope-a")).toEqual([1_234]);
+		expect(buildMessageHeightEstimates([item], "scope-b")[0]).not.toBe(1_234);
+	});
+
+	it("bounds measured height retention to the latest 2048 revisions", () => {
+		const scope = "measurement-bound";
+		const items = Array.from({ length: 2_049 }, (_, index) =>
+			createConversationAgentMessage({
+				id: `bounded-agent-${index}`,
+				text: `message ${index}`,
+				blocks: [{ type: "text", id: `bounded-text-${index}`, text: `message ${index}` }],
+			}),
+		);
+		const element = document.createElement("div");
+		let measuredHeight = 0;
+		Object.defineProperty(element, "offsetHeight", {
+			configurable: true,
+			get: () => measuredHeight,
+		});
+		const record = createMessageItemSizeRecorder(items, scope);
+		for (let index = 0; index < items.length; index++) {
+			element.dataset.itemIndex = String(index);
+			measuredHeight = 1_000 + index;
+			record(element, "offsetHeight");
+		}
+
+		expect(buildMessageHeightEstimates([items[0]!], scope)[0]).not.toBe(1_000);
+		expect(buildMessageHeightEstimates([items.at(-1)!], scope)).toEqual([3_048]);
 	});
 });

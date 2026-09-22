@@ -154,6 +154,7 @@ export const MarkdownContent = memo(function MarkdownContent({
 	const definition = definitionOverride ?? inheritedDefinition;
 	const definitionRef = useRef(definition);
 	definitionRef.current = definition;
+	// displayText 始终是当前宿主快照；hook 只管理 CSS 淡入的 settle 生命周期。
 	const { displayText, animateChunks } = useStreamingDisplayText(text, isStreamingTail);
 
 	const labelsRef = useRef(labels);
@@ -345,6 +346,7 @@ export const MarkdownContent = memo(function MarkdownContent({
 	const tail = split ? split.tail : displayText;
 	const showTail = !split || tail.length > 0 || committed.length === 0;
 
+	// 只有仍可能变化的 tail 文档是 live；已冻结围栏可以立即、懒加载地高亮。
 	return (
 		<div className={cn("markdown-body break-words", animateChunks && "markdown-streaming-tail", className)}>
 			{committed.map((block, index) => (

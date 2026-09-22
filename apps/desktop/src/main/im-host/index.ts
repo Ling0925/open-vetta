@@ -249,6 +249,7 @@ export class ImHost {
 	private config: ImConfig = defaultImConfig();
 	private credentials: ImCredentials = {};
 	private state: ImStateFile = { version: 3, sessions: [] };
+	private prepared = false;
 
 	private manager: SidecarManager;
 	private binaryPath?: string;
@@ -496,9 +497,9 @@ export class ImHost {
 		});
 	}
 
-	/** One-time bootstrap on app.whenReady. Loads disk state and (if
-	 * enabled and credentials present) starts the sidecar. */
-	async bootstrap(): Promise<void> {
+	/** Load persisted configuration before any IPC caller can mutate it. Idempotent. */
+	prepare(): void {
+		if (this.prepared) return;
 		try {
 			this.config = loadImConfig();
 		} catch {
@@ -514,7 +515,12 @@ export class ImHost {
 		} catch {
 			this.state = { version: 3, sessions: [] };
 		}
+		this.prepared = true;
+	}
 
+	/** One-time sidecar bootstrap after PATH/runtime preparation and persisted-state loading. */
+	async bootstrap(): Promise<void> {
+		this.prepare();
 		if (this.config.enabled && this.hasRequiredCredentials()) {
 			await this.startSidecar();
 		}

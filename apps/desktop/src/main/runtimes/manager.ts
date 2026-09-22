@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node
 import { chmod } from "node:fs/promises";
 import { delimiter, join } from "node:path";
 import { atomicWriteJSON } from "@vetta/toolkit/atomic-write";
+import { type BoundedProcessResult, runBoundedProcess } from "../bounded-process.js";
 import { getAppLogger } from "../logger.js";
 import {
 	binDirsFor,
@@ -43,10 +44,84 @@ function parseVersion(raw: string): string | undefined {
 	return m?.[1];
 }
 
+export interface SystemRuntimeDetection {
+	readonly path: string;
+	readonly version: string;
+}
+
+export interface DetectSystemRuntimeOptions {
+	readonly systemPath: string;
+	readonly platform?: NodeJS.Platform;
+	readonly baseEnv?: NodeJS.ProcessEnv;
+	readonly pathExists?: (path: string) => boolean;
+	readonly runCommand?: (
+		command: string,
+		args: readonly string[],
+		options: { readonly env: NodeJS.ProcessEnv; readonly timeoutMs: number },
+	) => Promise<BoundedProcessResult>;
+}
+
+export type SystemRuntimeProbe = (
+	type: RuntimeType,
+	options: DetectSystemRuntimeOptions,
+) => Promise<SystemRuntimeDetection | undefined>;
+
+export interface RuntimeManagerOptions {
+	readonly detectSystemRuntime?: SystemRuntimeProbe;
+	readonly systemPathSnapshot?: string;
+	readonly now?: () => number;
+}
+
+/** Probe only the pre-injection PATH so managed runtimes are never reported as system installs. */
+export async function detectSystemRuntime(
+	type: RuntimeType,
+	options: DetectSystemRuntimeOptions,
+): Promise<SystemRuntimeDetection | undefined> {
+	const candidates = type === "python" ? ["python3", "python"] : ["node"];
+	const env = {
+		...(options.baseEnv ?? process.env),
+		PATH: options.systemPath,
+		Path: options.systemPath,
+	};
+	const platform = options.platform ?? process.platform;
+	const pathExists = options.pathExists ?? existsSync;
+	const runCommand = options.runCommand ?? runBoundedProcess;
+	for (const command of candidates) {
+		const versionResult = await runCommand(command, ["--version"], { env, timeoutMs: 5000 });
+		if (versionResult.exitCode !== 0) continue;
+		const version = parseVersion(`${versionResult.stdout}${versionResult.stderr}`);
+		if (!version) continue;
+
+		const locationResult = await runCommand(platform === "win32" ? "where" : "which", [command], {
+			env,
+			timeoutMs: 5000,
+		});
+		const path = locationResult.stdout.trim().split(/\r?\n/)[0];
+		if (path && pathExists(path)) return { path, version };
+	}
+	return undefined;
+}
+
 export class RuntimeManager {
 	private data: RuntimeRegistryData = emptyRegistry();
+	private readonly systemRuntimeProbe: SystemRuntimeProbe;
+	private readonly systemPathSnapshot: string;
+	private readonly now: () => number;
+	private registryLoaded = false;
+	private systemDetectionCompleted = false;
+	private systemDetectionInFlight: Promise<void> | undefined;
+	private initializationInFlight: Promise<void> | undefined;
+	private initialized = false;
+	private redetectionInFlight: Promise<RuntimesStatus> | undefined;
 
+	constructor(options: RuntimeManagerOptions = {}) {
+		this.systemRuntimeProbe = options.detectSystemRuntime ?? detectSystemRuntime;
+		this.systemPathSnapshot = options.systemPathSnapshot ?? SYSTEM_PATH_SNAPSHOT;
+		this.now = options.now ?? Date.now;
+	}
 	private loadRegistry(): void {
+		if (this.registryLoaded) return;
+		this.registryLoaded = true;
 		try {
 			if (existsSync(registryPath())) {
 				const parsed = JSON.parse(readFileSync(registryPath(), "utf-8")) as RuntimeRegistryData;
@@ -72,31 +147,40 @@ export class RuntimeManager {
 		}
 	}
 
-	/** 探测系统已安装的同名运行时(用系统 PATH 快照,不含我们的注入)。 */
-	private detectSystem(type: RuntimeType): void {
-		const candidates = type === "python" ? ["python3", "python"] : ["node"];
-		const env = { ...process.env, PATH: SYSTEM_PATH_SNAPSHOT, Path: SYSTEM_PATH_SNAPSHOT };
-		for (const cmd of candidates) {
-			try {
-				const res = spawnSync(cmd, ["--version"], { encoding: "utf-8", timeout: 5000, env });
-				if (res.status === 0) {
-					const version = parseVersion(`${res.stdout}${res.stderr}`);
-					const whichRes = spawnSync(process.platform === "win32" ? "where" : "which", [cmd], {
-						encoding: "utf-8",
-						timeout: 5000,
-						env,
+	private refreshSystemDetection(force: boolean): Promise<void> {
+		if (this.systemDetectionInFlight) return this.systemDetectionInFlight;
+		if (!force && this.systemDetectionCompleted) return Promise.resolve();
+
+		const detection = this.performSystemDetection().finally(() => {
+			this.systemDetectionCompleted = true;
+			if (this.systemDetectionInFlight === detection) this.systemDetectionInFlight = undefined;
+		});
+		this.systemDetectionInFlight = detection;
+		return detection;
+	}
+
+	private async performSystemDetection(): Promise<void> {
+		const results = await Promise.all(
+			RUNTIME_TYPES.map(async (type) => {
+				try {
+					const detected = await this.systemRuntimeProbe(type, {
+						systemPath: this.systemPathSnapshot,
 					});
-					const path = whichRes.stdout?.trim().split(/\r?\n/)[0];
-					if (version && path && existsSync(path)) {
-						this.data.systemDetection[type] = { path, version, detectedAt: Date.now() };
-						return;
-					}
+					return [type, detected] as const;
+				} catch (err) {
+					log.warn(`detect system ${type} failed`, err);
+					return [type, undefined] as const;
 				}
-			} catch {
-				// 继续尝试下一个候选名
+			}),
+		);
+
+		for (const [type, detected] of results) {
+			if (detected) {
+				this.data.systemDetection[type] = { ...detected, detectedAt: this.now() };
+			} else {
+				delete this.data.systemDetection[type];
 			}
 		}
-		delete this.data.systemDetection[type];
 	}
 
 	/** 内置 vendor → ~/.vetta/runtimes 首启安装。返回是否完成 seed。 */
@@ -529,18 +613,29 @@ export class RuntimeManager {
 		};
 	}
 
-	/** 探测系统 + 首启 seed(失败回退下载)。不抛错:任一运行时失败不阻断启动。 */
-	async initialize(): Promise<void> {
+	/** 探测系统 + 首启 seed。不抛错:任一运行时失败不阻断启动。并发/重复启动复用同一次初始化。 */
+	initialize(): Promise<void> {
+		if (this.initialized) return Promise.resolve();
+		if (this.initializationInFlight) return this.initializationInFlight;
+
+		const initialization = this.initializeOnce()
+			.then(() => {
+				this.initialized = true;
+			})
+			.finally(() => {
+				if (this.initializationInFlight === initialization) this.initializationInFlight = undefined;
+			});
+		this.initializationInFlight = initialization;
+		return initialization;
+	}
+
+	private async initializeOnce(): Promise<void> {
 		this.loadRegistry();
+		await this.refreshSystemDetection(false);
 		for (const type of RUNTIME_TYPES) {
 			try {
-				this.detectSystem(type);
-			} catch (err) {
-				log.warn(`detect system ${type} failed`, err);
-			}
-			try {
 				// 启动只走零网络的 vendor 归档解压;下载是面板触发的次要路径(见 reinstall),
-				// 不在启动阻塞,避免无内置 vendor 的开发态/异常环境卡在 180s 超时。
+				// 避免无内置 vendor 的开发态/异常环境卡在 180s 下载超时。
 				if (!this.isReady(type)) {
 					await this.seedFromVendor(type);
 				}
@@ -571,10 +666,11 @@ export class RuntimeManager {
 		}
 		if (process.platform !== "win32") dirs.push(npmGlobalBinDir());
 
-		const pathKey = Object.keys(process.env).find((k) => k.toLowerCase() === "path") ?? "PATH";
+		const pathKey = Object.keys(process.env).find((key) => key.toLowerCase() === "path") ?? "PATH";
 		const existing = (process.env[pathKey] ?? "").split(delimiter).filter(Boolean);
-		const merged = [...dirs.filter((d) => !existing.includes(d)), ...existing];
-		process.env[pathKey] = merged.join(delimiter);
+		const managedDirs = [...new Set(dirs)];
+		const managedSet = new Set(managedDirs);
+		process.env[pathKey] = [...managedDirs, ...existing.filter((path) => !managedSet.has(path))].join(delimiter);
 
 		if (process.platform === "win32" && this.isReady("node")) {
 			try {
@@ -644,6 +740,7 @@ export class RuntimeManager {
 
 	/** 面板「升级/重新获取」:强制重新 seed/下载推荐版本,再刷新 env。 */
 	async reinstall(type: RuntimeType): Promise<RuntimeStatus> {
+		this.loadRegistry();
 		const target = installDir(type);
 		rmSync(join(target, ".vendor-version"), { force: true });
 		const seeded = await this.seedFromVendor(type);
@@ -658,11 +755,20 @@ export class RuntimeManager {
 		return this.statusFor(type);
 	}
 
-	/** 面板「重新探测系统运行时」。 */
-	redetect(): RuntimesStatus {
-		for (const type of RUNTIME_TYPES) this.detectSystem(type);
-		this.saveRegistry();
-		return this.getStatus();
+	/** 面板「重新探测系统运行时」。并发点击合并；前一轮结束后的手动重探始终启动新探测。 */
+	redetect(): Promise<RuntimesStatus> {
+		if (this.redetectionInFlight) return this.redetectionInFlight;
+		this.loadRegistry();
+		const redetection = this.refreshSystemDetection(true)
+			.then(() => {
+				this.saveRegistry();
+				return this.getStatus();
+			})
+			.finally(() => {
+				if (this.redetectionInFlight === redetection) this.redetectionInFlight = undefined;
+			});
+		this.redetectionInFlight = redetection;
+		return redetection;
 	}
 }
 

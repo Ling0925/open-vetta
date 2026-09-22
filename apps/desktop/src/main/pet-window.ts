@@ -65,6 +65,7 @@ let petContentOffset = { ...DEFAULT_PET_CONTENT_OFFSET };
 let petContentLayout: PetContentBounds | undefined;
 let lastVideoScreen: { x: number; y: number; width: number; height: number } | undefined;
 let mousePassthroughPollTimer: ReturnType<typeof setTimeout> | undefined;
+let petMousePollingSuspended = false;
 let petWindowCreatedListener: (() => void) | undefined;
 
 type PetWindowResizeSession = {
@@ -296,12 +297,50 @@ function syncPetOverlayToAnchor(win: BrowserWindow, anchor = getPetAnchorScreenP
 	});
 }
 
-function isCursorOverPetVideo(win: BrowserWindow): boolean {
+type PetMousePollSnapshot = {
+	cursor: Electron.Point;
+	windowBounds: Electron.Rectangle;
+};
+
+function takePetMousePollSnapshot(win: BrowserWindow): PetMousePollSnapshot {
+	return {
+		cursor: screen.getCursorScreenPoint(),
+		windowBounds: win.getBounds(),
+	};
+}
+
+function normalizePetVideoHitboxForBounds(
+	hitbox: PetVideoHitbox | undefined,
+	bounds?: Pick<Electron.Rectangle, "width" | "height">,
+): PetVideoHitbox | undefined {
+	if (
+		!hitbox ||
+		!Number.isFinite(hitbox.x) ||
+		!Number.isFinite(hitbox.y) ||
+		!Number.isFinite(hitbox.width) ||
+		!Number.isFinite(hitbox.height) ||
+		hitbox.width <= 0 ||
+		hitbox.height <= 0
+	) {
+		return undefined;
+	}
+	const left = Math.max(0, Math.round(hitbox.x));
+	const top = Math.max(0, Math.round(hitbox.y));
+	const right = Math.min(bounds?.width ?? Number.POSITIVE_INFINITY, Math.round(hitbox.x + hitbox.width));
+	const bottom = Math.min(bounds?.height ?? Number.POSITIVE_INFINITY, Math.round(hitbox.y + hitbox.height));
+	if (right <= left || bottom <= top) return undefined;
+	return {
+		x: left,
+		y: top,
+		width: right - left,
+		height: bottom - top,
+	};
+}
+
+function isCursorOverPetVideo(snapshot: PetMousePollSnapshot): boolean {
 	if (!petVideoHitbox) return false;
-	const cursor = screen.getCursorScreenPoint();
-	const bounds = win.getBounds();
-	const x = cursor.x - bounds.x;
-	const y = cursor.y - bounds.y;
+	const x = snapshot.cursor.x - snapshot.windowBounds.x;
+	const y = snapshot.cursor.y - snapshot.windowBounds.y;
 	return (
 		x >= petVideoHitbox.x &&
 		x <= petVideoHitbox.x + petVideoHitbox.width &&
@@ -310,34 +349,49 @@ function isCursorOverPetVideo(win: BrowserWindow): boolean {
 	);
 }
 
-function syncPetMousePassthroughForCursor(): void {
-	if (!petWindow || petWindow.isDestroyed()) return;
+function syncPetMousePassthroughForCursor(snapshot?: PetMousePollSnapshot): void {
+	if (petMousePollingSuspended) return;
+	const win = getLivePetWindow();
+	if (!win) return;
 	if (windowMoveSession) {
 		setPetMousePassthrough(false);
 		return;
 	}
-	setPetMousePassthrough(!isCursorOverPetVideo(petWindow));
+	const currentSnapshot = snapshot ?? takePetMousePollSnapshot(win);
+	petVideoHitbox = normalizePetVideoHitboxForBounds(petVideoHitbox, currentSnapshot.windowBounds);
+	if (!petVideoHitbox) {
+		stopMousePassthroughPolling();
+		setPetMousePassthrough(true);
+		return;
+	}
+	setPetMousePassthrough(!isCursorOverPetVideo(currentSnapshot));
 }
 
 function startMousePassthroughPolling(): void {
-	if (mousePassthroughPollTimer) return;
+	if (mousePassthroughPollTimer !== undefined || petMousePollingSuspended || !petVideoHitbox || !getLivePetWindow()) {
+		return;
+	}
 	tickMousePassthroughPoll();
 }
 
 function tickMousePassthroughPoll(): void {
-	syncPetMousePassthroughForCursor();
+	mousePassthroughPollTimer = undefined;
+	if (petMousePollingSuspended || !petVideoHitbox) return;
 	const win = getLivePetWindow();
 	if (!win) return;
+	const snapshot = takePetMousePollSnapshot(win);
+	syncPetMousePassthroughForCursor(snapshot);
+	if (petMousePollingSuspended || !petVideoHitbox || win !== getLivePetWindow()) return;
 	const delay = nextPetMousePollMs({
 		dragging: Boolean(windowMoveSession),
-		cursor: screen.getCursorScreenPoint(),
-		windowBounds: win.getBounds(),
+		cursor: snapshot.cursor,
+		windowBounds: snapshot.windowBounds,
 	});
 	mousePassthroughPollTimer = setTimeout(tickMousePassthroughPoll, delay);
 }
 
 function stopMousePassthroughPolling(): void {
-	if (!mousePassthroughPollTimer) return;
+	if (mousePassthroughPollTimer === undefined) return;
 	clearTimeout(mousePassthroughPollTimer);
 	mousePassthroughPollTimer = undefined;
 }
@@ -349,6 +403,8 @@ function shouldShowPetDevToolsMenuItem(): boolean {
 function destroyPetWindow(): void {
 	const win = petWindow;
 	if (!win || win.isDestroyed()) {
+		stopMousePassthroughPolling();
+		petVideoHitbox = undefined;
 		petWindow = null;
 		return;
 	}
@@ -768,33 +824,34 @@ export function setPetMousePassthrough(enabled: boolean): void {
 	}
 }
 
-export function setPetVideoHitbox(hitbox: PetVideoHitbox | undefined): void {
-	const win = petWindow && !petWindow.isDestroyed() ? petWindow : undefined;
-	const bounds = win?.getBounds();
-	if (hitbox && bounds && hitbox.width > 0 && hitbox.height > 0) {
-		const left = Math.max(0, Math.round(hitbox.x));
-		const top = Math.max(0, Math.round(hitbox.y));
-		const right = Math.min(bounds.width, Math.round(hitbox.x + hitbox.width));
-		const bottom = Math.min(bounds.height, Math.round(hitbox.y + hitbox.height));
-		petVideoHitbox =
-			right > left && bottom > top
-				? {
-						x: left,
-						y: top,
-						width: right - left,
-						height: bottom - top,
-					}
-				: undefined;
-	} else {
-		petVideoHitbox = undefined;
+/** 锁屏或休眠期间停止鼠标穿透轮询；恢复时仅对有效的桌宠窗口与 hitbox 立即同步。 */
+export function setPetMousePollingSuspended(suspended: boolean): void {
+	if (petMousePollingSuspended === suspended) {
+		if (!suspended) startMousePassthroughPolling();
+		return;
 	}
-	if (petVideoHitbox) {
-		startMousePassthroughPolling();
+	petMousePollingSuspended = suspended;
+	if (suspended) {
+		stopMousePassthroughPolling();
+		return;
+	}
+	startMousePassthroughPolling();
+}
+
+export function setPetVideoHitbox(hitbox: PetVideoHitbox | undefined): void {
+	const win = getLivePetWindow();
+	petVideoHitbox = win ? normalizePetVideoHitboxForBounds(hitbox) : undefined;
+	if (!petVideoHitbox) {
+		stopMousePassthroughPolling();
+		setPetMousePassthrough(true);
+		return;
+	}
+	if (petMousePollingSuspended) return;
+	if (mousePassthroughPollTimer !== undefined) {
 		syncPetMousePassthroughForCursor();
 		return;
 	}
-	stopMousePassthroughPolling();
-	setPetMousePassthrough(true);
+	startMousePassthroughPolling();
 }
 
 export async function setPetVideoBaseSize(

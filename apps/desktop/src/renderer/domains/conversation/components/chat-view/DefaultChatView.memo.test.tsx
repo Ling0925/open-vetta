@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
-import { render, screen } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import { createElement } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DefaultChatView } from "./DefaultChatView";
 
 const panelRendered = vi.hoisted(() => vi.fn());
@@ -15,6 +15,15 @@ vi.mock("@domains/activity-panel/components/ActivityPanel", () => ({
 	CurrentScenarioActivityPanel: () => createElement("aside", { "data-testid": "current-activity-panel" }),
 }));
 vi.mock("../ChatExportHost", () => ({ ChatExportHost: () => null }));
+
+beforeEach(() => {
+	vi.stubGlobal("vetta", { terminal: { capabilities: vi.fn().mockResolvedValue({ localPty: true }) } });
+});
+
+afterEach(() => {
+	cleanup();
+	vi.unstubAllGlobals();
+});
 
 describe("chat activity column", () => {
 	it("does not redraw for message changes but updates for runtime and scenario changes", () => {

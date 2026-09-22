@@ -20,8 +20,8 @@ export function registerRuntimesIpc(): () => void {
 		return getRuntimeManager().reinstall(type as RuntimeType);
 	});
 
-	ipcMain.handle(RUNTIMES_CHANNELS.REDETECT, () => {
-		return getRuntimeManager().redetect();
+	ipcMain.handle(RUNTIMES_CHANNELS.REDETECT, async () => {
+		return await getRuntimeManager().redetect();
 	});
 
 	return () => {

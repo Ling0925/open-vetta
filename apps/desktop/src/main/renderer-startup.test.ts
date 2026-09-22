@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { startRendererAfterSessionPreparation } from "./renderer-startup.js";
+import { prepareRuntimeDependentStartup, startRendererAfterSessionPreparation } from "./renderer-startup.js";
 
 describe("startRendererAfterSessionPreparation", () => {
 	it("waits for development cache invalidation before starting renderer requests", async () => {
@@ -47,5 +47,46 @@ describe("startRendererAfterSessionPreparation", () => {
 			}),
 		).rejects.toThrow("cache reset failed");
 		expect(startRenderer).not.toHaveBeenCalled();
+	});
+});
+
+describe("prepareRuntimeDependentStartup", () => {
+	it("shows the boot shell before environment work and opens business startup only after IM state is loaded", async () => {
+		const order: string[] = [];
+		let markShellVisible: (() => void) | undefined;
+		let finishEnvironment: (() => void) | undefined;
+		const visibleShell = new Promise<void>((resolve) => {
+			markShellVisible = resolve;
+		});
+		const environmentGate = new Promise<void>((resolve) => {
+			finishEnvironment = resolve;
+		});
+		const startup = prepareRuntimeDependentStartup({
+			visibleShell,
+			prepareEnvironment: async () => {
+				order.push("environment-started");
+				await environmentGate;
+				order.push("environment-ready");
+			},
+			prepareImHost: () => order.push("im-state-loaded"),
+		});
+		const businessStartup = startup.then(() => order.push("business-started"));
+
+		await Promise.resolve();
+		expect(order).toEqual([]);
+		order.push("shell-visible");
+		markShellVisible?.();
+		await Promise.resolve();
+		expect(order).toEqual(["shell-visible", "environment-started"]);
+
+		finishEnvironment?.();
+		await businessStartup;
+		expect(order).toEqual([
+			"shell-visible",
+			"environment-started",
+			"environment-ready",
+			"im-state-loaded",
+			"business-started",
+		]);
 	});
 });
