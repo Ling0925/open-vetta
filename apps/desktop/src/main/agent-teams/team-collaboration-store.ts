@@ -52,6 +52,7 @@ export interface TeamWorkItemInput {
 	readonly attachments?: readonly PromptAttachmentRef[];
 	readonly kind?: "task" | "question";
 	readonly notificationIds?: readonly string[];
+	readonly notificationContinuation?: true;
 }
 
 export class TeamCollaborationStore {
@@ -196,6 +197,7 @@ export class TeamCollaborationStore {
 					automaticRetries: 0,
 				},
 				...(input.notificationIds?.length ? { notificationIds: input.notificationIds } : {}),
+				...(input.notificationContinuation ? { notificationContinuation: true as const } : {}),
 				createdAt: now,
 				updatedAt: now,
 				revision: 0,

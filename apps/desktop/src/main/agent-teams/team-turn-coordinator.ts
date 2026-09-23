@@ -595,6 +595,7 @@ export class TeamTurnCoordinator {
 					promptText: "Integrate Agent Team task status and results",
 					mode: "continue",
 					continuationContext: records,
+					notificationContinuation: true,
 				};
 				const existing = plan ? state.workItems.find((item) => item.id === plan.workItemId) : undefined;
 				if (existing) {

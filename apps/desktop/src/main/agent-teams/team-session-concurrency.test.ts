@@ -29,6 +29,8 @@ import { createRuntimeObservationPublisher, type RuntimeObservationRecord } from
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { DesktopCodingAgentSessionConfig } from "../conversations/resolve-session-config.js";
 import { registerPresetPluginBlueprints } from "./preset-plugin-blueprints.testing.js";
+import { TeamCollaborationStore } from "./team-collaboration-store.js";
+import { TeamNotificationJournal } from "./team-notification-journal.js";
 import { AgentTeamSessionService } from "./team-session-service.js";
 
 vi.mock("../conversations/resolve-session-config.js", () => ({
@@ -917,6 +919,102 @@ describe("Team member concurrency", () => {
 		const leaderMessages = publicAgentMessagesBy(fixture, leader);
 		expect(leaderMessages.map((entry) => entry.turnId)).toEqual(["plan", "plan:continuation:1"]);
 		expect(JSON.stringify(leaderMessages[1])).toContain("Wrap-up after review");
+	});
+
+	it("delivers a member question and its follow-up without bouncing completion between members", async () => {
+		const fixture = await createFixture();
+		const [leader, member] = fixture.members;
+		const leaderRuntime = fixture.session.memberRuntime[leader]!.sessionId;
+		const memberRuntime = fixture.session.memberRuntime[member]!.sessionId;
+		let leaderWakeUps = 0;
+		const releaseUnexpectedWake = deferred();
+		vi.mocked(fixture.runtime.deliverSessionContext).mockImplementation(async (sessionId, _records, mode) => {
+			if (mode !== "triggerTurn") return;
+			if (sessionId === leaderRuntime && ++leaderWakeUps > 1) {
+				await releaseUnexpectedWake.promise;
+				return;
+			}
+			fixture.appendHistory(sessionId, {
+				...createAssistantMessage({ api: "openai-responses", provider: "openai", model: "test" }),
+				content: [{ type: "text", text: "Integrated the teammate's result" }],
+			});
+		});
+		try {
+			const leaderTurn = fixture.turn(leader, "plan");
+			const send = fixture.service.send(fixture.session.id, {
+				requestId: "plan",
+				text: "plan",
+				targetMemberIds: [leader],
+			});
+			await leaderTurn.started.promise;
+			leaderTurn.finish.resolve();
+			await send;
+
+			const tasks = fixture.service.taskControls(fixture.session.id);
+			const delegated = fixture.turn(member, "Review the plan");
+			const caller = taskCaller(fixture, leader);
+			const task = await tasks.delegateTask({
+				...caller,
+				requestId: "review",
+				targetHandle: fixture.session.memberHandles[member]!,
+				objective: "Review the plan",
+			});
+			const leaderFollowUp = fixture.workState(`work:plan:continuation:1:${leader}`, "completed");
+			await delegated.started.promise;
+			delegated.finish.resolve();
+			await leaderFollowUp;
+
+			const question = "What changed?";
+			const questionTurn = fixture.turn(
+				leader,
+				`Answer this public question from @${fixture.session.memberHandles[member]}: ${question}`,
+			);
+			const asked = await fixture.service.messageControls(fixture.session.id).sendMessage({
+				...taskCaller(fixture, member),
+				requestId: "clarify",
+				recipientHandles: [fixture.session.memberHandles[leader]!],
+				intent: "question",
+				text: question,
+				modelIdentity: { api: "openai-responses", provider: "openai", model: "test" },
+			});
+			const answered = fixture.workState(`work:question:${asked.deliveryIds[0]}:${leader}`, "completed");
+			const memberFollowUpId = `work:${task.workItem.requestTurnId}:continuation:1:${member}`;
+			const memberFollowUp = fixture.workState(memberFollowUpId, "completed");
+			await questionTurn.started.promise;
+			questionTurn.finish.resolve();
+			await answered;
+			await memberFollowUp;
+
+			const store = new TeamCollaborationStore({
+				readSessionDocument: (sessionId) => fixture.conversations.get(sessionId)!,
+				appendSessionMetadataEntry: (sessionId, type, data) =>
+					fixture.runtime.appendSessionMetadataEntry(sessionId, type, data),
+			});
+			const journal = new TeamNotificationJournal(store);
+			const state = await fixture.service.readCollaborationState(fixture.session.id);
+			const followUp = state.workItems.find((item) => item.id === memberFollowUpId);
+			expect(followUp).toBeDefined();
+			await journal.record(fixture.session, followUp!);
+			expect(journal.pending(fixture.session, leader)).toHaveLength(0);
+			expect(journal.pending(fixture.session, member)).toHaveLength(0);
+			expect(followUp).toMatchObject({
+				state: "completed",
+				createdByParticipantId: leader,
+				notificationContinuation: true,
+			});
+			expect(state.workItems.filter((item) => item.requestTurnId.includes(":continuation:"))).toHaveLength(2);
+			expect(publicAgentMessagesBy(fixture, leader)).toHaveLength(3);
+			expect(publicAgentMessagesBy(fixture, member)).toHaveLength(3);
+			expect(leaderWakeUps).toBe(1);
+			expect(fixture.runtime.deliverSessionContext).toHaveBeenCalledWith(
+				memberRuntime,
+				expect.arrayContaining([expect.objectContaining({ type: "agent-team.task-completed.v1" })]),
+				"triggerTurn",
+			);
+		} finally {
+			releaseUnexpectedWake.resolve();
+			await fixture.service.abort(fixture.session.id);
+		}
 	});
 
 	it("lets the leader delegate fresh work to the same member after an earlier task completed", async () => {

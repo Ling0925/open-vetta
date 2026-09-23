@@ -147,6 +147,8 @@ export interface TeamWorkItem {
 	readonly recovery?: TeamTaskRecovery;
 	/** Durable notification handoff; recovered attempts can reconstruct their context. */
 	readonly notificationIds?: readonly string[];
+	/** Internal follow-up created solely to publish a notification result; not a new task for its creator. */
+	readonly notificationContinuation?: true;
 	readonly id: string;
 	readonly requestTurnId: string;
 	/** Tool call that admitted this work, when it originated from Team collaboration tooling. */
@@ -480,6 +482,7 @@ export function isTeamWorkItem(value: unknown): value is TeamWorkItem {
 		Array.isArray(value.contextEntryIds) &&
 		isTeamWorkItemState(value.state) &&
 		(value.recovery === undefined || isTeamTaskRecovery(value.recovery)) &&
+		(value.notificationContinuation === undefined || value.notificationContinuation === true) &&
 		(value.notificationIds === undefined ||
 			(Array.isArray(value.notificationIds) &&
 				value.notificationIds.every((id: unknown) => typeof id === "string"))) &&

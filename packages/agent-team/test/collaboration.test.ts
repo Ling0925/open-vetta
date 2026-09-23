@@ -6,6 +6,7 @@ import {
 	filterTeamMemberActiveToolNames,
 	isTeamMessageDelivery,
 	isTeamPublicationOperationRecord,
+	isTeamWorkItem,
 	matchesTeamExternalConditionChange,
 	type TeamExecutionIssue,
 	type TeamWorkItem,
@@ -227,6 +228,13 @@ describe("Agent Team collaboration contracts", () => {
 
 		// 队友要据此判断该找谁，所以团队内职责是公开信息，不是私有备注。
 		expect(snapshot.members[0]?.responsibilitySummary).toBe("Owns the release checklist here.");
+	});
+	it("reads legacy work items and validates notification-only follow-up provenance", () => {
+		const legacy = workItem();
+		expect(isTeamWorkItem(legacy)).toBe(true);
+		expect(isTeamWorkItem({ ...legacy, notificationContinuation: true })).toBe(true);
+		expect(isTeamWorkItem({ ...legacy, notificationContinuation: false })).toBe(false);
+		expect(isTeamWorkItem({ ...legacy, notificationContinuation: "notification" })).toBe(false);
 	});
 
 	it("requires a result message when a work item completes", () => {

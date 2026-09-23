@@ -69,6 +69,7 @@ describe("planTeamInitiatorContinuation", () => {
 				continuationContext: records,
 			},
 		});
+		expect(plan?.request).not.toHaveProperty("notificationContinuation");
 	});
 
 	it("numbers follow-up work from the original request once earlier follow-ups completed", () => {
@@ -84,7 +85,11 @@ describe("planTeamInitiatorContinuation", () => {
 
 		expect(plan).toMatchObject({
 			workItemId: "work:request:continuation:2:leader",
-			request: { requestId: "request:continuation:2", sourceTurnId: "request:continuation:2:leader" },
+			request: {
+				requestId: "request:continuation:2",
+				sourceTurnId: "request:continuation:2:leader",
+				notificationContinuation: true,
+			},
 		});
 	});
 });

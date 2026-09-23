@@ -2,6 +2,7 @@ import type { TeamSessionDocument } from "@vetta/agent-team";
 import { type ConversationDocument, createEmptyConversationDocument } from "@vetta/runtime-core";
 import { describe, expect, it } from "vitest";
 import { TeamCollaborationStore } from "./team-collaboration-store.js";
+import { planTeamInitiatorContinuation } from "./team-initiator-continuation.js";
 import { TeamNotificationJournal, undeliveredTeamNotifications } from "./team-notification-journal.js";
 
 function fixture() {
@@ -138,6 +139,107 @@ describe("durable Team task notification handoff", () => {
 			resultMessageId: "old-result",
 		});
 		expect(journal.pending(session)).toHaveLength(1);
+	});
+	it("finishes a two-member question handoff without notifying the other member again", async () => {
+		const { store, session, input, journal, restart } = fixture();
+		const delegated = await store.begin({ ...input, sourceTurnId: "task:member", mode: "initial" });
+		const task = await store.settle(
+			session,
+			delegated.workItem,
+			delegated.attempt,
+			{ state: "completed" },
+			"task-result",
+		);
+		const asked = await store.begin({
+			session,
+			memberId: "leader",
+			requestId: "question",
+			createdByParticipantId: "member",
+			objective: "Answer the question",
+			kind: "question",
+			sourceTurnId: "question:leader",
+			mode: "initial",
+		});
+		const answer = await store.settle(session, asked.workItem, asked.attempt, { state: "completed" }, "answer");
+		await journal.record(session, answer);
+		const ids = journal.pending(session, "member").map((notice) => notice.id);
+		expect(ids).toHaveLength(1);
+
+		const plan = planTeamInitiatorContinuation({
+			session,
+			state: store.read(session),
+			memberId: "member",
+			records: journal.contexts(session, ids),
+		});
+		expect(plan).toBeDefined();
+		const followUp = await store.begin({
+			...plan!.request,
+			session,
+			objective: plan!.request.promptText,
+			kind: plan!.request.workItemKind,
+			notificationIds: ids,
+			mode: "continue",
+		});
+		const completed = await store.settle(
+			session,
+			followUp.workItem,
+			followUp.attempt,
+			{ state: "completed" },
+			"integrated-answer",
+		);
+		expect(completed).toMatchObject({ notificationIds: ids, notificationContinuation: true });
+		await restart().record(session, completed);
+		expect(journal.pending(session, "leader")).toHaveLength(0);
+
+		await journal.record(session, task);
+		expect(journal.pending(session, "leader")).toHaveLength(1);
+	});
+
+	it("does not revive pre-marker notification follow-ups after an upgrade", async () => {
+		const { store, session, input, journal, restart } = fixture();
+		const root = await store.begin({
+			session,
+			memberId: "leader",
+			requestId: "question",
+			createdByParticipantId: "member",
+			objective: "Original question",
+			sourceTurnId: "question:leader",
+			mode: "initial",
+		});
+		await store.settle(session, root.workItem, root.attempt, { state: "completed" }, "question-result");
+		const delegated = await store.begin({ ...input, sourceTurnId: "task:member", mode: "initial" });
+		const task = await store.settle(
+			session,
+			delegated.workItem,
+			delegated.attempt,
+			{ state: "completed" },
+			"task-result",
+		);
+		await journal.record(session, task);
+		const ids = journal.pending(session, "leader").map((notice) => notice.id);
+		expect(ids).toHaveLength(1);
+
+		const legacy = await store.begin({
+			session,
+			memberId: "leader",
+			requestId: "question:continuation:1",
+			createdByParticipantId: "member",
+			objective: "Integrate results",
+			sourceTurnId: "question:continuation:1:leader",
+			notificationIds: ids,
+			mode: "continue",
+		});
+		const completed = await store.settle(
+			session,
+			legacy.workItem,
+			legacy.attempt,
+			{ state: "completed" },
+			"old-follow-up-result",
+		);
+		expect(completed).not.toHaveProperty("notificationContinuation");
+		await restart().record(session, completed);
+		expect(journal.pending(session, "member")).toHaveLength(0);
+		expect(journal.pending(session, "leader")).toHaveLength(0);
 	});
 
 	it("persists stop across restart and discards previous notices when the user starts new work", async () => {

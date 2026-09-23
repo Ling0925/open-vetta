@@ -73,8 +73,23 @@ export function planTeamInitiatorContinuation(input: {
 			...modelSettings,
 			mode: "continue",
 			continuationContext: records,
+			notificationContinuation: true,
 		},
 	};
+}
+
+/** Older persisted follow-ups have no provenance marker; their generated ID and receipt identify them. */
+export function isNotificationContinuationWorkItem(item: TeamWorkItem, workItems: readonly TeamWorkItem[]): boolean {
+	if (item.notificationContinuation) return true;
+	if (!item.notificationIds?.length || !CONTINUATION_SUFFIX.test(item.requestTurnId)) return false;
+	if (item.id !== `work:${item.requestTurnId}:${item.assignedToParticipantId}`) return false;
+	const rootRequestId = item.requestTurnId.replace(CONTINUATION_SUFFIX, "");
+	return workItems.some(
+		(owner) =>
+			owner.requestTurnId === rootRequestId &&
+			owner.assignedToParticipantId === item.assignedToParticipantId &&
+			owner.createdByParticipantId === item.createdByParticipantId,
+	);
 }
 
 function latestWorkItemAssignedTo(items: readonly TeamWorkItem[], memberId: string): TeamWorkItem | undefined {

@@ -22,5 +22,7 @@ export interface TeamMemberTurnRequest {
 	readonly workItemKind?: "task" | "question";
 	/** Model-visible notifications that wake this attempt instead of a prompt or plain continue. */
 	readonly notificationIds?: readonly string[];
+	/** A newly admitted publication-only follow-up, not a resumed original work item. */
+	readonly notificationContinuation?: true;
 	readonly continuationContext?: readonly SessionContextRecord[];
 }

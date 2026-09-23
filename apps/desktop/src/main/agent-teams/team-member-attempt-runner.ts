@@ -81,6 +81,7 @@ export class TeamMemberAttemptRunner {
 			createdByParticipantId,
 			objective: promptText,
 			notificationIds: input.notificationIds,
+			...(input.notificationContinuation ? { notificationContinuation: input.notificationContinuation } : {}),
 			...(attachments?.length ? { attachments } : {}),
 			...(input.workItemKind ? { kind: input.workItemKind } : {}),
 			mode,
@@ -134,6 +135,7 @@ export class TeamMemberAttemptRunner {
 		readonly mode: TeamMemberTurnAttemptMode;
 		readonly kind?: "task" | "question";
 		readonly notificationIds?: readonly string[];
+		readonly notificationContinuation?: true;
 	}): Promise<{ workItem: TeamWorkItem; attempt: TeamMemberTurnAttempt }> {
 		const result = await this.options.collaborationStore.begin(input);
 		const observations = this.options.observations(input.session);

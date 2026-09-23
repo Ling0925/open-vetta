@@ -2,6 +2,7 @@ import { isTeamWorkItem, type TeamSessionDocument, type TeamWorkItem } from "@ve
 import type { ConversationDocument } from "@vetta/runtime-core";
 import type { SessionContextRecord } from "@vetta/runtime-core/kernel";
 import type { TeamCollaborationStore } from "./team-collaboration-store.js";
+import { isNotificationContinuationWorkItem } from "./team-initiator-continuation.js";
 import { createTeamTaskCompletionNotification } from "./team-task-notification.js";
 
 const NOTIFICATION_TYPE = "agent-team.task-notification.v1";
@@ -46,6 +47,9 @@ export class TeamNotificationJournal {
 	async record(session: TeamSessionDocument, item: TeamWorkItem, cancelled = false): Promise<void> {
 		if (
 			!item.recovery ||
+			item.notificationContinuation === true ||
+			(!!item.notificationIds?.length &&
+				isNotificationContinuationWorkItem(item, this.store.read(session).workItems)) ||
 			!session.memberRuntime[item.createdByParticipantId] ||
 			item.createdByParticipantId === item.assignedToParticipantId
 		)
