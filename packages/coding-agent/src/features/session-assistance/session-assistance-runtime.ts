@@ -16,6 +16,12 @@ import { CODING_AGENT_SESSION_ASSISTANCE_OBSERVATION } from "../../runtime-contr
 
 const MAX_CANDIDATES = 3;
 const MODEL_COOLDOWN_MS = 2 * 60 * 1000;
+/**
+ * 标题要求模型写 10–20 个 CJK 字或 3–6 个词，上限必须与这个要求一致：
+ * 上限小于要求时，合规标题会被从这里砍掉尾部，表现为侧边栏会话名缺字。
+ */
+const TITLE_MAX_CHARS_CJK = 20;
+const TITLE_MAX_CHARS_LATIN = 40;
 const modelCooldownUntil = new Map<string, number>();
 
 export interface CodingAgentSessionAssistanceRuntimeOptions {
@@ -48,8 +54,9 @@ export class CodingAgentSessionAssistanceRuntime {
 			`Write a short title for the conversation below. It labels this session in the sidebar.\n` +
 			`Rules:\n` +
 			`- Write it in the SAME LANGUAGE as the user message. If the user wrote in English, the title is in English.\n` +
-			`- Keep it short: 10-20 characters for CJK, or 3-6 words for languages written with spaces.\n` +
-			`- Output the title itself only. No quotes, no trailing punctuation, no explanation, no prefix or suffix.\n\n` +
+			`- Keep it short: 10-${TITLE_MAX_CHARS_CJK} characters for CJK, or 3-6 words for languages written with spaces.\n` +
+			`- The title itself only. No quotes, no trailing punctuation, no explanation, no prefix or suffix.\n` +
+			`- You MUST submit the title by calling the ${TITLE_TOOL.name} tool.\n\n` +
 			`<user_message>\n${trimmedUser}\n</user_message>\n\n` +
 			`<assistant_reply>\n${trimmedAssistant}\n</assistant_reply>`;
 
@@ -57,8 +64,7 @@ export class CodingAgentSessionAssistanceRuntime {
 			const stream = await (this.options.streamFn ?? streamSimple)(
 				model,
 				{
-					systemPrompt:
-						"You are a session title generator. Output exactly one short title and nothing else, in the same language as the user's message.",
+					systemPrompt: `You are a session title generator. Call the ${TITLE_TOOL.name} tool with exactly one short title, written in the same language as the user's message.`,
 					messages: [
 						{
 							role: "user" as const,
@@ -66,6 +72,7 @@ export class CodingAgentSessionAssistanceRuntime {
 							timestamp: this.now(),
 						},
 					],
+					tools: [TITLE_TOOL],
 				},
 				{ apiKey, maxTokens: 256, reasoning, sessionId: this.options.readSessionId() },
 			);
@@ -73,9 +80,10 @@ export class CodingAgentSessionAssistanceRuntime {
 			if (response.stopReason === "error") {
 				throw toModelFailure(normalizeAssistantMessageError(response, model));
 			}
-			const rawText = readText(response.content);
-			const rawThinking = readThinking(response.content);
-			return sanitizeAutoTitle(rawText || rawThinking) || null;
+			// 只接受结构化标题或可见正文。推理通道的末行是思考片段，不是标题——
+			// 把它当标题会产出「We need answer」这类与用户语言都不一致的会话名。
+			const rawTitle = readTitleToolCall(response.content) || readText(response.content);
+			return sanitizeAutoTitle(rawTitle) || null;
 		});
 	}
 
@@ -247,11 +255,14 @@ export function sanitizeAutoTitle(raw: string): string {
 	const stripped = candidate.replace(/^[^\p{L}\p{N}]+/u, "").replace(/[^\p{L}\p{N}]+$/u, "");
 	if (!stripped) return "";
 	const hasCjk = /[㐀-鿿豈-﫿぀-ヿ가-힯]/u.test(stripped);
-	const limit = hasCjk ? 14 : 40;
+	const limit = hasCjk ? TITLE_MAX_CHARS_CJK : TITLE_MAX_CHARS_LATIN;
 	const chars = Array.from(stripped);
 	if (chars.length <= limit) return stripped;
 	const cut = chars.slice(0, limit).join("");
 	if (hasCjk) return cut;
+	// 截断点正好落在词尾时末尾这个单词是完整的，保留它；只有切到单词中间才回退到上一个空格。
+	const nextChar = chars[limit];
+	if (nextChar === undefined || /\s/.test(nextChar)) return cut;
 	const lastSpace = cut.lastIndexOf(" ");
 	return (lastSpace > 0 ? cut.slice(0, lastSpace) : cut).trimEnd();
 }
@@ -264,15 +275,13 @@ function readText(content: readonly unknown[]): string {
 		.trim();
 }
 
-function readThinking(content: readonly unknown[]): string {
-	return content
-		.filter(
-			(item): item is { readonly type: "thinking"; readonly thinking: string } =>
-				isRecord(item) && item.type === "thinking" && typeof item.thinking === "string",
-		)
-		.map((item) => item.thinking)
-		.join("\n")
-		.trim();
+function readTitleToolCall(content: readonly unknown[]): string {
+	const toolCall = content.find(
+		(item): item is ToolCall => isRecord(item) && item.type === "toolCall" && item.name === TITLE_TOOL.name,
+	);
+	if (!toolCall) return "";
+	const title = (toolCall.arguments as { title?: unknown }).title;
+	return typeof title === "string" ? title : "";
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -297,6 +306,17 @@ function toModelFailure(failure: ReturnType<typeof normalizeAssistantMessageErro
 		code: failure.code,
 	});
 }
+
+const TITLE_TOOL: Tool = {
+	name: "provide_session_title",
+	description:
+		"Submit the single short title that labels this session in the sidebar, written in the same language as the user's message, with no quotes, no trailing punctuation and no explanation.",
+	parameters: Type.Object({
+		title: Type.String({
+			description: `The title itself, at most ~${TITLE_MAX_CHARS_CJK} CJK characters or 3-6 words.`,
+		}),
+	}),
+};
 
 const SUGGESTIONS_TOOL: Tool = {
 	name: "provide_prompt_suggestions",
