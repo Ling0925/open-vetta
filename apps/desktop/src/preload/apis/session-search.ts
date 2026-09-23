@@ -1,10 +1,10 @@
-import type { IpcRenderer } from "electron";
+import type { HostTransport } from "../../shared/host-transport.js";
 import type { DesktopSessionSearchEvent, DesktopSessionSearchRequest } from "../../shared/session-search.js";
 import { SESSION_SEARCH_CHANNELS } from "../../shared/session-search.js";
 import { onIpcEvent } from "./helper.js";
 
 export function subscribeSessionSearch(
-	ipc: IpcRenderer,
+	ipc: HostTransport,
 	request: DesktopSessionSearchRequest,
 	onEvent: (event: DesktopSessionSearchEvent) => void,
 ): () => void {

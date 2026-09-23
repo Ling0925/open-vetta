@@ -1,8 +1,8 @@
-import type { IpcRenderer } from "electron";
+import type { HostTransport } from "../../shared/host-transport.js";
 import type { DesktopApi } from "../api.js";
 import { onIpcEvent, onIpcVoidEvent } from "./helper.js";
 
-export function createAbilitiesApi(ipc: IpcRenderer): Pick<DesktopApi, "abilities"> {
+export function createAbilitiesApi(ipc: HostTransport): Pick<DesktopApi, "abilities"> {
 	return {
 		abilities: {
 			getLedger: () => ipc.invoke("vetta:abilities:get-ledger"),

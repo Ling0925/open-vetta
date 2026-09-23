@@ -1,4 +1,4 @@
-import type { IpcRenderer } from "electron";
+import type { HostTransport } from "../../shared/host-transport.js";
 import type { DesktopApi } from "../api.js";
 import { onIpcEvent } from "./helper.js";
 
@@ -22,7 +22,7 @@ const BATCH_TASKS_CHANNELS = {
 	EVENT: "vetta:batch-tasks:event",
 } as const;
 
-export function createBatchTasksApi(ipc: IpcRenderer): Pick<DesktopApi, "batchTasks"> {
+export function createBatchTasksApi(ipc: HostTransport): Pick<DesktopApi, "batchTasks"> {
 	return {
 		batchTasks: {
 			getProjects: () => ipc.invoke(BATCH_TASKS_CHANNELS.GET_PROJECTS),

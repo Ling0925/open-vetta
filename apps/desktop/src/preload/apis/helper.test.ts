@@ -1,8 +1,8 @@
-import type { IpcRenderer, IpcRendererEvent } from "electron";
 import { describe, expect, it, vi } from "vitest";
+import type { HostTransport, HostTransportEventListener } from "../../shared/host-transport";
 import { subscribeById } from "./helper";
 
-type IpcListener = Parameters<IpcRenderer["on"]>[1];
+type IpcListener = HostTransportEventListener;
 
 describe("subscribeById", () => {
 	it("delivers the subscription snapshot after the listener is installed", async () => {
@@ -53,7 +53,7 @@ function createIpcHarness(
 	duringSubscribe: unknown[] = [],
 ): {
 	readonly emit: (channel: string, subscriptionId: string, payload: unknown) => void;
-	readonly ipc: IpcRenderer;
+	readonly ipc: HostTransport;
 	readonly invoke: ReturnType<typeof vi.fn>;
 	readonly listenerCount: (channel: string) => number;
 } {
@@ -61,10 +61,10 @@ function createIpcHarness(
 	let nextSubscription = 0;
 	const emit = (channel: string, subscriptionId: string, payload: unknown): void => {
 		for (const listener of listeners.get(channel) ?? []) {
-			listener({} as IpcRendererEvent, subscriptionId, payload);
+			listener({}, subscriptionId, payload);
 		}
 	};
-	const invoke = vi.fn(async (channel: string) => {
+	const invoke = vi.fn(async (channel: string, ..._args: unknown[]) => {
 		if (channel !== "subscribe") return undefined;
 		const index = nextSubscription++;
 		if (duringSubscribe[index] !== undefined) {
@@ -75,19 +75,20 @@ function createIpcHarness(
 			...(initial[index] === undefined ? {} : { initial: initial[index] }),
 		};
 	});
-	const ipc = {
-		invoke,
+	const ipc: HostTransport = {
+		invoke: <T>(channel: string, ...args: unknown[]) => invoke(channel, ...args) as Promise<T>,
 		on: vi.fn((channel: string, listener: IpcListener) => {
 			const current = listeners.get(channel) ?? new Set<IpcListener>();
 			current.add(listener);
 			listeners.set(channel, current);
-			return ipc;
+			return undefined;
 		}),
 		removeListener: vi.fn((channel: string, listener: IpcListener) => {
 			listeners.get(channel)?.delete(listener);
-			return ipc;
 		}),
-	} as unknown as IpcRenderer;
+		send: vi.fn(),
+		sendSync: <T>(_channel: string, ..._args: unknown[]) => undefined as T,
+	};
 	return {
 		ipc,
 		invoke,

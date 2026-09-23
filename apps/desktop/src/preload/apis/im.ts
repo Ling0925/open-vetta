@@ -1,4 +1,4 @@
-import type { IpcRenderer } from "electron";
+import type { HostTransport } from "../../shared/host-transport.js";
 import type { DesktopApi } from "../api.js";
 import { onIpcVoidEvent, subscribeById } from "./helper.js";
 
@@ -40,7 +40,7 @@ const IM_CHANNELS = {
 	SESSION_CHANGED: "vetta:im:session-changed",
 } as const;
 
-export function createImApi(ipc: IpcRenderer): Pick<DesktopApi, "im"> {
+export function createImApi(ipc: HostTransport): Pick<DesktopApi, "im"> {
 	return {
 		im: {
 			getConfig: () => ipc.invoke(IM_CHANNELS.GET_CONFIG),
@@ -52,21 +52,23 @@ export function createImApi(ipc: IpcRenderer): Pick<DesktopApi, "im"> {
 				type LogSnap = Parameters<typeof logHandler>[0];
 				const pendingStatus: Array<{ id: string; snap: StatusSnap }> = [];
 				const pendingLog: Array<{ id: string; snap: LogSnap }> = [];
-				const statusListener = (_event: Electron.IpcRendererEvent, incomingId: string, snapshot: unknown) => {
+				const statusListener = (_event: unknown, incomingId: unknown, snapshot: unknown) => {
+					const normalizedIncomingId = typeof incomingId === "string" ? incomingId : "";
 					const snap = snapshot as StatusSnap;
 					if (subscriptionId === undefined) {
-						pendingStatus.push({ id: incomingId, snap });
+						pendingStatus.push({ id: normalizedIncomingId, snap });
 						return;
 					}
-					if (incomingId === subscriptionId) statusHandler(snap);
+					if (normalizedIncomingId === subscriptionId) statusHandler(snap);
 				};
-				const logListener = (_event: Electron.IpcRendererEvent, incomingId: string, log: unknown) => {
+				const logListener = (_event: unknown, incomingId: unknown, log: unknown) => {
+					const normalizedIncomingId = typeof incomingId === "string" ? incomingId : "";
 					const snap = log as LogSnap;
 					if (subscriptionId === undefined) {
-						pendingLog.push({ id: incomingId, snap });
+						pendingLog.push({ id: normalizedIncomingId, snap });
 						return;
 					}
-					if (incomingId === subscriptionId) logHandler(snap);
+					if (normalizedIncomingId === subscriptionId) logHandler(snap);
 				};
 				ipc.on(IM_CHANNELS.STATUS_EVENT, statusListener);
 				ipc.on(IM_CHANNELS.LOG_EVENT, logListener);

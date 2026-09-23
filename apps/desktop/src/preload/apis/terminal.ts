@@ -1,8 +1,8 @@
-import type { IpcRenderer, IpcRendererEvent } from "electron";
+import type { HostTransport } from "../../shared/host-transport.js";
 import { TERMINAL_CHANNELS, type TerminalEventEnvelope } from "../../shared/terminal-ipc.js";
 import type { DesktopApi } from "../api.js";
 
-export function createTerminalApi(ipc: IpcRenderer): Pick<DesktopApi, "terminal"> {
+export function createTerminalApi(ipc: HostTransport): Pick<DesktopApi, "terminal"> {
 	return {
 		terminal: {
 			capabilities: () => ipc.invoke(TERMINAL_CHANNELS.CAPABILITIES),
@@ -14,7 +14,7 @@ export function createTerminalApi(ipc: IpcRenderer): Pick<DesktopApi, "terminal"
 			saveSnapshot: (tabId, text) => ipc.invoke(TERMINAL_CHANNELS.SNAPSHOT_SAVE, tabId, text),
 			loadSnapshot: (tabId) => ipc.invoke(TERMINAL_CHANNELS.SNAPSHOT_LOAD, tabId),
 			onEvent: (listener) => {
-				const handler = (_event: IpcRendererEvent, envelope: TerminalEventEnvelope): void => listener(envelope);
+				const handler = (_event: unknown, envelope: unknown): void => listener(envelope as TerminalEventEnvelope);
 				ipc.on(TERMINAL_CHANNELS.EVENT, handler);
 				return () => ipc.removeListener(TERMINAL_CHANNELS.EVENT, handler);
 			},

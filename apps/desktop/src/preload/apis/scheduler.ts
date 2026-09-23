@@ -1,4 +1,4 @@
-import type { IpcRenderer } from "electron";
+import type { HostTransport } from "../../shared/host-transport.js";
 import type { DesktopApi } from "../api.js";
 import { onIpcEvent } from "./helper.js";
 
@@ -17,7 +17,7 @@ const SCHEDULER_CHANNELS = {
 	EVENT: "vetta:scheduler:event",
 } as const;
 
-export function createSchedulerApi(ipc: IpcRenderer): Pick<DesktopApi, "scheduler"> {
+export function createSchedulerApi(ipc: HostTransport): Pick<DesktopApi, "scheduler"> {
 	return {
 		scheduler: {
 			getTasks: () => ipc.invoke(SCHEDULER_CHANNELS.GET_TASKS),

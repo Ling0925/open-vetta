@@ -1,13 +1,25 @@
-import type { IpcRenderer, WebUtils } from "electron";
 import { describe, expect, it, vi } from "vitest";
+import type { HostFilePathAdapter, HostTransport } from "../../shared/host-transport";
 import { PERSIST_IMAGE_FILES_CHANNEL } from "../../shared/image-cache";
 import { FS_READ_TEXT_PREVIEW_CHANNEL } from "../fs-types";
 import { createSystemApi } from "./system";
 
+const filePath: HostFilePathAdapter = { getPathForFile: vi.fn(() => "") };
+
+function transport(invoke: ReturnType<typeof vi.fn>): HostTransport {
+	return {
+		invoke,
+		send: vi.fn(),
+		sendSync: <T>(_channel: string, ..._args: unknown[]) => undefined as T,
+		on: vi.fn(),
+		removeListener: vi.fn(),
+	} as HostTransport;
+}
+
 describe("createSystemApi fs preview contract", () => {
 	it("invokes the shared text-preview channel with the selected path", async () => {
 		const invoke = vi.fn(async () => ({ status: "text", content: "preview", size: 7 }));
-		const api = createSystemApi({ invoke } as unknown as IpcRenderer, {} as WebUtils);
+		const api = createSystemApi(transport(invoke), filePath);
 
 		await expect(api.fs.readTextPreviewFile("C:\\workspace\\notes.custom")).resolves.toEqual({
 			status: "text",
@@ -25,10 +37,10 @@ describe("createSystemApi fs preview contract", () => {
 			type: "image/webp",
 			arrayBuffer: vi.fn(async () => virtualData),
 		} as unknown as File;
-		const webUtils = {
+		const filePath: HostFilePathAdapter = {
 			getPathForFile: vi.fn((file: File) => (file === diskFile ? "C:\\clipboard\\disk.png" : "")),
-		} as unknown as WebUtils;
-		const api = createSystemApi({ invoke } as unknown as IpcRenderer, webUtils);
+		};
+		const api = createSystemApi(transport(invoke), filePath);
 
 		await api.dialog.persistImageFiles("session-1", [diskFile, virtualFile]);
 
@@ -56,7 +68,7 @@ describe("createSystemApi fs preview contract", () => {
 		const invoke = vi.fn(async (channel: string) =>
 			channel === "vetta:clipboard:paste-user-message" ? pasteResult : undefined,
 		);
-		const api = createSystemApi({ invoke } as unknown as IpcRenderer, {} as WebUtils);
+		const api = createSystemApi(transport(invoke), filePath);
 		const request = {
 			text: "hello",
 			images: [{ kind: "data-url" as const, dataUrl: "data:image/png;base64,AQID" }],
@@ -73,7 +85,7 @@ describe("createSystemApi fs preview contract", () => {
 describe("createSystemApi MCP setup login contract", () => {
 	it("forwards the QR request id through start and cancel", async () => {
 		const invoke = vi.fn(async () => undefined);
-		const api = createSystemApi({ invoke } as unknown as IpcRenderer, {} as WebUtils);
+		const api = createSystemApi(transport(invoke), filePath);
 
 		await api.mcp.startSetupLogin("xiaohongshu-mcp", "qr-request-1");
 		await api.mcp.cancelSetupLogin("qr-request-1");

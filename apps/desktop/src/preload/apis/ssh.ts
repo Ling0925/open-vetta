@@ -1,4 +1,4 @@
-import type { IpcRenderer, IpcRendererEvent } from "electron";
+import type { HostTransport } from "../../shared/host-transport.js";
 import { SSH_CHANNELS, type SshHostStatusEvent } from "../../shared/ssh-ipc.js";
 import { SSH_PROMPT_CHANNELS, type SshPromptRequestEvent } from "../../shared/ssh-prompt-ipc.js";
 import type { DesktopApi } from "../api.js";
@@ -21,7 +21,7 @@ const CHANNELS = {
 	TERMINATE_PROCESS: "vetta:ssh:terminate-process",
 } as const;
 
-export function createSshApi(ipc: IpcRenderer): Pick<DesktopApi, "ssh"> {
+export function createSshApi(ipc: HostTransport): Pick<DesktopApi, "ssh"> {
 	return {
 		ssh: {
 			listHosts: () => ipc.invoke(CHANNELS.LIST_HOSTS),
@@ -50,17 +50,17 @@ export function createSshApi(ipc: IpcRenderer): Pick<DesktopApi, "ssh"> {
 				return () => ipc.removeListener(SSH_CHANNELS.HOSTS_CHANGED, handler);
 			},
 			onHostStatusChanged: (listener) => {
-				const handler = (_event: IpcRendererEvent, payload: SshHostStatusEvent): void => listener(payload);
+				const handler = (_event: unknown, payload: unknown): void => listener(payload as SshHostStatusEvent);
 				ipc.on(SSH_CHANNELS.HOST_STATUS, handler);
 				return () => ipc.removeListener(SSH_CHANNELS.HOST_STATUS, handler);
 			},
 			onPromptRequest: (listener) => {
-				const handler = (_event: IpcRendererEvent, payload: SshPromptRequestEvent): void => listener(payload);
+				const handler = (_event: unknown, payload: unknown): void => listener(payload as SshPromptRequestEvent);
 				ipc.on(SSH_PROMPT_CHANNELS.REQUEST, handler);
 				return () => ipc.removeListener(SSH_PROMPT_CHANNELS.REQUEST, handler);
 			},
 			onPromptCancelled: (listener) => {
-				const handler = (_event: IpcRendererEvent, id: string): void => listener(id);
+				const handler = (_event: unknown, id: unknown): void => listener(id as string);
 				ipc.on(SSH_PROMPT_CHANNELS.CANCEL, handler);
 				return () => ipc.removeListener(SSH_PROMPT_CHANNELS.CANCEL, handler);
 			},

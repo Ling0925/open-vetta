@@ -1,4 +1,4 @@
-import type { IpcRenderer, IpcRendererEvent } from "electron";
+import type { HostTransport } from "../../shared/host-transport.js";
 import type { PetConfig } from "../../shared/pet-config.js";
 import { PET_CONFIG_CHANGED_CHANNEL } from "../../shared/pet-ipc.js";
 import type { DesktopApi } from "../api.js";
@@ -13,13 +13,13 @@ const CHANNELS = {
 	GET_BUBBLE_STYLE_ASSETS: "vetta:pet:get-bubble-style-assets",
 } as const;
 
-export function createPetApi(ipc: IpcRenderer): Pick<DesktopApi, "pet"> {
+export function createPetApi(ipc: HostTransport): Pick<DesktopApi, "pet"> {
 	return {
 		pet: {
 			getConfig: () => ipc.invoke(CHANNELS.GET_CONFIG),
 			setConfig: (patch) => ipc.invoke(CHANNELS.SET_CONFIG, patch),
 			onConfigChanged: (listener) => {
-				const handler = (_event: IpcRendererEvent, config: PetConfig): void => listener(config);
+				const handler = (_event: unknown, config: unknown): void => listener(config as PetConfig);
 				ipc.on(PET_CONFIG_CHANGED_CHANNEL, handler);
 				return () => ipc.removeListener(PET_CONFIG_CHANGED_CHANNEL, handler);
 			},

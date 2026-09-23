@@ -1,4 +1,4 @@
-import type { IpcRenderer } from "electron";
+import type { HostTransport } from "../../shared/host-transport.js";
 import type { DesktopApi } from "../api.js";
 import { onIpcEvent } from "./helper.js";
 
@@ -8,7 +8,7 @@ const CHANNELS = {
 	TIMEOUT: "vetta:action-approval:timeout",
 } as const;
 
-export function createActionApprovalApi(ipc: IpcRenderer): Pick<DesktopApi, "actionApproval"> {
+export function createActionApprovalApi(ipc: HostTransport): Pick<DesktopApi, "actionApproval"> {
 	return {
 		actionApproval: {
 			onRequest: (handler) => onIpcEvent(ipc, CHANNELS.REQUEST, handler),

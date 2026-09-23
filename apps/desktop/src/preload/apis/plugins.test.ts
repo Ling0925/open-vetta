@@ -1,16 +1,16 @@
-import type { IpcRenderer, IpcRendererEvent, WebUtils } from "electron";
 import { describe, expect, it, vi } from "vitest";
+import type { HostFilePathAdapter, HostTransport, HostTransportEventListener } from "../../shared/host-transport";
 import { createPluginsApi } from "./plugins";
 
 const SECRETS_CHANGED_CHANNEL = "vetta:plugins:secrets:changed";
 const AI_STREAM_EVENT_CHANNEL = "vetta:plugins:capabilities:ai:stream:event";
-type IpcListener = Parameters<IpcRenderer["on"]>[1];
-const webUtils = { getPathForFile: vi.fn() } as unknown as WebUtils;
+type IpcListener = HostTransportEventListener;
+const filePath: HostFilePathAdapter = { getPathForFile: vi.fn(() => "") };
 
 describe("createPluginsApi settings events", () => {
 	it("reports renderer contribution host readiness through the dedicated IPC channel", async () => {
 		const harness = createIpcHarness();
-		const plugins = createPluginsApi(harness.ipc, webUtils).plugins;
+		const plugins = createPluginsApi(harness.ipc, filePath).plugins;
 
 		await plugins.reportAgentContributionHostReady();
 
@@ -19,7 +19,7 @@ describe("createPluginsApi settings events", () => {
 
 	it("passes capability sessions to identity-sensitive plugin IPC", async () => {
 		const harness = createIpcHarness();
-		const plugins = createPluginsApi(harness.ipc, webUtils).plugins;
+		const plugins = createPluginsApi(harness.ipc, filePath).plugins;
 
 		await plugins.runCommand("session", "node", ["--version"]);
 		await plugins.spawnCommand("session", "node", ["server.js"]);
@@ -58,7 +58,7 @@ describe("createPluginsApi settings events", () => {
 
 	it("multiplexes more than ten subscribers through one IPC listener", () => {
 		const harness = createIpcHarness();
-		const plugins = createPluginsApi(harness.ipc, webUtils).plugins;
+		const plugins = createPluginsApi(harness.ipc, filePath).plugins;
 		const listeners = Array.from({ length: 12 }, () => vi.fn());
 		const unsubscribers = listeners.map((listener) => plugins.onSecretsChanged(listener));
 		const payload = { pluginId: "plugin", keys: ["token"] };
@@ -74,7 +74,7 @@ describe("createPluginsApi settings events", () => {
 
 	it("detaches the shared IPC listener after the final subscriber leaves", () => {
 		const harness = createIpcHarness();
-		const plugins = createPluginsApi(harness.ipc, webUtils).plugins;
+		const plugins = createPluginsApi(harness.ipc, filePath).plugins;
 		const first = vi.fn();
 		const second = vi.fn();
 		const unsubscribeFirst = plugins.onSecretsChanged(first);
@@ -93,7 +93,7 @@ describe("createPluginsApi settings events", () => {
 
 	it("bridges AI stream calls and multiplexes delta events", async () => {
 		const harness = createIpcHarness();
-		const ai = createPluginsApi(harness.ipc, webUtils).plugins.internalCapabilities.ai;
+		const ai = createPluginsApi(harness.ipc, filePath).plugins.internalCapabilities.ai;
 		const first = vi.fn();
 		const second = vi.fn();
 		const unsubscribeFirst = ai.onStreamEvent(first);
@@ -129,7 +129,7 @@ describe("createPluginsApi settings events", () => {
 
 function createIpcHarness(): {
 	readonly emit: (channel: string, payload: unknown) => void;
-	readonly ipc: IpcRenderer;
+	readonly ipc: HostTransport;
 	readonly invoke: ReturnType<typeof vi.fn>;
 	readonly listenerCount: (channel: string) => number;
 	readonly on: ReturnType<typeof vi.fn>;
@@ -146,12 +146,14 @@ function createIpcHarness(): {
 		listeners.get(channel)?.delete(listener);
 		return ipc;
 	});
-	const invoke = vi.fn(async () => undefined);
-	const ipc = {
-		invoke,
+	const invoke = vi.fn(async (_channel: string, ..._args: unknown[]) => undefined);
+	const ipc: HostTransport = {
+		invoke: <T>(channel: string, ...args: unknown[]) => invoke(channel, ...args) as Promise<T>,
 		on,
 		removeListener,
-	} as unknown as IpcRenderer;
+		send: vi.fn(),
+		sendSync: <T>(_channel: string, ..._args: unknown[]) => undefined as T,
+	};
 
 	return {
 		ipc,
@@ -160,7 +162,7 @@ function createIpcHarness(): {
 		removeListener,
 		emit: (channel, payload) => {
 			for (const listener of listeners.get(channel) ?? []) {
-				listener({} as IpcRendererEvent, payload);
+				listener({}, payload);
 			}
 		},
 		listenerCount: (channel) => listeners.get(channel)?.size ?? 0,

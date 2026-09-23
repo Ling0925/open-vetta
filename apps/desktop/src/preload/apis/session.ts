@@ -1,4 +1,4 @@
-import type { IpcRenderer } from "electron";
+import type { HostTransport } from "../../shared/host-transport.js";
 import { decodeSessionEvent } from "../../shared/session-event-codec.js";
 import type { DesktopApi } from "../api.js";
 import { onIpcEvent, subscribeById } from "./helper.js";
@@ -89,7 +89,7 @@ const CHANNELS = {
 	VIEWER_EVENT: "vetta:session:viewer-event",
 } as const;
 
-export function createSessionApi(ipc: IpcRenderer): Pick<DesktopApi, "session"> {
+export function createSessionApi(ipc: HostTransport): Pick<DesktopApi, "session"> {
 	return {
 		session: {
 			create: (config, kind, traceContext) => ipc.invoke(CHANNELS.CREATE, config, kind, traceContext),

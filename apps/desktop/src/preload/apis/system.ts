@@ -1,4 +1,4 @@
-import type { IpcRenderer, IpcRendererEvent, WebUtils } from "electron";
+import type { HostFilePathAdapter, HostTransport } from "../../shared/host-transport.js";
 import { PERSIST_IMAGE_FILES_CHANNEL } from "../../shared/image-cache.js";
 import { PROJECTS_CHANNELS } from "../../shared/projects-ipc.js";
 import type { DesktopApi } from "../api.js";
@@ -7,8 +7,8 @@ import { FS_READ_TEXT_PREVIEW_CHANNEL } from "../fs-types.js";
 import { onIpcEvent, onIpcVoidEvent } from "./helper.js";
 
 export function createSystemApi(
-	ipc: IpcRenderer,
-	webUtils: WebUtils,
+	ipc: HostTransport,
+	filePath: HostFilePathAdapter,
 ): Pick<
 	DesktopApi,
 	| "dialog"
@@ -48,7 +48,7 @@ export function createSystemApi(
 			persistImageFiles: async (sessionId, files) => {
 				const images = await Promise.all(
 					files.map(async (file) => {
-						const path = webUtils.getPathForFile(file);
+						const path = filePath.getPathForFile(file);
 						return {
 							id: crypto.randomUUID(),
 							mimeType: file.type || "image/png",
@@ -67,7 +67,7 @@ export function createSystemApi(
 			onNativeChanged: (handler) => onIpcEvent(ipc, "vetta:theme:native-changed", handler),
 			onModeRequested: (handler) => onIpcEvent(ipc, "vetta:theme:mode-requested", handler),
 			onChangeRequested: (handler) => {
-				const listener = (_event: IpcRendererEvent, data: unknown) => {
+				const listener = (_event: unknown, data: unknown) => {
 					const request = data as {
 						requestId?: unknown;
 						mode?: unknown;
@@ -98,7 +98,7 @@ export function createSystemApi(
 				return () => ipc.removeListener("vetta:theme:change-requested", listener);
 			},
 			onStateRequested: (handler) => {
-				const listener = (_event: IpcRendererEvent, data: unknown) => {
+				const listener = (_event: unknown, data: unknown) => {
 					const request = data as { requestId?: unknown };
 					if (typeof request.requestId !== "string") return;
 					void Promise.resolve(handler()).then(
@@ -114,7 +114,7 @@ export function createSystemApi(
 				return () => ipc.removeListener("vetta:theme:state-requested", listener);
 			},
 			onHelpRequested: (handler) => {
-				const listener = (_event: IpcRendererEvent, data: unknown) => {
+				const listener = (_event: unknown, data: unknown) => {
 					const request = data as { requestId?: unknown };
 					if (typeof request.requestId !== "string") return;
 					void Promise.resolve(handler()).then(
@@ -144,7 +144,7 @@ export function createSystemApi(
 			delete: (targetPath) => ipc.invoke("vetta:fs:delete", targetPath),
 			move: (sourcePath, destDir) => ipc.invoke("vetta:fs:move", sourcePath, destDir),
 			prepareDrop: (files, destinationDirectory) => {
-				const sourcePaths = files.map((file) => webUtils.getPathForFile(file)).filter(Boolean);
+				const sourcePaths = files.map((file) => filePath.getPathForFile(file)).filter(Boolean);
 				return ipc.invoke("vetta:file-transfer:prepare-drop", sourcePaths, destinationDirectory);
 			},
 			prepareTransfer: (sourcePaths, destinationDirectory) =>
@@ -161,7 +161,7 @@ export function createSystemApi(
 			watchDir: (dirPath) => ipc.invoke("vetta:fs:watch-dir", dirPath),
 			unwatchDir: (dirPath) => ipc.invoke("vetta:fs:unwatch-dir", dirPath),
 			onDirChanged: (handler) => onIpcEvent(ipc, "vetta:fs:dir-changed", handler),
-			pathForFile: (file) => webUtils.getPathForFile(file),
+			pathForFile: (file) => filePath.getPathForFile(file),
 		},
 		skills: {
 			list: (cwd) => ipc.invoke("vetta:skills:list", cwd),

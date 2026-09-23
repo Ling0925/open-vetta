@@ -1,12 +1,12 @@
-import type { IpcRenderer } from "electron";
 import {
 	APP_LIFECYCLE_RENDERER_BOOT_PAINTED_CHANNEL,
 	APP_LIFECYCLE_RENDERER_CONTENT_PAINTED_CHANNEL,
 	APP_LIFECYCLE_WHEN_READY_CHANNEL,
 } from "../../shared/app-lifecycle-ipc.js";
+import type { HostTransport } from "../../shared/host-transport.js";
 import type { DesktopApi } from "../api.js";
 
-export function createAppLifecycleApi(ipcRenderer: IpcRenderer): Pick<DesktopApi, "appLifecycle"> {
+export function createAppLifecycleApi(ipcRenderer: HostTransport): Pick<DesktopApi, "appLifecycle"> {
 	return {
 		appLifecycle: {
 			reportRendererBootPainted: () => {

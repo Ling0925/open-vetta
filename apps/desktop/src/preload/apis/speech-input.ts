@@ -1,4 +1,4 @@
-import type { IpcRenderer } from "electron";
+import type { HostTransport } from "../../shared/host-transport.js";
 import type { DesktopApi } from "../api.js";
 import { onIpcEvent } from "./helper.js";
 
@@ -11,7 +11,7 @@ export const SPEECH_INPUT_CHANNELS = {
 	EVENT: "vetta:speech-input:event",
 } as const;
 
-export function createSpeechInputApi(ipc: IpcRenderer): Pick<DesktopApi, "speechInput"> {
+export function createSpeechInputApi(ipc: HostTransport): Pick<DesktopApi, "speechInput"> {
 	return {
 		speechInput: {
 			getStatus: () => ipc.invoke(SPEECH_INPUT_CHANNELS.GET_STATUS),

@@ -1,11 +1,21 @@
-import type { IpcRenderer } from "electron";
 import { describe, expect, it, vi } from "vitest";
+import type { HostTransport } from "../../shared/host-transport";
 import { createAgentTeamsApi } from "./agent-teams.js";
+
+function transport(invoke: ReturnType<typeof vi.fn>): HostTransport {
+	return {
+		invoke,
+		send: vi.fn(),
+		sendSync: <T>(_channel: string, ..._args: unknown[]) => undefined as T,
+		on: vi.fn(),
+		removeListener: vi.fn(),
+	} as HostTransport;
+}
 
 describe("createAgentTeamsApi", () => {
 	it("forwards team configuration and session operations to their dedicated channels", async () => {
 		const invoke = vi.fn(async () => undefined);
-		const api = createAgentTeamsApi({ invoke } as unknown as IpcRenderer).agentTeams;
+		const api = createAgentTeamsApi(transport(invoke)).agentTeams;
 		const agent = {
 			name: "Builder",
 			mentionHandle: "builder",

@@ -1,9 +1,9 @@
-import type { IpcRenderer } from "electron";
+import type { HostTransport } from "../../shared/host-transport.js";
 import type { DesktopApi } from "../api.js";
 import type { DesktopThemeStorageChangedEvent } from "../api-types/themes.js";
 import { onIpcEvent } from "./helper.js";
 
-export function createThemesApi(ipc: IpcRenderer): Pick<DesktopApi, "themes"> {
+export function createThemesApi(ipc: HostTransport): Pick<DesktopApi, "themes"> {
 	return {
 		themes: {
 			list: () => ipc.invoke("vetta:themes:list"),

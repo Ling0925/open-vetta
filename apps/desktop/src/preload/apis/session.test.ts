@@ -1,11 +1,21 @@
-import type { IpcRenderer } from "electron";
 import { describe, expect, it, vi } from "vitest";
+import type { HostTransport } from "../../shared/host-transport";
 import { createSessionApi } from "./session.js";
+
+function transport(invoke: ReturnType<typeof vi.fn>): HostTransport {
+	return {
+		invoke,
+		send: vi.fn(),
+		sendSync: <T>(_channel: string, ..._args: unknown[]) => undefined as T,
+		on: vi.fn(),
+		removeListener: vi.fn(),
+	} as HostTransport;
+}
 
 describe("createSessionApi trace propagation", () => {
 	it("forwards the same correlation envelope for create and prompt", async () => {
 		const invoke = vi.fn(async () => undefined);
-		const ipc = { invoke } as unknown as IpcRenderer;
+		const ipc = transport(invoke);
 		const session = createSessionApi(ipc).session;
 		const traceContext = { interactionId: "00000000-0000-4000-8000-000000000001" };
 
@@ -24,7 +34,7 @@ describe("createSessionApi trace propagation", () => {
 
 	it("exposes MCP Task snapshot, cancellation and cleanup channels", async () => {
 		const invoke = vi.fn(async () => undefined);
-		const ipc = { invoke } as unknown as IpcRenderer;
+		const ipc = transport(invoke);
 		const session = createSessionApi(ipc).session;
 
 		await session.listMcpTasks("session-1");
@@ -38,7 +48,7 @@ describe("createSessionApi trace propagation", () => {
 
 	it("exposes queued context compaction without using the interrupting prompt path", async () => {
 		const invoke = vi.fn(async () => ({ status: "queued", id: "compact-1", pendingCount: 1 }));
-		const ipc = { invoke } as unknown as IpcRenderer;
+		const ipc = transport(invoke);
 		const session = createSessionApi(ipc).session;
 
 		await session.queueContextCompaction("session-1");
@@ -48,7 +58,7 @@ describe("createSessionApi trace propagation", () => {
 
 	it("exposes the MCP Apps surface proxy channels", async () => {
 		const invoke = vi.fn(async () => undefined);
-		const ipc = { invoke } as unknown as IpcRenderer;
+		const ipc = transport(invoke);
 		const session = createSessionApi(ipc).session;
 
 		await session.getMcpAppSurface("surface-1");
@@ -71,7 +81,7 @@ describe("createSessionApi trace propagation", () => {
 
 	it("forwards session search requests through the dedicated channel", async () => {
 		const invoke = vi.fn(async () => "search-1");
-		const ipc = { invoke, on: vi.fn(), removeListener: vi.fn() } as unknown as IpcRenderer;
+		const ipc = transport(invoke);
 		const session = createSessionApi(ipc).session;
 
 		await session.searchSessions({ query: "release plan", limit: 20 }, vi.fn());
@@ -84,7 +94,7 @@ describe("createSessionApi trace propagation", () => {
 
 	it("forwards the tail-first viewer option", async () => {
 		const invoke = vi.fn(async () => ({ history: [] }));
-		const ipc = { invoke } as unknown as IpcRenderer;
+		const ipc = transport(invoke);
 		const session = createSessionApi(ipc).session;
 
 		await session.openViewer("C:/sessions/one.jsonl", { tailTurns: 2 });

@@ -1,4 +1,4 @@
-import type { IpcRenderer } from "electron";
+import type { HostTransport } from "../../shared/host-transport.js";
 import type { DesktopApi } from "../api.js";
 import { onIpcEvent } from "./helper.js";
 
@@ -11,7 +11,7 @@ const CAPTURED = "vetta:appshot:captured";
 const CAPTURE_ERROR = "vetta:appshot:capture-error";
 const ONBOARDING_SHOW = "vetta:onboarding:show";
 
-export function createAppshotApi(ipc: IpcRenderer): Pick<DesktopApi, "appshot"> {
+export function createAppshotApi(ipc: HostTransport): Pick<DesktopApi, "appshot"> {
 	return {
 		appshot: {
 			reloadGesture: () => ipc.invoke(RELOAD_GESTURE),

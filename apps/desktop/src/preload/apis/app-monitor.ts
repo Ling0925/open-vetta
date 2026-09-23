@@ -1,11 +1,11 @@
-import type { IpcRenderer } from "electron";
+import type { HostTransport } from "../../shared/host-transport.js";
 import type { DesktopApi } from "../api.js";
 
 const RECORD_EVENT_CHANNEL = "vetta:app-monitor:record-event";
 const GET_ACHIEVEMENT_USAGE_CHANNEL = "vetta:app-monitor:get-achievement-usage";
 const GET_PROMPT_REF_USAGE_CHANNEL = "vetta:app-monitor:get-prompt-ref-usage";
 
-export function createAppMonitorApi(ipc: IpcRenderer): Pick<DesktopApi, "appMonitor"> {
+export function createAppMonitorApi(ipc: HostTransport): Pick<DesktopApi, "appMonitor"> {
 	return {
 		appMonitor: {
 			getAchievementUsage: () => ipc.invoke(GET_ACHIEVEMENT_USAGE_CHANNEL),

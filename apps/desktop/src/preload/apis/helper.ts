@@ -1,21 +1,21 @@
-import type { IpcRenderer, IpcRendererEvent } from "electron";
+import type { HostTransport } from "../../shared/host-transport.js";
 
-export function onIpcEvent<T>(ipc: IpcRenderer, channel: string, handler: (data: T) => void): () => void {
-	const listener = (_event: IpcRendererEvent, data: unknown) => {
+export function onIpcEvent<T>(ipc: HostTransport, channel: string, handler: (data: T) => void): () => void {
+	const listener = (_event: unknown, data: unknown) => {
 		handler(data as T);
 	};
 	ipc.on(channel, listener);
 	return () => ipc.removeListener(channel, listener);
 }
 
-export function onIpcVoidEvent(ipc: IpcRenderer, channel: string, handler: () => void): () => void {
+export function onIpcVoidEvent(ipc: HostTransport, channel: string, handler: () => void): () => void {
 	const listener = () => handler();
 	ipc.on(channel, listener);
 	return () => ipc.removeListener(channel, listener);
 }
 
 export async function subscribeById<T>(
-	ipc: IpcRenderer,
+	ipc: HostTransport,
 	subscribeChannel: string,
 	eventChannel: string,
 	unsubscribeChannel: string,
@@ -25,12 +25,13 @@ export async function subscribeById<T>(
 ): Promise<() => void> {
 	let subscriptionId: string | undefined;
 	const buffered: Array<{ readonly incomingId: string; readonly data: unknown }> = [];
-	const listener = (_event: IpcRendererEvent, incomingId: string, data: unknown) => {
+	const listener = (_event: unknown, incomingId: unknown, data: unknown) => {
+		const normalizedIncomingId = typeof incomingId === "string" ? incomingId : "";
 		if (subscriptionId === undefined) {
-			buffered.push({ incomingId, data });
+			buffered.push({ incomingId: normalizedIncomingId, data });
 			return;
 		}
-		if (incomingId === subscriptionId) handler(decode(data));
+		if (normalizedIncomingId === subscriptionId) handler(decode(data));
 	};
 	ipc.on(eventChannel, listener);
 	let initial: T | undefined;

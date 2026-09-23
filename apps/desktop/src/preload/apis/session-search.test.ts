@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
-import type { IpcRenderer } from "electron";
 import { describe, expect, it, vi } from "vitest";
+import type { HostTransport } from "../../shared/host-transport";
 import { SESSION_SEARCH_CHANNELS } from "../../shared/session-search.js";
 import { subscribeSessionSearch } from "./session-search.js";
 
@@ -10,7 +10,7 @@ describe("session search preload subscription", () => {
 		const invoke = vi.fn(async () => {});
 		const request = { query: "hit", modifiedFrom: 123, modifiedBefore: 456, sourceKind: "project" as const };
 		const cancel = subscribeSessionSearch(
-			Object.assign(emitter, { invoke }) as unknown as IpcRenderer,
+			Object.assign(emitter, { invoke, send: vi.fn(), sendSync: vi.fn() }) as HostTransport,
 			request,
 			vi.fn(),
 		);
@@ -26,7 +26,7 @@ describe("session search preload subscription", () => {
 		});
 		const onEvent = vi.fn();
 		const cancel = subscribeSessionSearch(
-			Object.assign(emitter, { invoke }) as unknown as IpcRenderer,
+			Object.assign(emitter, { invoke, send: vi.fn(), sendSync: vi.fn() }) as HostTransport,
 			{ query: "x" },
 			onEvent,
 		);
@@ -47,7 +47,7 @@ describe("session search preload subscription", () => {
 		);
 		const onEvent = vi.fn();
 		const cancel = subscribeSessionSearch(
-			Object.assign(emitter, { invoke }) as unknown as IpcRenderer,
+			Object.assign(emitter, { invoke, send: vi.fn(), sendSync: vi.fn() }) as HostTransport,
 			{ query: "x" },
 			onEvent,
 		);
@@ -65,7 +65,11 @@ describe("session search preload subscription", () => {
 			throw new Error("private details");
 		});
 		const onEvent = vi.fn();
-		subscribeSessionSearch(Object.assign(emitter, { invoke }) as unknown as IpcRenderer, { query: "x" }, onEvent);
+		subscribeSessionSearch(
+			Object.assign(emitter, { invoke, send: vi.fn(), sendSync: vi.fn() }) as HostTransport,
+			{ query: "x" },
+			onEvent,
+		);
 		await Promise.resolve();
 		expect(onEvent).toHaveBeenCalledWith({ requestId: expect.any(String), done: true, error: "search-failed" });
 		expect(emitter.listenerCount(SESSION_SEARCH_CHANNELS.event)).toBe(0);

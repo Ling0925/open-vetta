@@ -1,4 +1,4 @@
-import type { IpcRenderer } from "electron";
+import type { HostTransport } from "../../shared/host-transport.js";
 import type { DesktopApi } from "../api.js";
 import { onIpcEvent } from "./helper.js";
 
@@ -8,7 +8,7 @@ import { onIpcEvent } from "./helper.js";
 const RELOAD_HOTKEY = "vetta:quickpanel:reload-hotkey";
 const RUN_PROMPT = "vetta:quickpanel:run-prompt";
 
-export function createQuickPanelApi(ipc: IpcRenderer): Pick<DesktopApi, "quickPanel"> {
+export function createQuickPanelApi(ipc: HostTransport): Pick<DesktopApi, "quickPanel"> {
 	return {
 		quickPanel: {
 			reloadHotkey: () => ipc.invoke(RELOAD_HOTKEY),

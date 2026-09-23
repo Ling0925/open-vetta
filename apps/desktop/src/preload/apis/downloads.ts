@@ -1,4 +1,4 @@
-import type { IpcRenderer } from "electron";
+import type { HostTransport } from "../../shared/host-transport.js";
 import type { DesktopApi } from "../api.js";
 import { onIpcEvent } from "./helper.js";
 
@@ -15,7 +15,7 @@ const DOWNLOAD_CHANNELS = {
 	EVENT: "vetta:downloads:event",
 } as const;
 
-export function createDownloadsApi(ipc: IpcRenderer): Pick<DesktopApi, "downloads"> {
+export function createDownloadsApi(ipc: HostTransport): Pick<DesktopApi, "downloads"> {
 	return {
 		downloads: {
 			start: (params) => ipc.invoke(DOWNLOAD_CHANNELS.START, params),

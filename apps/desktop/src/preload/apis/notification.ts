@@ -1,4 +1,4 @@
-import type { IpcRenderer } from "electron";
+import type { HostTransport } from "../../shared/host-transport.js";
 import type { DesktopApi } from "../api.js";
 import { onIpcEvent } from "./helper.js";
 
@@ -7,7 +7,7 @@ const NOTIFICATION_CHANNELS = {
 	NAVIGATE: "vetta:notification:navigate",
 } as const;
 
-export function createNotificationApi(ipc: IpcRenderer): Pick<DesktopApi, "notification"> {
+export function createNotificationApi(ipc: HostTransport): Pick<DesktopApi, "notification"> {
 	return {
 		notification: {
 			setForegroundSession: (sessionPath) => ipc.invoke(NOTIFICATION_CHANNELS.SET_FOREGROUND, sessionPath),

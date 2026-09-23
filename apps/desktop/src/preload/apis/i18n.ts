@@ -1,4 +1,4 @@
-import type { IpcRenderer } from "electron";
+import type { HostTransport } from "../../shared/host-transport.js";
 import {
 	DEFAULT_LANGUAGE,
 	DEFAULT_LANGUAGE_PREFERENCE,
@@ -37,7 +37,7 @@ function normalizeLanguageState(raw: unknown): LanguageState {
 	return { preference: DEFAULT_LANGUAGE_PREFERENCE, language: DEFAULT_LANGUAGE };
 }
 
-export function createI18nApi(ipc: IpcRenderer): Pick<DesktopApi, "i18n"> {
+export function createI18nApi(ipc: HostTransport): Pick<DesktopApi, "i18n"> {
 	// sendSync 在 preload 求值期同步取主进程当前语言状态，供 renderer 首帧前读取。
 	const initialState = normalizeLanguageState(ipc.sendSync(GET_INITIAL_CHANNEL));
 	return {

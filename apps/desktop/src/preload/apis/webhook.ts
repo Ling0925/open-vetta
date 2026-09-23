@@ -1,4 +1,4 @@
-import type { IpcRenderer } from "electron";
+import type { HostTransport } from "../../shared/host-transport.js";
 import type { DesktopApi } from "../api.js";
 
 const WEBHOOK_CHANNELS = {
@@ -12,7 +12,7 @@ const WEBHOOK_CHANNELS = {
 	SEND: "vetta:webhook:send",
 } as const;
 
-export function createWebhookApi(ipc: IpcRenderer): Pick<DesktopApi, "webhook"> {
+export function createWebhookApi(ipc: HostTransport): Pick<DesktopApi, "webhook"> {
 	return {
 		webhook: {
 			list: () => ipc.invoke(WEBHOOK_CHANNELS.LIST),

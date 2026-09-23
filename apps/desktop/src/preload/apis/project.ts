@@ -1,4 +1,4 @@
-import type { IpcRenderer } from "electron";
+import type { HostTransport } from "../../shared/host-transport.js";
 import type { DesktopApi } from "../api.js";
 
 const CHANNELS = {
@@ -14,7 +14,7 @@ const CHANNELS = {
 	REMOVE: "vetta:projects:remove",
 } as const;
 
-export function createProjectApi(ipc: IpcRenderer): Pick<DesktopApi, "project"> {
+export function createProjectApi(ipc: HostTransport): Pick<DesktopApi, "project"> {
 	return {
 		project: {
 			export: (projectDir) => ipc.invoke(CHANNELS.EXPORT, projectDir),

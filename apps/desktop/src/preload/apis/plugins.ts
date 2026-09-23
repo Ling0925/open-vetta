@@ -1,4 +1,4 @@
-import type { IpcRenderer, IpcRendererEvent, WebUtils } from "electron";
+import type { HostFilePathAdapter, HostTransport } from "../../shared/host-transport.js";
 import { PLUGIN_CAPABILITY_CHANNELS, PLUGIN_SYSTEM_CHANNELS } from "../../shared/plugin-capability-ipc.js";
 import {
 	PLUGIN_CONTRIBUTION_CHANNELS,
@@ -15,10 +15,11 @@ type SecretsChangedPayload = Parameters<SecretsChangedListener>[0];
 type AiStreamListener = Parameters<DesktopApi["plugins"]["internalCapabilities"]["ai"]["onStreamEvent"]>[0];
 type AiStreamPayload = Parameters<AiStreamListener>[0];
 
-export function createPluginsApi(ipc: IpcRenderer, webUtils: WebUtils): Pick<DesktopApi, "plugins"> {
+export function createPluginsApi(ipc: HostTransport, filePath: HostFilePathAdapter): Pick<DesktopApi, "plugins"> {
 	const secretsChangedSubscriptions = new Set<{ readonly listener: SecretsChangedListener }>();
-	const handleSecretsChanged = (_event: IpcRendererEvent, payload: SecretsChangedPayload): void => {
-		for (const subscription of [...secretsChangedSubscriptions]) subscription.listener(payload);
+	const handleSecretsChanged = (_event: unknown, payload: unknown): void => {
+		for (const subscription of [...secretsChangedSubscriptions])
+			subscription.listener(payload as SecretsChangedPayload);
 	};
 	const onSecretsChanged = (listener: SecretsChangedListener): (() => void) => {
 		const subscription = { listener };
@@ -37,8 +38,8 @@ export function createPluginsApi(ipc: IpcRenderer, webUtils: WebUtils): Pick<Des
 		};
 	};
 	const aiStreamSubscriptions = new Set<{ readonly listener: AiStreamListener }>();
-	const handleAiStreamEvent = (_event: IpcRendererEvent, payload: AiStreamPayload): void => {
-		for (const subscription of [...aiStreamSubscriptions]) subscription.listener(payload);
+	const handleAiStreamEvent = (_event: unknown, payload: unknown): void => {
+		for (const subscription of [...aiStreamSubscriptions]) subscription.listener(payload as AiStreamPayload);
 	};
 	const onAiStreamEvent = (listener: AiStreamListener): (() => void) => {
 		const subscription = { listener };
@@ -517,7 +518,7 @@ export function createPluginsApi(ipc: IpcRenderer, webUtils: WebUtils): Pick<Des
 				ipc.invoke(PLUGIN_EXECUTION_CHANNELS.STORAGE_COMMIT, sessionId, changes, expectedRevision),
 			storagePutBlob: (sessionId, input) => ipc.invoke(PLUGIN_EXECUTION_CHANNELS.STORAGE_PUT_BLOB, sessionId, input),
 			storagePutBlobFromFile: (sessionId, input) => {
-				const path = webUtils.getPathForFile(input.file);
+				const path = filePath.getPathForFile(input.file);
 				if (!path) return Promise.reject(new Error("Plugin blob import requires a filesystem-backed File"));
 				return ipc.invoke(PLUGIN_EXECUTION_CHANNELS.STORAGE_PUT_BLOB_FROM_FILE, sessionId, {
 					...(input.id === undefined ? {} : { id: input.id }),
@@ -531,7 +532,7 @@ export function createPluginsApi(ipc: IpcRenderer, webUtils: WebUtils): Pick<Des
 			storageDeleteBlob: (sessionId, id) => ipc.invoke(PLUGIN_EXECUTION_CHANNELS.STORAGE_DELETE_BLOB, sessionId, id),
 			onSecretsChanged,
 			onPluginsChanged: (listener) => {
-				const handler = (_event: IpcRendererEvent, payload?: Parameters<typeof listener>[0]) => listener(payload);
+				const handler = (_event: unknown, payload?: unknown) => listener(payload as Parameters<typeof listener>[0]);
 				ipc.on(PLUGIN_CONTRIBUTION_CHANNELS.PLUGINS_CHANGED, handler);
 				return () => ipc.removeListener(PLUGIN_CONTRIBUTION_CHANNELS.PLUGINS_CHANGED, handler);
 			},

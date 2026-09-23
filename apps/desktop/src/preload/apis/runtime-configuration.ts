@@ -1,9 +1,9 @@
-import type { IpcRenderer } from "electron";
+import type { HostTransport } from "../../shared/host-transport.js";
 import { RUNTIME_CONFIGURATION_CHANNELS } from "../../shared/runtime-configuration-ipc.js";
 import type { DesktopRuntimeConfigurationApi } from "../api-types/runtime-configuration.js";
 import { onIpcEvent } from "./helper.js";
 
-export function createRuntimeConfigurationApi(ipc: IpcRenderer): {
+export function createRuntimeConfigurationApi(ipc: HostTransport): {
 	runtimeConfiguration: DesktopRuntimeConfigurationApi;
 } {
 	return {

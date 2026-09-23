@@ -1,11 +1,11 @@
-import type { IpcRenderer } from "electron";
+import type { HostTransport } from "../../shared/host-transport.js";
 import type { DesktopApi } from "../api.js";
 import { subscribeById } from "./helper.js";
 
 const STREAM_EVENT = "vetta:agent-teams:stream-event";
 const CHANGED_EVENT = "vetta:agent-teams:changed";
 
-export function createAgentTeamsApi(ipc: IpcRenderer): Pick<DesktopApi, "agentTeams"> {
+export function createAgentTeamsApi(ipc: HostTransport): Pick<DesktopApi, "agentTeams"> {
 	return {
 		agentTeams: {
 			list: () => ipc.invoke("vetta:agent-teams:list"),
