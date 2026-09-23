@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import type { ToolCallBlock } from "@shared/store/atoms";
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { createStore, Provider } from "jotai";
 import type { ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
@@ -29,5 +30,27 @@ describe("ToolCallBlock Work-mode label", () => {
 
 		expect(screen.getByText("委派开发工程师实现游戏")).toBeTruthy();
 		expect(screen.queryByText("team_delegate_task")).toBeNull();
+	});
+});
+
+
+describe("ToolCallBlock running command output", () => {
+	it("shows streamed output when a user opens an executing command", async () => {
+		const user = userEvent.setup();
+		const block: ToolCallBlock = {
+			type: "tool_call",
+			toolCallId: "command-1",
+			toolName: "bash",
+			args: { command: "long-running-command" },
+			status: "pending",
+			startedAt: 1,
+			partialResult: "latest command output",
+		};
+
+		render(<ToolCallBlockView block={block} />, { wrapper: Wrapper });
+		await user.click(screen.getByRole("button"));
+
+		expect(await screen.findByText("latest command output")).toBeTruthy();
+		expect(screen.getByText("正在执行···")).toBeTruthy();
 	});
 });

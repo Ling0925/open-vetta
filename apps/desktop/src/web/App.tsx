@@ -4,102 +4,43 @@ import { useEffect, useMemo, useState } from "react";
 import type { WebAccessProjectSnapshot } from "../shared/web-access.js";
 import { getWebCopy } from "./copy.js";
 import { useProjectSync } from "./use-project-sync.js";
-import { WebAccessClientError, bootstrap, logout, pair } from "./web-api.js";
+import { useWebSession } from "./use-web-session.js";
 
 export function WebApp(): JSX.Element {
 	const copy = useMemo(() => getWebCopy(), []);
-	const [phase, setPhase] = useState<"booting" | "pairing" | "ready">("booting");
-	const [csrf, setCsrf] = useState<string>();
-	const [pairCode, setPairCode] = useState("");
-	const [pairBusy, setPairBusy] = useState(false);
-	// 手动刷新用：重新拉一次完整快照，而不是重启整个引导流程。
+	const session = useWebSession(copy);
 	const [syncNonce, setSyncNonce] = useState(0);
-	const [error, setError] = useState<string>();
-	const [bootstrapNonce, setBootstrapNonce] = useState(0);
-	// 同步状态与快照都由订阅管理：断线后它自己重连，组件不重跑引导流程。
-	const sync = useProjectSync(phase === "ready" ? csrf : undefined, { restartKey: syncNonce });
-
-	// 授权被撤销（或到期）时，观察流无法自行恢复：退回配对表单并说明原因。
-	useEffect(() => {
-		if (sync.status !== "revoked") return;
-		setCsrf(undefined);
-		setError(copy.revoked);
-		setPhase("pairing");
-	}, [copy.revoked, sync.status]);
+	const sync = useProjectSync(session.phase === "ready" ? session.csrf : undefined, { restartKey: syncNonce });
 
 	useEffect(() => {
-		const controller = new AbortController();
-		setPhase("booting");
-		void bootstrap(controller.signal)
-			.then((result) => {
-				if (controller.signal.aborted) return;
-				setCsrf(result.csrf);
-				setError(undefined);
-				setPhase("ready");
-			})
-			.catch((cause: unknown) => {
-				if (controller.signal.aborted) return;
-				if (cause instanceof WebAccessClientError && cause.status === 401) {
-					// 还没配对过，或者授权已被撤销：两种情况都要求重新配对。
-					setError(copy.revoked);
-					setPhase("pairing");
-					return;
-				}
-				// 宿主不可达不等于授权失效，文案不要引导用户重新配对。
-				setError(copy.offline);
-				setPhase("pairing");
-			});
-		return () => controller.abort();
-	}, [bootstrapNonce, copy.offline, copy.revoked]);
-	const handlePair = async (): Promise<void> => {
-		const code = pairCode.trim();
-		if (!code) {
-			setError(copy.invalidCode);
-			return;
-		}
-		setPairBusy(true);
-		setError(undefined);
-		try {
-			const result = await pair(code);
-			setCsrf(result.csrf);
-			setPairCode("");
-			setPhase("ready");
-		} catch {
-			setError(copy.pairingFailed);
-		} finally {
-			setPairBusy(false);
-		}
-	};
+		if (session.phase === "ready" && sync.status === "revoked" && sync.forCsrf === session.csrf) session.revoke();
+	}, [session.phase, session.csrf, session.revoke, sync.status, sync.forCsrf]);
 
-	const handleLogout = async (): Promise<void> => {
-		if (!csrf) return;
-		try {
-			await logout(csrf);
-		} finally {
-			setCsrf(undefined);
-			setPhase("pairing");
-			setError(undefined);
-		}
-	};
-
-	if (phase !== "ready" || !csrf) {
+	if (session.phase !== "ready" || !session.csrf) {
 		return (
 			<main className="min-h-screen bg-background px-4 py-8 text-foreground sm:px-8">
 				<div className="mx-auto flex min-h-[calc(100vh-4rem)] w-full max-w-xl items-center justify-center">
 					<section className="w-full rounded-xl border border-border/50 bg-card/60 p-6 backdrop-blur-sm sm:p-8">
 						<p className="mb-2 text-[12px] font-medium uppercase tracking-[0.16em] text-primary">{copy.title}</p>
 						<h1 className="text-[20px] font-semibold text-foreground">{copy.pairTitle}</h1>
-						<p className="mt-2 text-[13px] leading-6 text-muted-foreground">{copy.pairHint}</p>
-						{phase === "booting" ? (
-							<p className="mt-6 text-[13px] text-muted-foreground" aria-live="polite">
-								{copy.pairing}
-							</p>
+						<p className="mt-2 text-[13px] leading-6 text-muted-foreground">
+							{session.phase === "pairing" ? copy.pairHint : copy.restoreHint}
+						</p>
+						{session.phase === "booting" || session.phase === "offline" ? (
+							<div className="mt-6 space-y-3" role="status" aria-live="polite">
+								<p className="text-[13px] text-muted-foreground">
+									{session.phase === "offline" ? `${copy.offline} ${copy.reconnecting}` : copy.pairing}
+								</p>
+								{session.phase === "offline" ? (
+									<Button variant="outline" onClick={session.retryBootstrap}>{copy.retryNow}</Button>
+								) : null}
+							</div>
 						) : (
 							<form
 								className="mt-6 space-y-4"
 								onSubmit={(event) => {
 									event.preventDefault();
-									void handlePair();
+									void session.submitPair();
 								}}
 							>
 								<label className="block text-[13px] font-medium text-foreground" htmlFor="pair-code">
@@ -107,19 +48,19 @@ export function WebApp(): JSX.Element {
 								</label>
 								<Input
 									id="pair-code"
-									value={pairCode}
+									value={session.pairCode}
 									autoComplete="off"
 									spellCheck={false}
-									onChange={(event) => setPairCode(event.target.value)}
+									onChange={(event) => session.setPairCode(event.target.value)}
 								/>
-								<Button type="submit" disabled={pairBusy}>
-									{pairBusy ? copy.pairing : copy.pairAction}
+								<Button type="submit" disabled={session.pairBusy}>
+									{session.pairBusy ? copy.pairing : copy.pairAction}
 								</Button>
 							</form>
 						)}
-						{error ? (
+						{session.error ? (
 							<p className="mt-4 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-[13px] text-destructive" role="alert">
-								{error}
+								{session.error}
 							</p>
 						) : null}
 					</section>
@@ -142,40 +83,32 @@ export function WebApp(): JSX.Element {
 						<Button variant="outline" onClick={() => setSyncNonce((value) => value + 1)}>
 							{copy.refresh}
 						</Button>
-						<Button variant="ghost" onClick={() => void handleLogout()}>
-							{copy.logout}
+						<Button variant="ghost" disabled={session.logoutBusy} onClick={() => void session.signOut()}>
+							{session.logoutBusy ? copy.signingOut : copy.logout}
 						</Button>
 					</div>
 				</header>
-				{error ? (
+				{session.error ? (
 					<div className="mb-4 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-[13px] text-destructive" role="alert">
-						{error}
+						{session.error}
 					</div>
 				) : null}
 				<div className="mb-4 flex items-center gap-2 text-[12px] text-muted-foreground" aria-live="polite">
-					<span className={`h-2.5 w-2.5 rounded-full ${sync.status === "synced" ? "bg-emerald-500/80" : "bg-amber-500/80"}`} />
-					{sync.status === "synced"
-						? copy.synced
-						: sync.status === "offline"
-							? `${copy.offline} ${copy.reconnecting}`
-							: sync.status === "revoked"
-								? copy.revoked
-								: copy.waiting}
+					<span className={`h-2.5 w-2.5 rounded-full ${sync.forCsrf === session.csrf && sync.status === "synced" ? "bg-emerald-500/80" : "bg-amber-500/80"}`} />
+					{sync.forCsrf !== session.csrf
+						? copy.waiting
+						: sync.status === "synced"
+							? copy.synced
+							: sync.status === "offline"
+								? `${copy.offline} ${copy.reconnecting}`
+								: sync.status === "revoked"
+									? copy.revoked
+									: copy.waiting}
 				</div>
-				{sync.snapshot ? (
+				{sync.forCsrf === session.csrf && sync.snapshot ? (
 					<div className="space-y-6">
-						<ProjectGroup
-							title={copy.current}
-							entries={sync.snapshot.projects}
-							emptyLabel={copy.noProjects}
-							pathLabel={copy.path}
-						/>
-						<ProjectGroup
-							title={copy.archived}
-							entries={sync.snapshot.archivedProjects}
-							emptyLabel={copy.noProjects}
-							pathLabel={copy.path}
-						/>
+						<ProjectGroup title={copy.current} entries={sync.snapshot.projects} emptyLabel={copy.noProjects} pathLabel={copy.path} />
+						<ProjectGroup title={copy.archived} entries={sync.snapshot.archivedProjects} emptyLabel={copy.noProjects} pathLabel={copy.path} />
 					</div>
 				) : null}
 			</div>

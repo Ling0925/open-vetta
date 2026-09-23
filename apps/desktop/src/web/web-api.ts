@@ -28,7 +28,10 @@ export async function bootstrap(signal?: AbortSignal): Promise<WebBootstrapResul
 }
 
 export async function logout(csrf: string, signal?: AbortSignal): Promise<void> {
-	await request<{ loggedOut: true }>("/api/session/logout", csrf, {}, signal);
+	const result = await request<{ readonly loggedOut?: unknown }>("/api/session/logout", csrf, {}, signal);
+	if (result?.loggedOut !== true) {
+		throw new WebAccessClientError("WEB_ACCESS_UNCONFIRMED_LOGOUT", "Logout was not confirmed", 0);
+	}
 }
 
 export async function snapshot(csrf: string, signal?: AbortSignal): Promise<WebAccessProjectSnapshot> {

@@ -196,6 +196,19 @@ bun run dist:opensource -- --target dir
 
 该入口读取 `.env.opensource`，固定关闭 cloud、使用 GitHub provider，并为客户端更新仓库提供默认值；fork 可在文件或 shell 中覆盖更新 owner、repo。能力 Marketplace 未配置 `VETTA_OPEN_MARKETPLACE_REPOSITORY` 时内置 Vetta 官方源并读取 `gh-pages` 分发；fork 可用该变量替换成自己的仓库，未显式配置 ref 时仍默认读取 `main`。
 
+## 本地打包并覆盖安装
+
+在 macOS 上可从仓库根目录执行：
+
+```bash
+bun run desktop:install:mac
+bun run desktop:install:mac -- --app-only
+```
+
+默认使用当前 arm64/x64 架构完成 open-source Desktop 的 DMG、ZIP 和 unpacked app 打包，校验更新元数据后将临时副本以 ad-hoc 身份签名，优先覆盖已有的 `/Applications/Vetta.app`，否则覆盖已有的 `~/Applications/Vetta.app`，两处都没有时安装到 `/Applications/Vetta.app`，随后重启应用；`--app-only` 只生成 `dir` unpacked app，跳过更新元数据校验。替换或启动失败会停止候选并恢复旧 app，不会删除用户数据；ad-hoc 签名只应用到安装前的临时副本，不会改动 `release/` 中的 unpacked app、DMG 或 ZIP。
+
+该命令仅限 macOS，本地 ad-hoc 产物不可分发；它只服务于本机开发循环，不属于 `scripts/release-mac.sh` 的签名、公证、发布或更新链路。
+
 需要只生成某一种 Linux 格式时，在 `apps/desktop` 使用独立的 `package:*` 入口；不带格式的入口一次生成正式发布使用的 AppImage、DEB 和 RPM：
 
 ```bash

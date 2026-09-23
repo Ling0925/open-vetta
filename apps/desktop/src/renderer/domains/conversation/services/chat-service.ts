@@ -1194,8 +1194,10 @@ export function handleToolEnd(
 		const copy = [...prev];
 		const blocks = [...msg.blocks];
 		const block = blocks[blockIdx] as ToolCallBlock;
+		const completedBlock = { ...block };
+		delete completedBlock.partialResult;
 		blocks[blockIdx] = {
-			...block,
+			...completedBlock,
 			status: isError ? "error" : "success",
 			result: resultText,
 			imagePreview,
@@ -1212,6 +1214,38 @@ export function handleToolEnd(
 			currentPhase: undefined,
 		};
 		copy[i] = { ...msg, blocks };
+		return copy;
+	}
+
+	return prev;
+}
+
+/** Keep the latest in-flight tool output separate from its final result. */
+export function handleToolUpdate(
+	prev: ChatConversationItem[],
+	toolCallId: string,
+	partialResult: unknown,
+): ChatConversationItem[] {
+	const partialResultText = extractResultText(partialResult);
+	if (!partialResultText) return prev;
+
+	for (let i = prev.length - 1; i >= 0; i--) {
+		const message = prev[i];
+		if (message.kind !== "agent") continue;
+
+		const blockIndex = message.blocks.findIndex(
+			(block) => block.type === "tool_call" && block.toolCallId === toolCallId,
+		);
+		if (blockIndex === -1) continue;
+
+		const block = message.blocks[blockIndex];
+		if (block.type !== "tool_call" || block.status !== "pending" || block.partialResult === partialResultText)
+			return prev;
+
+		const copy = [...prev];
+		const blocks = [...message.blocks];
+		blocks[blockIndex] = { ...block, partialResult: partialResultText };
+		copy[i] = { ...message, blocks };
 		return copy;
 	}
 

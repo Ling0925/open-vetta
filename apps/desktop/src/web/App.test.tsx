@@ -74,6 +74,29 @@ describe("WebApp", () => {
 		expect(screen.queryByText("Reconnecting automatically…")).toBeNull();
 	});
 
+	it("keeps the last project list visible while a manual refresh is pending", async () => {
+		let snapshotCalls = 0;
+		let finishRefresh: ((response: Response) => void) | undefined;
+		vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+			const path = new URL(String(input), "https://web.test").pathname;
+			if (path === "/api/session/bootstrap") return response(200, { csrf: "csrf-1", expiresAt: 999, webOrigin: "https://web.test" });
+			if (path === "/api/projects/snapshot") {
+				snapshotCalls += 1;
+				return snapshotCalls === 1 ? response(200, SNAPSHOT) : await new Promise<Response>((resolve) => { finishRefresh = resolve; });
+			}
+			if (path === "/api/projects/watch") return pendingUntilAborted(init);
+			throw new Error(`Unexpected request: ${path}`);
+		});
+		const user = userEvent.setup();
+		render(<WebApp />);
+		await screen.findByText("demo");
+		await user.click(screen.getByRole("button", { name: "Refresh" }));
+		await waitFor(() => expect(snapshotCalls).toBe(2));
+		expect(screen.getByText("demo")).toBeTruthy();
+		finishRefresh?.(response(200, { ...SNAPSHOT, cursor: 2, projects: [{ path: "C:/workspace/new", name: "new" }] }));
+		await screen.findByText("new");
+	});
+
 	it("stops retrying and asks for a new pairing when the grant is revoked", async () => {
 		let snapshotCalls = 0;
 		vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
@@ -93,14 +116,149 @@ describe("WebApp", () => {
 		expect(snapshotCalls).toBe(1);
 	});
 
-	it("keeps pairing guidance when the host is unreachable instead of claiming revocation", async () => {
+	it("keeps waiting for the host instead of claiming revocation or demanding a new code", async () => {
 		vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
 			throw new Error("network down");
 		});
 		render(<WebApp />);
 
-		await waitFor(() => expect(screen.getByText("The connection was lost.")).toBeTruthy());
+		await screen.findByText("The connection was lost. Reconnecting automatically…");
+		expect(screen.getByText(/Checking this browser's access/)).toBeTruthy();
+		expect(screen.getByRole("button", { name: "Retry now" })).toBeTruthy();
+		expect(screen.queryByLabelText("Pairing code")).toBeNull();
 		expect(screen.queryByText("Web access was revoked. Pair this browser again.")).toBeNull();
+	});
+
+	it("retries bootstrap immediately when the user asks and only shows pairing after a 401", async () => {
+		let bootstrapCalls = 0;
+		vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+			const path = new URL(String(input), "https://web.test").pathname;
+			if (path === "/api/session/bootstrap") {
+				bootstrapCalls += 1;
+				if (bootstrapCalls === 1) throw new Error("network disconnected");
+				return response(401, { error: { code: "WEB_ACCESS_UNAUTHORIZED" } });
+			}
+			throw new Error(`Unexpected request: ${path}`);
+		});
+		const user = userEvent.setup();
+		render(<WebApp />);
+		await screen.findByText("The connection was lost. Reconnecting automatically…");
+		await user.click(screen.getByRole("button", { name: "Retry now" }));
+		await screen.findByLabelText("Pairing code");
+		expect(bootstrapCalls).toBe(2);
+	});
+
+	it("waits for sign-out confirmation and treats an already revoked grant as signed out", async () => {
+		let finishLogout: ((response: Response) => void) | undefined;
+		vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+			const path = new URL(String(input), "https://web.test").pathname;
+			if (path === "/api/session/bootstrap") return response(200, { csrf: "csrf-1", expiresAt: 999, webOrigin: "https://web.test" });
+			if (path === "/api/projects/snapshot") return response(200, SNAPSHOT);
+			if (path === "/api/projects/watch") return pendingUntilAborted(init);
+			if (path === "/api/session/logout") return await new Promise<Response>((resolve) => { finishLogout = resolve; });
+			throw new Error(`Unexpected request: ${path}`);
+		});
+		const user = userEvent.setup();
+		render(<WebApp />);
+		await screen.findByText("demo");
+		await user.click(screen.getByRole("button", { name: "Sign out of web access" }));
+		expect(screen.getByRole("button", { name: "Signing out…" }).hasAttribute("disabled")).toBe(true);
+		expect(screen.getByText("demo")).toBeTruthy();
+		finishLogout?.(response(401, { error: { code: "WEB_ACCESS_UNAUTHORIZED" } }));
+		await screen.findByLabelText("Pairing code");
+		await screen.findByText("Web access was revoked. Pair this browser again.");
+	});
+	it("automatically restores an existing browser session after bootstrap loses the connection", async () => {
+		let bootstrapCalls = 0;
+		vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+			const path = new URL(String(input), "https://web.test").pathname;
+			if (path === "/api/session/bootstrap") {
+				bootstrapCalls += 1;
+				if (bootstrapCalls === 1) throw new Error("network disconnected");
+				return response(200, { csrf: "csrf-1", expiresAt: 999, webOrigin: "https://web.test" });
+			}
+			if (path === "/api/projects/snapshot") return response(200, SNAPSHOT);
+			if (path === "/api/projects/watch") return pendingUntilAborted(init);
+			throw new Error(`Unexpected request: ${path}`);
+		});
+		render(<WebApp />);
+
+		await screen.findByText("The connection was lost. Reconnecting automatically…");
+		expect(screen.queryByLabelText("Pairing code")).toBeNull();
+		await waitFor(() => expect(screen.getByText("demo")).toBeTruthy(), { timeout: 5_000 });
+		expect(bootstrapCalls).toBe(2);
+	});
+
+	it("keeps the session visible when sign-out cannot be confirmed, then lets the user retry", async () => {
+		let logoutCalls = 0;
+		vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+			const path = new URL(String(input), "https://web.test").pathname;
+			if (path === "/api/session/bootstrap") return response(200, { csrf: "csrf-1", expiresAt: 999, webOrigin: "https://web.test" });
+			if (path === "/api/projects/snapshot") return response(200, SNAPSHOT);
+			if (path === "/api/projects/watch") return pendingUntilAborted(init);
+			if (path === "/api/session/logout") {
+				logoutCalls += 1;
+				if (logoutCalls === 1) throw new Error("network disconnected");
+				return response(200, { loggedOut: true });
+			}
+			throw new Error(`Unexpected request: ${path}`);
+		});
+		const user = userEvent.setup();
+		render(<WebApp />);
+		await screen.findByText("demo");
+
+		await user.click(screen.getByRole("button", { name: "Sign out of web access" }));
+		await screen.findByText("Could not confirm sign-out. This browser may still have access; try again or revoke it from Desktop.");
+		expect(screen.getByText("demo")).toBeTruthy();
+		await user.click(screen.getByRole("button", { name: "Sign out of web access" }));
+		await screen.findByLabelText("Pairing code");
+		expect(logoutCalls).toBe(2);
+	});
+
+	it("does not claim sign-out when the host returns success without confirming revocation", async () => {
+		let logoutCalls = 0;
+		vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+			const path = new URL(String(input), "https://web.test").pathname;
+			if (path === "/api/session/bootstrap") return response(200, { csrf: "csrf-1", expiresAt: 999, webOrigin: "https://web.test" });
+			if (path === "/api/projects/snapshot") return response(200, SNAPSHOT);
+			if (path === "/api/projects/watch") return pendingUntilAborted(init);
+			if (path === "/api/session/logout") {
+				logoutCalls += 1;
+				return response(200, { loggedOut: logoutCalls > 1 });
+			}
+			throw new Error(`Unexpected request: ${path}`);
+		});
+		const user = userEvent.setup();
+		render(<WebApp />);
+		await screen.findByText("demo");
+		await user.click(screen.getByRole("button", { name: "Sign out of web access" }));
+		await screen.findByRole("alert");
+		expect(screen.getByText("demo")).toBeTruthy();
+		await user.click(screen.getByRole("button", { name: "Sign out of web access" }));
+		await screen.findByLabelText("Pairing code");
+		expect(logoutCalls).toBe(2);
+	});
+
+	it("can pair again after a revoked project request without discarding the new authorization", async () => {
+		let snapshotCalls = 0;
+		vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+			const path = new URL(String(input), "https://web.test").pathname;
+			if (path === "/api/session/bootstrap") return response(200, { csrf: "csrf-1", expiresAt: 999, webOrigin: "https://web.test" });
+			if (path === "/api/pair") return response(200, { csrf: "csrf-2", expiresAt: 999, webOrigin: "https://web.test" });
+			if (path === "/api/projects/snapshot") {
+				snapshotCalls += 1;
+				return snapshotCalls === 1 ? response(401, { error: { code: "WEB_ACCESS_UNAUTHORIZED" } }) : response(200, SNAPSHOT);
+			}
+			if (path === "/api/projects/watch") return pendingUntilAborted(init);
+			throw new Error(`Unexpected request: ${path}`);
+		});
+		const user = userEvent.setup();
+		render(<WebApp />);
+		await screen.findByLabelText("Pairing code");
+		await user.type(screen.getByLabelText("Pairing code"), "new-code");
+		await user.click(screen.getByRole("button", { name: "Connect" }));
+		await screen.findByText("demo");
+		expect(snapshotCalls).toBe(2);
 	});
 });
 

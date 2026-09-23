@@ -23,6 +23,7 @@ export interface WebAccessGrantInfo {
 export interface WebAccessState {
 	readonly status: WebAccessStatus;
 	readonly config?: WebAccessConfig;
+	readonly lanAddresses: readonly string[];
 	readonly generation: number;
 	readonly grants: readonly WebAccessGrantInfo[];
 	readonly pairingExpiresAt?: number;

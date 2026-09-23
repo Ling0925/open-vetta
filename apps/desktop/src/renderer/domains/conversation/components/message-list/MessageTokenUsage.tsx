@@ -1,5 +1,6 @@
 import { Button } from "@shared/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@shared/components/ui/popover";
+import { useNavigate } from "@tanstack/react-router";
 import { aggregatePromptCacheUsage, type Usage } from "@vetta/ai/protocol";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -17,6 +18,8 @@ interface TokenUsageDetails {
 	cacheRead: number;
 	cacheWrite: number;
 	totalTokens: number;
+	cost: Usage["cost"];
+	unpricedOrFreeCalls: number;
 	promptTokens: number;
 	modelCalls: number;
 	tokenHitRate: number | null;
@@ -28,11 +31,16 @@ interface TokenUsageDetails {
 
 export function MessageTokenUsage({ usages, sessionUsages = usages }: MessageTokenUsageProps): JSX.Element | null {
 	const { t, i18n } = useTranslation("chat");
+	const navigate = useNavigate();
 	const [scope, setScope] = useState<TokenUsageScope>("session");
 	const selectedUsages = scope === "session" ? sessionUsages : usages;
 	const details = useMemo(() => calculateTokenUsageDetails(selectedUsages), [selectedUsages]);
 	const language = i18n.resolvedLanguage ?? i18n.language;
 	const numberFormatter = useMemo(() => new Intl.NumberFormat(language), [language]);
+	const costFormatter = useMemo(
+		() => new Intl.NumberFormat(language, { style: "currency", currency: "USD", maximumFractionDigits: 8 }),
+		[language],
+	);
 	const percentFormatter = useMemo(
 		() =>
 			new Intl.NumberFormat(language, {
@@ -107,6 +115,12 @@ export function MessageTokenUsage({ usages, sessionUsages = usages }: MessageTok
 		{ key: "cacheRead", label: t("messageList.tokenUsage.cacheRead"), value: details.cacheRead },
 		{ key: "cacheWrite", label: t("messageList.tokenUsage.cacheWrite"), value: details.cacheWrite },
 		{ key: "output", label: t("messageList.tokenUsage.output"), value: details.output },
+	] as const;
+	const costParts = [
+		{ key: "uncachedInput", label: t("messageList.tokenUsage.uncachedInput"), value: details.cost.input },
+		{ key: "cacheRead", label: t("messageList.tokenUsage.cacheRead"), value: details.cost.cacheRead },
+		{ key: "cacheWrite", label: t("messageList.tokenUsage.cacheWrite"), value: details.cost.cacheWrite },
+		{ key: "output", label: t("messageList.tokenUsage.output"), value: details.cost.output },
 	] as const;
 	const partsTotal = parts.reduce((sum, part) => sum + part.value, 0);
 
@@ -268,6 +282,36 @@ export function MessageTokenUsage({ usages, sessionUsages = usages }: MessageTok
 						</div>
 					))}
 				</dl>
+				<div className="mt-2 border-t border-border/50 pt-2 text-[10px]">
+					<div className="flex items-baseline justify-between gap-2">
+						<span className="font-medium">{t("messageList.tokenUsage.estimatedCost")}</span>
+						<span className="font-semibold tabular-nums">
+							{details.cost.total > 0
+								? formatUsdCost(details.cost.total, costFormatter)
+								: t("messageList.tokenUsage.unpricedOrFree")}
+						</span>
+					</div>
+					{details.cost.total > 0 && (
+						<dl className="mt-1 grid grid-cols-[minmax(0,1fr)_auto] gap-x-2 gap-y-0.5">
+							{costParts.map((part) => (
+								<div key={part.key} className="contents">
+									<dt className="text-muted-foreground">{part.label}</dt>
+									<dd className="text-right tabular-nums">{formatUsdCost(part.value, costFormatter)}</dd>
+								</div>
+							))}
+						</dl>
+					)}
+					<p className="mt-1 text-muted-foreground">
+						{t(details.unpricedOrFreeCalls > 0 ? "messageList.tokenUsage.costIncomplete" : "messageList.tokenUsage.costNote")}
+					</p>
+					<button
+						type="button"
+						className="mt-1 text-primary hover:underline"
+						onClick={() => void navigate({ to: "/settings/$tab", params: { tab: "models" } })}
+					>
+						{t("messageList.tokenUsage.viewModelPrices")}
+					</button>
+				</div>
 				<div className="mt-2 border-t border-border/50 pt-1.5">
 					<button
 						type="button"
@@ -326,6 +370,10 @@ const SEGMENT_COLORS = [
 	"var(--context-segment-3)",
 	"var(--context-segment-4)",
 ] as const;
+function formatUsdCost(value: number, formatter: Intl.NumberFormat): string {
+	if (value > 0 && value < 1e-8) return `<${formatter.format(1e-8)}`;
+	return formatter.format(value);
+}
 
 export function calculateTokenUsageDetails(usages: readonly Usage[]): TokenUsageDetails | null {
 	if (usages.length === 0) return null;
@@ -335,6 +383,8 @@ export function calculateTokenUsageDetails(usages: readonly Usage[]): TokenUsage
 	let cacheRead = 0;
 	let cacheWrite = 0;
 	let totalTokens = 0;
+	const cost: Usage["cost"] = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 };
+	let unpricedOrFreeCalls = 0;
 	let diagnosedCalls = 0;
 	let latestPromptCache: NonNullable<Usage["promptCache"]> | null = null;
 	for (const usage of usages) {
@@ -343,6 +393,12 @@ export function calculateTokenUsageDetails(usages: readonly Usage[]): TokenUsage
 		cacheRead += usage.cacheRead;
 		cacheWrite += usage.cacheWrite;
 		totalTokens += usage.totalTokens;
+		cost.input += usage.cost.input;
+		cost.output += usage.cost.output;
+		cost.cacheRead += usage.cost.cacheRead;
+		cost.cacheWrite += usage.cost.cacheWrite;
+		cost.total += usage.cost.total;
+		if (usage.totalTokens > 0 && usage.cost.total === 0) unpricedOrFreeCalls += 1;
 		if (usage.promptCache) {
 			diagnosedCalls += 1;
 			latestPromptCache = usage.promptCache;
@@ -354,6 +410,8 @@ export function calculateTokenUsageDetails(usages: readonly Usage[]): TokenUsage
 		cacheRead,
 		cacheWrite,
 		totalTokens,
+		cost,
+		unpricedOrFreeCalls,
 		promptTokens: promptCache.promptTokens,
 		modelCalls: promptCache.calls,
 		tokenHitRate: promptCache.tokenHitRate,

@@ -4,8 +4,10 @@ import {
 	type AuthenticatedGrant,
 	WEB_ACCESS_COOKIE_NAME,
 	WEB_ACCESS_CSRF_HEADER,
+	WEB_ACCESS_HTTP_COOKIE_NAME,
 	type WebAccessAuthorization,
 } from "./authorization.js";
+import { isPrivateLanIPv4 } from "./lan-addresses.js";
 import type { ProjectSnapshotSource } from "./project-snapshot.js";
 import type { WebStaticAssets } from "./static-assets.js";
 
@@ -32,7 +34,6 @@ export interface WebAccessServerOptions {
 	readonly assets: WebStaticAssets;
 	readonly authorization: WebAccessAuthorization;
 	readonly projects: ProjectSnapshotSource;
-	readonly host?: "127.0.0.1";
 }
 
 export interface WebAccessServerHandle {
@@ -41,8 +42,16 @@ export interface WebAccessServerHandle {
 	readonly abortGrant: (grantId: string) => void;
 }
 
+export function getWebAccessBindHost(origin: string): string {
+	const url = new URL(origin);
+	if (url.protocol === "https:") return "127.0.0.1";
+	if (url.protocol === "http:" && (url.hostname === "127.0.0.1" || isPrivateLanIPv4(url.hostname)))
+		return url.hostname;
+	throw new Error("Web access can only bind a local private IPv4 address or a loopback HTTPS upstream");
+}
+
 export async function startWebAccessServer(options: WebAccessServerOptions): Promise<WebAccessServerHandle> {
-	const host = options.host ?? "127.0.0.1";
+	const host = getWebAccessBindHost(options.origin);
 	const activeRequests = new Map<string, Set<AbortController>>();
 	const activeWatches = new Map<string, Set<AbortController>>();
 	const allRequests = new Set<AbortController>();
@@ -177,7 +186,7 @@ async function handleRequest(
 				sendError(response, 400, "WEB_ACCESS_INVALID_BODY", "Logout body must be empty");
 				return;
 			}
-			handleLogout(response, options.authorization, grant, activeRequests, controller);
+			handleLogout(response, options.authorization, grant, activeRequests, controller, options.origin);
 			return;
 		}
 		if (pathname === "/api/projects/snapshot") {
@@ -225,7 +234,7 @@ async function handlePair(
 		);
 		return;
 	}
-	setCookie(response, result.cookie, result.grant.expiresAt);
+	setCookie(response, result.cookie, result.grant.expiresAt, options.origin);
 	sendJson(response, 200, {
 		csrf: result.csrf,
 		expiresAt: result.grant.expiresAt,
@@ -234,7 +243,7 @@ async function handlePair(
 }
 
 function handleBootstrap(request: IncomingMessage, response: ServerResponse, options: WebAccessServerOptions): void {
-	const cookie = readCookie(request.headers.cookie);
+	const cookie = readCookie(request.headers.cookie, options.origin);
 	if (!cookie) {
 		sendError(response, 401, "WEB_ACCESS_UNAUTHORIZED", "Pair this browser from Desktop first");
 		return;
@@ -244,11 +253,11 @@ function handleBootstrap(request: IncomingMessage, response: ServerResponse, opt
 		generation: options.generation ?? 0,
 	});
 	if (!result) {
-		clearCookie(response);
+		clearCookie(response, options.origin);
 		sendError(response, 401, "WEB_ACCESS_UNAUTHORIZED", "This browser authorization is no longer valid");
 		return;
 	}
-	setCookie(response, cookie, result.grant.expiresAt);
+	setCookie(response, cookie, result.grant.expiresAt, options.origin);
 	sendJson(response, 200, { csrf: result.csrf, expiresAt: result.grant.expiresAt, webOrigin: options.origin });
 }
 
@@ -258,12 +267,13 @@ function handleLogout(
 	grant: AuthenticatedGrant,
 	activeRequests: Map<string, Set<AbortController>>,
 	currentController: AbortController,
+	origin: string,
 ): void {
 	authorization.revoke(grant.id);
 	for (const controller of activeRequests.get(grant.id) ?? []) {
 		if (controller !== currentController) controller.abort();
 	}
-	clearCookie(response);
+	clearCookie(response, origin);
 	sendJson(response, 200, { loggedOut: true });
 }
 
@@ -342,7 +352,7 @@ function requireGrant(
 	response: ServerResponse,
 	options: WebAccessServerOptions,
 ): AuthenticatedGrant | undefined {
-	const cookie = readCookie(request.headers.cookie);
+	const cookie = readCookie(request.headers.cookie, options.origin);
 	const csrf = readHeader(request, WEB_ACCESS_CSRF_HEADER);
 	if (!cookie || !csrf) {
 		sendError(response, 401, "WEB_ACCESS_UNAUTHORIZED", "Pair this browser from Desktop first");
@@ -509,7 +519,8 @@ function validateCookieHeaders(request: IncomingMessage): boolean {
 	if (headers.length === 0) return true;
 	let count = 0;
 	for (const part of headers[0].split(";")) {
-		if (part.trim().split("=", 1)[0] === WEB_ACCESS_COOKIE_NAME) count += 1;
+		const name = part.trim().split("=", 1)[0];
+		if (name === WEB_ACCESS_COOKIE_NAME || name === WEB_ACCESS_HTTP_COOKIE_NAME) count += 1;
 	}
 	return count <= 1;
 }
@@ -519,12 +530,13 @@ function readHeader(request: IncomingMessage, name: string): string | undefined 
 	return values.length === 1 ? values[0] : undefined;
 }
 
-function readCookie(header: string | undefined): string | undefined {
+function readCookie(header: string | undefined, origin: string): string | undefined {
 	if (!header) return undefined;
+	const expected = cookieName(origin);
 	let found: string | undefined;
 	for (const part of header.split(";")) {
 		const [name, ...value] = part.trim().split("=");
-		if (name !== WEB_ACCESS_COOKIE_NAME) continue;
+		if (name !== expected) continue;
 		if (found !== undefined || value.length === 0) return undefined;
 		found = value.join("=");
 	}
@@ -541,15 +553,23 @@ function serveStatic(response: ServerResponse, assets: WebStaticAssets, pathname
 	response.end(asset.body);
 }
 
-function setCookie(response: ServerResponse, value: string, expiresAt: number): void {
+function cookieName(origin: string): string {
+	return new URL(origin).protocol === "https:" ? WEB_ACCESS_COOKIE_NAME : WEB_ACCESS_HTTP_COOKIE_NAME;
+}
+
+function cookieAttributes(origin: string): string {
+	return `Path=/; ${new URL(origin).protocol === "https:" ? "Secure; " : ""}HttpOnly; SameSite=Strict`;
+}
+
+function setCookie(response: ServerResponse, value: string, expiresAt: number, origin: string): void {
 	response.setHeader(
 		"Set-Cookie",
-		`${WEB_ACCESS_COOKIE_NAME}=${value}; Max-Age=${Math.max(0, Math.floor((expiresAt - Date.now()) / 1000))}; Path=/; Secure; HttpOnly; SameSite=Strict`,
+		`${cookieName(origin)}=${value}; Max-Age=${Math.max(0, Math.floor((expiresAt - Date.now()) / 1000))}; ${cookieAttributes(origin)}`,
 	);
 }
 
-function clearCookie(response: ServerResponse): void {
-	response.setHeader("Set-Cookie", `${WEB_ACCESS_COOKIE_NAME}=; Max-Age=0; Path=/; Secure; HttpOnly; SameSite=Strict`);
+function clearCookie(response: ServerResponse, origin: string): void {
+	response.setHeader("Set-Cookie", `${cookieName(origin)}=; Max-Age=0; ${cookieAttributes(origin)}`);
 }
 
 function sendJson(response: ServerResponse, status: number, value: unknown): void {

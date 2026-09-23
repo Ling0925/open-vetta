@@ -54,6 +54,7 @@ function BackgroundTaskTail({ task }: { task: BgTask }): JSX.Element {
 export function BashTerminalCard({
 	command,
 	result,
+	partialResult,
 	status,
 	isError,
 	startedAt,
@@ -63,6 +64,7 @@ export function BashTerminalCard({
 }: {
 	command: string;
 	result: string | undefined;
+	partialResult: string | undefined;
 	status: ToolStatus;
 	isError: boolean | undefined;
 	startedAt: number | undefined;
@@ -76,6 +78,7 @@ export function BashTerminalCard({
 		<BashTerminal.Root
 			command={command}
 			result={result}
+			partialResult={partialResult}
 			status={status}
 			isError={isError}
 			startedAt={startedAt}

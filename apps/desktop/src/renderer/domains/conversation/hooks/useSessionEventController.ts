@@ -51,6 +51,7 @@ import {
 	handleToolEnd,
 	handleToolPhase,
 	handleToolStart,
+	handleToolUpdate,
 	nextId,
 	startAssistantTurn,
 	toChatErrorDetails,
@@ -412,6 +413,12 @@ export function useSessionEventController({ activeSessionRef }: SessionEventCont
 						event.startedAt,
 					),
 				);
+				return;
+			}
+
+			// ── Tool update (live output snapshot) ──
+			if (event.type === "tool.update") {
+				setChatMessages((prev) => handleToolUpdate(prev, event.toolCallId, event.partialResult));
 				return;
 			}
 

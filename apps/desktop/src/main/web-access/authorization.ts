@@ -2,6 +2,7 @@ import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypt
 import type { WebAccessGrantInfo } from "../../shared/web-access.js";
 
 export const WEB_ACCESS_COOKIE_NAME = "__Host-vetta-web";
+export const WEB_ACCESS_HTTP_COOKIE_NAME = "vetta-web-session";
 export const WEB_ACCESS_CSRF_HEADER = "x-vetta-csrf";
 export const WEB_ACCESS_PAIRING_TTL_MS = 5 * 60_000;
 export const WEB_ACCESS_GRANT_TTL_MS = 60 * 60_000;

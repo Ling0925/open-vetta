@@ -12,15 +12,19 @@ export interface WebAccessSettingsModel {
 	readonly error?: string;
 	readonly setOrigin: (value: string) => void;
 	readonly setPort: (value: string) => void;
-	readonly configure: () => Promise<void>;
-	readonly enable: () => Promise<void>;
+	readonly selectLanAddress: (address: string) => void;
 	readonly disable: () => Promise<void>;
 	readonly pair: () => Promise<void>;
 	readonly revoke: (grantId?: string) => Promise<void>;
 }
 
 export function useWebAccessSettingsModel(): WebAccessSettingsModel {
-	const [state, setState] = useState<WebAccessState>({ status: "disabled", generation: 0, grants: [] });
+	const [state, setState] = useState<WebAccessState>({
+		status: "disabled",
+		generation: 0,
+		grants: [],
+		lanAddresses: [],
+	});
 	const [origin, setOrigin] = useState("");
 	const [port, setPort] = useState(String(DEFAULT_WEB_ACCESS_PORT));
 	const [pairing, setPairing] = useState<WebAccessPairResult>();
@@ -33,9 +37,22 @@ export function useWebAccessSettingsModel(): WebAccessSettingsModel {
 			try {
 				const next = await window.vetta.webAccess.getState();
 				setState(next);
-				if (next.config && !draftDirty) {
-					setOrigin(next.config.origin);
-					setPort(String(next.config.port));
+				if (next.status !== "enabled") setPairing(undefined);
+				if (!draftDirty) {
+					const address = next.lanAddresses[0];
+					const port = next.config?.port ?? DEFAULT_WEB_ACCESS_PORT;
+					const configuredOrigin = next.config?.origin;
+					const configuredAddress = configuredOrigin?.startsWith("http://")
+						? new URL(configuredOrigin).hostname
+						: undefined;
+					const staleLanAddress =
+						next.status !== "enabled" &&
+						configuredAddress &&
+						configuredAddress !== "127.0.0.1" &&
+						!next.lanAddresses.includes(configuredAddress);
+					const currentLanOrigin = address ? `http://${address}:${port}` : "";
+					setOrigin(staleLanAddress ? currentLanOrigin : (configuredOrigin ?? currentLanOrigin));
+					setPort(String(port));
 				}
 				setError((current) => (preserveError && current ? current : next.error));
 			} catch (cause) {
@@ -80,15 +97,17 @@ export function useWebAccessSettingsModel(): WebAccessSettingsModel {
 		},
 		setPort: (value) => {
 			setDraftDirty(true);
+			setOrigin((current) => {
+				const address = state.lanAddresses.find((item) => current === `http://${item}:${port}`);
+				return address ? `http://${address}:${value}` : current;
+			});
 			setPort(value);
 		},
-		configure: () =>
-			run(async () => {
-				const next = await window.vetta.webAccess.configure({ origin: origin.trim(), port: Number(port) });
-				setDraftDirty(false);
-				return next;
-			}),
-		enable: () => run(() => window.vetta.webAccess.enable()),
+		selectLanAddress: (address) => {
+			if (!state.lanAddresses.includes(address)) return;
+			setDraftDirty(true);
+			setOrigin(`http://${address}:${port}`);
+		},
 		disable: () =>
 			run(async () => {
 				setPairing(undefined);
@@ -98,10 +117,17 @@ export function useWebAccessSettingsModel(): WebAccessSettingsModel {
 			setBusy(true);
 			setError(undefined);
 			try {
+				if (state.status !== "enabled") {
+					const configured = await window.vetta.webAccess.configure({ origin: origin.trim(), port: Number(port) });
+					setState(configured);
+					setState(await window.vetta.webAccess.enable());
+					setDraftDirty(false);
+				}
 				setPairing(await window.vetta.webAccess.pair());
 				setState(await window.vetta.webAccess.getState());
 			} catch (cause) {
 				setError(cause instanceof Error ? cause.message : String(cause));
+				await sync(true);
 			} finally {
 				setBusy(false);
 			}

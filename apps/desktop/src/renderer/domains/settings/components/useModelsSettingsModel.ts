@@ -4,6 +4,7 @@ import { showToast } from "@shared/store/toast-atoms";
 import { useAtomValue } from "jotai";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { emptyModelPrice, type ModelPriceDraft, modelPriceToDraft, parseModelPrice } from "./modelPriceDraft";
 import { recordSettingsUsage } from "./recordSettingsUsage";
 
 export type ProviderEntry = ModelsConfigData["providers"][string];
@@ -28,6 +29,7 @@ export interface ModelFormState {
 	input: string[];
 	contextWindow: string;
 	maxTokens: string;
+	price: ModelPriceDraft;
 }
 
 export interface EditingModelState {
@@ -140,6 +142,7 @@ export const emptyModel: ModelFormState = {
 	input: ["text"],
 	contextWindow: "",
 	maxTokens: "",
+	price: { ...emptyModelPrice },
 };
 
 export function useModelsSettingsModel(): ModelsSettingsModel {
@@ -281,7 +284,7 @@ export function useModelsSettingsModel(): ModelsSettingsModel {
 
 	const handleAddModel = useCallback(
 		async (providerName: string) => {
-			if (!config || !modelForm.id.trim()) return;
+			if (!config || !modelForm.id.trim() || parseModelPrice(modelForm.price) === null) return;
 			const provider = config.providers[providerName];
 			if (!provider) return;
 			const models = [...(provider.models || []), formToModelDef(modelForm)];
@@ -306,7 +309,7 @@ export function useModelsSettingsModel(): ModelsSettingsModel {
 
 	const handleUpdateModel = useCallback(
 		async (providerName: string, oldModelId: string) => {
-			if (!config || !modelForm.id.trim()) return;
+			if (!config || !modelForm.id.trim() || parseModelPrice(modelForm.price) === null) return;
 			const provider = config.providers[providerName];
 			if (!provider) return;
 			const models = (provider.models || []).map((model) =>
@@ -539,6 +542,7 @@ function modelToForm(model: ModelEntry): ModelFormState {
 		input: model.input ?? ["text"],
 		contextWindow: model.contextWindow != null ? String(model.contextWindow) : "",
 		maxTokens: model.maxTokens != null ? String(model.maxTokens) : "",
+		price: modelPriceToDraft(model.cost),
 	};
 }
 
@@ -560,5 +564,7 @@ function formToModelDef(form: ModelFormState): ModelEntry {
 	if (contextWindow > 0) model.contextWindow = contextWindow;
 	const maxTokens = Number(form.maxTokens.trim());
 	if (maxTokens > 0) model.maxTokens = maxTokens;
+	const price = parseModelPrice(form.price);
+	if (price) model.cost = price;
 	return model;
 }

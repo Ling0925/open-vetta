@@ -6,12 +6,19 @@ import { cn } from "@shared/lib/utils";
 import { CheckboxField } from "./McpSettings";
 import { InputField, SelectField } from "@vetta-org/theme-ui/settings";
 import { CONTEXT_WINDOW_PICKS, MAX_OUTPUT_PICKS, NumberQuickPicks } from "./NumberQuickPicks";
+import { MODEL_PRICE_FIELDS, parseModelPrice, type ModelPriceField } from "./modelPriceDraft";
 import {
 	buildModelApiOptions,
 	CANDIDATE_REASONING_LEVELS,
 	INPUT_OPTIONS,
 	type ModelFormState,
 } from "./useModelsSettingsModel";
+const PRICE_LABEL_KEYS = {
+	input: "costInput",
+	output: "costOutput",
+	cacheRead: "costCacheRead",
+	cacheWrite: "costCacheWrite",
+} as const satisfies Record<ModelPriceField, string>;
 
 export function ModelsModelForm({
 	form,
@@ -31,6 +38,7 @@ export function ModelsModelForm({
 	const { t } = useTranslation("settings");
 	const inheritLabel = t("inheritedFromProvider");
 	const apiOptions = useMemo(() => buildModelApiOptions(form.api, inheritLabel), [form.api, inheritLabel]);
+	const invalidPrice = parseModelPrice(form.price) === null;
 
 	const toggleInput = (value: string) => {
 		setForm((current) => {
@@ -117,6 +125,26 @@ export function ModelsModelForm({
 					/>
 				</div>
 				<div className="col-span-2">
+					<div className="mb-1 text-[11px] text-muted-foreground">
+						{t("modelPriceTitle")} · USD {t("perMillionTokens")}
+					</div>
+					<div className="grid grid-cols-2 gap-3">
+						{MODEL_PRICE_FIELDS.map((field) => (
+							<label key={field} className="block text-[11px] text-muted-foreground">
+								<span className="mb-1 block">{t(PRICE_LABEL_KEYS[field])}</span>
+								<InputField
+									value={form.price[field]}
+									onChange={(value) => setForm((current) => ({ ...current, price: { ...current.price, [field]: value } }))}
+									placeholder="0"
+									aria-label={t(PRICE_LABEL_KEYS[field])}
+								/>
+							</label>
+						))}
+					</div>
+					<p className="mt-1 text-[11px] text-muted-foreground">{t("modelPriceHint")}</p>
+					{invalidPrice && <p className="mt-1 text-[11px] text-destructive">{t("modelPriceInvalid")}</p>}
+				</div>
+				<div className="col-span-2">
 					<CheckboxField
 						checked={form.reasoning}
 						onChange={(value) => setForm((current) => ({ ...current, reasoning: value }))}
@@ -129,7 +157,7 @@ export function ModelsModelForm({
 				<Button variant="ghost" size="sm" onClick={onCancel}>
 					{t("cancel")}
 				</Button>
-				<Button variant="primary" size="sm" onClick={onSave} disabled={!form.id.trim() || saving}>
+				<Button variant="primary" size="sm" onClick={onSave} disabled={!form.id.trim() || saving || invalidPrice}>
 					{saveLabel}
 				</Button>
 			</div>

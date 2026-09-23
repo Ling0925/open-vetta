@@ -20,6 +20,7 @@ export interface BashTerminalLabels {
 interface BashTerminalContextValue {
 	readonly command: string;
 	readonly result?: string;
+	readonly partialResult?: string;
 	readonly status: BashTerminalStatus;
 	readonly isError?: boolean;
 	readonly startedAt?: number;
@@ -122,11 +123,29 @@ export function BashTerminalCommand(): JSX.Element {
 }
 
 export function BashTerminalResult(): JSX.Element | null {
-	const { result, status } = useBashTerminalContext("BashTerminal.Result");
-	if (status === "pending" || !result) return null;
+	const { partialResult, result, status } = useBashTerminalContext("BashTerminal.Result");
+	const output = status === "pending" ? partialResult : result;
+	const outputRef = useRef<HTMLDivElement>(null);
+	const shouldFollowOutputRef = useRef(true);
+
+	useEffect(() => {
+		const element = outputRef.current;
+		if (status === "pending" && element && shouldFollowOutputRef.current) {
+			element.scrollTop = element.scrollHeight;
+		}
+	}, [output, status]);
+
+	if (!output) return null;
 	return (
-		<div className="max-h-[300px] overflow-auto border-t border-muted-foreground/10 px-3 py-2 font-mono text-[12px] leading-[1.55]">
-			<pre className="m-0 min-w-0 whitespace-pre-wrap break-words text-foreground/75">{result}</pre>
+		<div
+			ref={outputRef}
+			onScroll={(event) => {
+				const element = event.currentTarget;
+				shouldFollowOutputRef.current = element.scrollHeight - element.scrollTop - element.clientHeight <= 16;
+			}}
+			className="max-h-[300px] overflow-auto border-t border-muted-foreground/10 px-3 py-2 font-mono text-[12px] leading-[1.55]"
+		>
+			<pre className="m-0 min-w-0 whitespace-pre-wrap break-words text-foreground/75">{output}</pre>
 		</div>
 	);
 }

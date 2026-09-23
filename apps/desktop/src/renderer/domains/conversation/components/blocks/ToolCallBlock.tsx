@@ -102,6 +102,7 @@ function ToolCallContent({
 			<BashTerminalCard
 				command={projection.shellCommand}
 				result={block.result}
+				partialResult={block.partialResult}
 				status={block.status}
 				isError={block.isError}
 				startedAt={block.startedAt}

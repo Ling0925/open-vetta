@@ -4,7 +4,7 @@ import { connect } from "node:net";
 import { describe, expect, it } from "vitest";
 import type { WebAccessProjectSnapshot } from "../../shared/web-access.js";
 import { WebAccessAuthorization } from "./authorization.js";
-import { startWebAccessServer } from "./web-access-server.js";
+import { getWebAccessBindHost, startWebAccessServer } from "./web-access-server.js";
 
 const ORIGIN = "https://web.test";
 
@@ -20,6 +20,14 @@ function snapshot(cursor: number): WebAccessProjectSnapshot {
 type RawResponse = { readonly status: number; readonly headers: IncomingHttpHeaders; readonly body: unknown };
 
 describe("Web access HTTP boundary", () => {
+	it("binds HTTP to the selected private interface while preserving the HTTPS loopback listener", () => {
+		expect(getWebAccessBindHost("http://192.168.1.21:45821")).toBe("192.168.1.21");
+		expect(getWebAccessBindHost("http://127.0.0.1:45821")).toBe("127.0.0.1");
+		expect(getWebAccessBindHost("https://web.test")).toBe("127.0.0.1");
+		expect(() => getWebAccessBindHost("http://0.0.0.0:45821")).toThrow();
+		expect(() => getWebAccessBindHost("http://8.8.8.8:45821")).toThrow();
+	});
+
 	it("pairs, restores with GET, reads projects, watches changes, and rejects revoked grants", async () => {
 		const pairingValues = ["pair-code", "cookie-secret", "csrf-pair"];
 		const authorization = new WebAccessAuthorization(
@@ -108,6 +116,106 @@ describe("Web access HTTP boundary", () => {
 				body: {},
 			});
 			expect(revoked.status).toBe(401);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it("pairs and restores over local HTTP without a Secure cookie, then logs out", async () => {
+		const origin = "http://127.0.0.1:45821";
+		const values = ["pair-code", "cookie-secret", "csrf-secret"];
+		const authorization = new WebAccessAuthorization(
+			() => Date.now(),
+			() => values.shift() ?? "fallback",
+		);
+		const pairing = authorization.createPairing({ origin, generation: 0, scopes: ["projects.read"] });
+		const server = await startWebAccessServer({
+			origin,
+			port: 0,
+			assets: { get: () => undefined },
+			authorization,
+			projects: {
+				read: async () => snapshot(1),
+				waitForChange: async () => ({ changed: false, snapshot: snapshot(1) }),
+			},
+		});
+		try {
+			const pairResponse = await rawRequest(server.address, "POST", "/api/pair", {
+				host: "127.0.0.1:45821",
+				origin,
+				body: { code: pairing.code },
+			});
+			expect(pairResponse.status).toBe(200);
+			const setCookie = firstHeader(pairResponse.headers["set-cookie"]);
+			expect(setCookie).toMatch(/^vetta-web-session=/);
+			expect(setCookie).not.toContain("Secure");
+			expect(setCookie).toContain("HttpOnly; SameSite=Strict");
+			expect(setCookie).toMatch(/Max-Age=[1-9]\d*/);
+			const cookie = setCookie?.split(";", 1)[0];
+			if (!cookie) throw new Error("pair response did not set a cookie");
+			const bootstrap = await rawRequest(server.address, "GET", "/api/session/bootstrap", {
+				host: "127.0.0.1:45821",
+				cookie,
+			});
+			expect(bootstrap.status).toBe(200);
+			const csrf = (bootstrap.body as { csrf: string }).csrf;
+			const projects = await rawRequest(server.address, "POST", "/api/projects/snapshot", {
+				host: "127.0.0.1:45821",
+				origin,
+				cookie,
+				csrf,
+				body: {},
+			});
+			expect(projects.body).toEqual(snapshot(1));
+			const wrongHost = await rawRequest(server.address, "POST", "/api/projects/snapshot", {
+				host: "evil.test",
+				origin,
+				cookie,
+				csrf,
+				body: {},
+			});
+			expect(wrongHost.status).toBe(403);
+			const wrongOrigin = await rawRequest(server.address, "POST", "/api/projects/snapshot", {
+				host: "127.0.0.1:45821",
+				origin: "http://127.0.0.2:45821",
+				cookie,
+				csrf,
+				body: {},
+			});
+			expect(wrongOrigin.status).toBe(403);
+			const duplicate = await rawRequest(server.address, "POST", "/api/projects/snapshot", {
+				host: "127.0.0.1:45821",
+				origin,
+				cookie: `${cookie}; ${cookie}`,
+				csrf,
+				body: {},
+			});
+			expect(duplicate.status).toBe(400);
+			const mixedCookies = await rawRequest(server.address, "POST", "/api/projects/snapshot", {
+				host: "127.0.0.1:45821",
+				origin,
+				cookie: `${cookie}; __Host-vetta-web=shadow`,
+				csrf,
+				body: {},
+			});
+			expect(mixedCookies.status).toBe(400);
+			const logout = await rawRequest(server.address, "POST", "/api/session/logout", {
+				host: "127.0.0.1:45821",
+				origin,
+				cookie,
+				csrf,
+				body: {},
+			});
+			expect(logout.body).toEqual({ loggedOut: true });
+			expect(firstHeader(logout.headers["set-cookie"])).not.toContain("Secure");
+			const afterLogout = await rawRequest(server.address, "POST", "/api/projects/snapshot", {
+				host: "127.0.0.1:45821",
+				origin,
+				cookie,
+				csrf,
+				body: {},
+			});
+			expect(afterLogout.status).toBe(401);
 		} finally {
 			await server.close();
 		}

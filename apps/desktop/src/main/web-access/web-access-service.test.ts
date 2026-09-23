@@ -7,11 +7,29 @@ import { DesktopWebAccessService } from "./web-access-service.js";
 const ASSETS = { get: () => undefined };
 
 describe("DesktopWebAccessService", () => {
-	it("rejects invalid origins and keeps configuration in memory", async () => {
-		const service = createService();
-		await expect(service.configure({ origin: "http://web.test", port: 45821 })).rejects.toThrow("HTTPS origin");
-		await expect(service.configure({ origin: "https://web.test/app", port: 45821 })).rejects.toThrow("HTTPS origin");
+	it("accepts a bound local LAN origin but rejects unsafe HTTP origins", async () => {
+		const service = createService({ getLanAddresses: () => ["192.168.1.21"] });
+		await expect(service.configure({ origin: "http://192.168.1.21:45821", port: 45821 })).resolves.toMatchObject({
+			status: "disabled",
+			config: { origin: "http://192.168.1.21:45821", port: 45821 },
+		});
+		await expect(service.configure({ origin: "http://192.168.1.21:80", port: 80 })).resolves.toMatchObject({
+			config: { origin: "http://192.168.1.21", port: 80 },
+		});
+		await service.configure({ origin: "http://192.168.1.21:45821", port: 45821 });
+		for (const origin of [
+			"http://web.test:45821",
+			"http://8.8.8.8:45821",
+			"http://0.0.0.0:45821",
+			"http://192.168.1.22:45821",
+			"http://192.168.1.21:45822",
+		]) {
+			await expect(service.configure({ origin, port: 45821 })).rejects.toThrow();
+		}
+		await expect(service.configure({ origin: "https://web.test/app", port: 45821 })).rejects.toThrow("origin");
 		await expect(service.configure({ origin: "https://web.test", port: 0 })).rejects.toThrow("port");
+		// Rejected changes do not replace the last valid configuration.
+		expect(service.getState().config?.origin).toBe("http://192.168.1.21:45821");
 	});
 
 	it("serializes a pending start and a close without leaving a listener behind", async () => {
@@ -98,9 +116,19 @@ describe("DesktopWebAccessService", () => {
 		expect(service.getState().status).toBe("disabled");
 	});
 
+	it("fails closed when the selected LAN interface disappears before enabling", async () => {
+		let addresses = ["192.168.1.21"];
+		const startServer = vi.fn();
+		const service = createService({ getLanAddresses: () => addresses, startServer });
+		await service.configure({ origin: "http://192.168.1.21:45821", port: 45821 });
+		addresses = [];
+		await expect(service.enable()).rejects.toThrow("Local network address is unavailable");
+		expect(startServer).not.toHaveBeenCalled();
+	});
+
 	it("requires configuration before enabling", async () => {
 		const service = createService();
-		await expect(service.enable()).rejects.toThrow("Configure the HTTPS origin");
+		await expect(service.enable()).rejects.toThrow("Configure a local network address or HTTPS origin");
 		expect(service.getState().status).toBe("disabled");
 	});
 });

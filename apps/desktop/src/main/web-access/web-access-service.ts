@@ -2,6 +2,7 @@ import type { WebAccessConfig, WebAccessPairResult, WebAccessState } from "../..
 import type { ProjectChangeHub } from "../projects/project-change-hub.js";
 import type { ProjectService } from "../projects/project-service.js";
 import { WebAccessAuthorization } from "./authorization.js";
+import { getLanIPv4Addresses, isPrivateLanIPv4 } from "./lan-addresses.js";
 import { DesktopProjectSnapshotSource } from "./project-snapshot.js";
 import { loadWebStaticAssets, type WebStaticAssets } from "./static-assets.js";
 import { startWebAccessServer, type WebAccessServerHandle, type WebAccessServerOptions } from "./web-access-server.js";
@@ -13,6 +14,7 @@ export interface DesktopWebAccessServiceDependencies {
 	readonly now?: () => number;
 	readonly loadAssets?: (root: string) => Promise<WebStaticAssets>;
 	readonly startServer?: (options: WebAccessServerOptions) => Promise<WebAccessServerHandle>;
+	readonly getLanAddresses?: () => readonly string[];
 }
 
 export class DesktopWebAccessService {
@@ -22,6 +24,7 @@ export class DesktopWebAccessService {
 	private readonly loadAssets: (root: string) => Promise<WebStaticAssets>;
 	private readonly startServer: (options: WebAccessServerOptions) => Promise<WebAccessServerHandle>;
 	private readonly now: () => number;
+	private readonly getLanAddresses: () => readonly string[];
 	private lifecycleGeneration = 0;
 	private server: WebAccessServerHandle | undefined;
 	private config: WebAccessConfig | undefined;
@@ -44,12 +47,14 @@ export class DesktopWebAccessService {
 		this.webRoot = dependencies.webRoot;
 		this.loadAssets = dependencies.loadAssets ?? loadWebStaticAssets;
 		this.startServer = dependencies.startServer ?? startWebAccessServer;
+		this.getLanAddresses = dependencies.getLanAddresses ?? getLanIPv4Addresses;
 	}
 
 	getState(): WebAccessState {
 		return {
 			status: this.status,
 			...(this.config ? { config: this.config } : {}),
+			lanAddresses: this.getLanAddresses(),
 			generation: this.lifecycleGeneration,
 			grants: this.authorization.listGrants(),
 			...(this.authorization.getPairingExpiresAt()
@@ -60,7 +65,7 @@ export class DesktopWebAccessService {
 	}
 
 	async configure(input: unknown): Promise<WebAccessState> {
-		const config = parseConfig(input);
+		const config = parseConfig(input, this.getLanAddresses());
 		return await this.serialize(async () => {
 			// 换 Origin 必须先停旧监听器：旧监听器仍按旧 Origin 校验 Host，配置与实际行为
 			// 一旦不一致，用户以为已经换掉的入口其实还开着。
@@ -74,7 +79,9 @@ export class DesktopWebAccessService {
 		return await this.serialize(async () => {
 			if (this.status === "enabled") return this.getState();
 			const config = this.config;
-			if (!config) throw new Error("Configure the HTTPS origin and loopback port before enabling Web access");
+			if (!config) throw new Error("Configure a local network address or HTTPS origin before enabling Web access");
+			// 配置后网卡可能已断开；启动前重新核对，不能在失效地址上监听。
+			parseConfig(config, this.getLanAddresses());
 			const generation = ++this.lifecycleGeneration;
 			this.status = "starting";
 			this.error = undefined;
@@ -170,7 +177,7 @@ export class DesktopWebAccessService {
 	}
 }
 
-function parseConfig(value: unknown): WebAccessConfig {
+function parseConfig(value: unknown, lanAddresses: readonly string[]): WebAccessConfig {
 	if (typeof value !== "object" || value === null || Array.isArray(value)) {
 		throw new Error("Web access configuration must be an object");
 	}
@@ -181,19 +188,33 @@ function parseConfig(value: unknown): WebAccessConfig {
 	try {
 		parsed = new URL(origin);
 	} catch {
-		throw new Error("Web access origin must be a valid HTTPS origin");
+		throw new Error("Web access origin must be a valid local HTTP or HTTPS origin");
 	}
+	if (!Number.isInteger(port) || port < 1 || port > 65_535)
+		throw new Error("Web access port must be between 1 and 65535");
 	if (
-		parsed.protocol !== "https:" ||
+		(parsed.protocol !== "https:" && parsed.protocol !== "http:") ||
 		parsed.username ||
 		parsed.password ||
 		parsed.pathname !== "/" ||
 		parsed.search ||
 		parsed.hash
 	) {
-		throw new Error("Web access origin must be an HTTPS origin without a path or credentials");
+		throw new Error("Web access origin must be an HTTP LAN address or HTTPS origin without a path or credentials");
 	}
-	if (!Number.isInteger(port) || port < 1 || port > 65_535)
-		throw new Error("Web access port must be between 1 and 65535");
+	if (parsed.protocol === "http:") {
+		const address = parsed.hostname;
+		if (address !== "127.0.0.1" && (!isPrivateLanIPv4(address) || !lanAddresses.includes(address))) {
+			throw new Error("Local network address is unavailable on this computer");
+		}
+		const expectedOrigin = new URL(`http://${address}:${port}`).origin;
+		const submittedOrigin = origin.replace(/\/$/, "");
+		if (
+			parsed.origin !== expectedOrigin ||
+			(submittedOrigin !== expectedOrigin && submittedOrigin !== `http://${address}:${port}`)
+		) {
+			throw new Error("Local HTTP origin must include the same port as the Web access listener");
+		}
+	}
 	return { origin: parsed.origin, port };
 }

@@ -12,6 +12,9 @@ class TestResizeObserver implements ResizeObserver {
 
 vi.stubGlobal("ResizeObserver", TestResizeObserver);
 
+const navigate = vi.hoisted(() => vi.fn());
+vi.mock("@tanstack/react-router", () => ({ useNavigate: () => navigate }));
+
 const labels: Record<string, string> = {
 	"messageList.tokenUsage.trigger": "查看 Token 用量",
 	"messageList.tokenUsage.sessionTitle": "会话 Token",
@@ -26,6 +29,11 @@ const labels: Record<string, string> = {
 	"messageList.tokenUsage.cacheRead": "缓存命中",
 	"messageList.tokenUsage.cacheWrite": "缓存写入",
 	"messageList.tokenUsage.cacheHitRate": "缓存命中率",
+	"messageList.tokenUsage.estimatedCost": "估算费用 (USD)",
+	"messageList.tokenUsage.unpricedOrFree": "未定价或免费",
+	"messageList.tokenUsage.costIncomplete": "有未定价或免费的调用，费用可能不完整。",
+	"messageList.tokenUsage.costNote": "按调用时的模型单价估算，可能与服务商账单不同。",
+	"messageList.tokenUsage.viewModelPrices": "查看模型价格表与配置",
 	"messageList.tokenUsage.moreParameters": "更多参数",
 	"messageList.tokenUsage.readCoverage": "读取观测覆盖率",
 	"messageList.tokenUsage.writeCoverage": "写入观测覆盖率",
@@ -142,6 +150,50 @@ describe("MessageTokenUsage", () => {
 		expect(within(panel).getByRole("tab", { name: "当前消息" }).getAttribute("aria-selected")).toBe("true");
 	});
 
+	it("shows recorded cost breakdown for session and message, and opens the model pricing settings", async () => {
+		const user = userEvent.setup();
+		const current = usage({
+			input: 500_000,
+			output: 100_000,
+			cost: { input: 1, output: 0.5, cacheRead: 0, cacheWrite: 0, total: 1.5 },
+		});
+		const earlier = usage({
+			input: 100_000,
+			cacheRead: 200_000,
+			cost: { input: 0.2, output: 0, cacheRead: 0.02, cacheWrite: 0, total: 0.22 },
+		});
+		render(<MessageTokenUsage usages={[current]} sessionUsages={[earlier, current]} />);
+
+		await user.click(screen.getByRole("button", { name: "查看 Token 用量" }));
+		const panel = await screen.findByRole("dialog");
+		expect(within(panel).getByText("US$1.72")).toBeTruthy();
+		expect(within(panel).getByText("US$1.20")).toBeTruthy();
+		expect(within(panel).getByText("US$0.02")).toBeTruthy();
+		expect(within(panel).getByText("按调用时的模型单价估算，可能与服务商账单不同。")).toBeTruthy();
+
+		await user.click(within(panel).getByRole("tab", { name: "当前消息" }));
+		expect(within(panel).getByText("US$1.50")).toBeTruthy();
+		expect(within(panel).queryByText("US$1.72")).toBeNull();
+
+		await user.click(within(panel).getByRole("button", { name: "查看模型价格表与配置" }));
+		expect(navigate).toHaveBeenCalledWith({ to: "/settings/$tab", params: { tab: "models" } });
+	});
+
+	it("does not mistake missing historical prices for a free or fully priced session", async () => {
+		const user = userEvent.setup();
+		const unpriced = usage({ input: 100 });
+		const priced = usage({ input: 100, cost: { input: 0.000000001, output: 0, cacheRead: 0, cacheWrite: 0, total: 0.000000001 } });
+		render(<MessageTokenUsage usages={[unpriced]} sessionUsages={[unpriced, priced]} />);
+
+		await user.click(screen.getByRole("button", { name: "查看 Token 用量" }));
+		const panel = await screen.findByRole("dialog");
+		expect(within(panel).getAllByText("<US$0.00000001")).toHaveLength(2);
+		expect(within(panel).getByText("有未定价或免费的调用，费用可能不完整。")).toBeTruthy();
+		await user.click(within(panel).getByRole("tab", { name: "当前消息" }));
+		expect(within(panel).getByText("未定价或免费")).toBeTruthy();
+		expect(within(panel).queryByText("US$0.00")).toBeNull();
+	});
+
 	it("explains that write metrics are unavailable for read-only providers", async () => {
 		const user = userEvent.setup();
 		render(
@@ -213,7 +265,7 @@ function usage(overrides: Partial<Usage>): Usage {
 		totalTokens: input + output + cacheRead + cacheWrite,
 		cacheUsageReporting: overrides.cacheUsageReporting,
 		promptCache: overrides.promptCache,
-		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+		cost: overrides.cost ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
 	};
 }
 
