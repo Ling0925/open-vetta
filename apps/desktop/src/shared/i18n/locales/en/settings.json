@@ -141,6 +141,36 @@
       "error": "Needs attention"
     }
   },
+  "webAccess": {
+    "title": "Web access",
+    "description": "Connect to this Desktop through a trusted HTTPS proxy. This increment is limited to read-only project directories: no files, project edits, or tasks.",
+    "serviceTitle": "Local Web service",
+    "serviceHint": "Disabled by default. When enabled, Desktop listens only on 127.0.0.1; your trusted proxy or HTTPS VPN terminates external HTTPS. Configuration and grants live only for this Desktop run.",
+    "originLabel": "Public HTTPS origin",
+    "originPlaceholder": "https://vetta.example.com",
+    "portLabel": "Loopback port",
+    "save": "Save configuration",
+    "enable": "Enable Web access",
+    "disable": "Disable Web access",
+    "pairTitle": "Pair a browser",
+    "pairHint": "Open the web address below and enter the one-time code in your browser. The code expires after 5 minutes and can be used once.",
+    "pair": "Generate pairing code",
+    "webUrl": "Web address",
+    "code": "One-time pairing code",
+    "codeHint": "The code is shown only in Desktop memory. It is never put in a URL, log, or config file.",
+    "grantsTitle": "Authorized browsers",
+    "grantsHint": "Each browser grant can be revoked independently; revocation immediately ends its project observation requests.",
+    "noGrants": "No browsers authorized",
+    "revoke": "Revoke",
+    "revokeAll": "Revoke all",
+    "expiresAt": "Valid until {{time}}",
+    "status": {
+      "disabled": "Disabled",
+      "starting": "Starting",
+      "enabled": "Enabled",
+      "error": "Failed to start"
+    }
+  },
   "general": "General",
   "appearance": {
     "title": "Appearance",
@@ -1097,8 +1127,10 @@
   "tabPet": "Vetta Vivi",
   "tabPermissions": "Permissions",
   "tabRemote": "Remote access",
+  "tabWebAccess": "Web access",
   "section_remote-pairing": "Phone pairing",
   "section_remote-permissions": "Control permissions",
+  "section_web-access": "Web access",
   "section_general-basics": "Basics",
   "section_general-network": "Network proxy",
   "section_general-app": "App",

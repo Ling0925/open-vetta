@@ -17,6 +17,7 @@ export type SettingsTabLabelKey =
 	| "tabPet"
 	| "tabPermissions"
 	| "tabRemote"
+	| "tabWebAccess"
 	| "tabSshHosts";
 
 export interface SettingsTabRegistration {
@@ -49,6 +50,7 @@ export const SETTINGS_TABS: readonly SettingsTabRegistration[] = [
 		icon: "icon-[solar--smartphone-rotate-angle-linear]",
 		windowsOnly: true,
 	},
+	{ key: "webAccess", label: "Web 访问", labelKey: "tabWebAccess", icon: "icon-[solar--global-linear]" },
 	{ key: "appearance", label: "外观", labelKey: "tabAppearance", icon: "icon-[mdi--palette-outline]" },
 	{ key: "context", label: "Agent配置", labelKey: "tabContext", icon: "icon-[mdi--robot-outline]" },
 	{ key: "models", label: "模型配置", labelKey: "tabModels", icon: "icon-[mdi--brain]" },
@@ -96,7 +98,9 @@ export const SETTINGS_SECTIONS = [
 	{ tab: "general", id: "general-developer", title: "开发者", titleKey: "section_general-developer" },
 	{ tab: "remote", id: "remote-pairing", title: "手机配对", titleKey: "section_remote-pairing" },
 	{ tab: "remote", id: "remote-permissions", title: "控制权限", titleKey: "section_remote-permissions" },
+	{ tab: "webAccess", id: "web-access", title: "Web 访问", titleKey: "section_web-access" },
 	{ tab: "sshHosts", id: "ssh-hosts-list", title: "主机列表", titleKey: "section_ssh-hosts-list" },
+
 	{ tab: "appearance", id: "appearance-mode", title: "外观模式", titleKey: "section_appearance-mode" },
 	{ tab: "appearance", id: "appearance-ui-theme", title: "界面主题", titleKey: "section_appearance-ui-theme" },
 	{ tab: "appearance", id: "appearance-cursor", title: "鼠标指针", titleKey: "section_appearance-cursor" },

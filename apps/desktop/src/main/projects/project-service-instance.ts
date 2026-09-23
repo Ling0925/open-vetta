@@ -4,10 +4,13 @@ import { readDesktopConfig, writeDesktopConfig } from "../config/desktop-config-
 import { allowProjectRoot, createFilesystemDirectory } from "../filesystem/filesystem-service.js";
 import { getDesktopSchedulerServiceIfReady } from "../scheduler/scheduler-service.js";
 import { getSshConnection } from "../ssh/ssh-runtime.js";
+import type { ProjectChangeHub } from "./project-change-hub.js";
+import { createProjectChangeHub } from "./project-change-observation.js";
 import { broadcastProjectsChanged } from "./project-events.js";
 import { ProjectService } from "./project-service.js";
 
 let desktopProjectService: ProjectService | undefined;
+let desktopProjectChangeHub: ProjectChangeHub | undefined;
 
 /**
  * 进程内唯一的 {@link ProjectService}。
@@ -20,12 +23,15 @@ let desktopProjectService: ProjectService | undefined;
  * 单元测试才不用连带加载 electron（`broadcastProjectsChanged` 依赖 `BrowserWindow`）。
  */
 export function getDesktopProjectService(): ProjectService {
+	desktopProjectChangeHub ??= createProjectChangeHub();
 	desktopProjectService ??= new ProjectService({
 		allowProjectRoot,
 		createDirectory: createFilesystemDirectory,
 		readConfig: readDesktopConfig,
 		writeConfig: writeDesktopConfig,
 		broadcastChanged: broadcastProjectsChanged,
+		// 项目列表的落盘观察统一挂在 writeDesktopConfig 上（见 project-change-observation.ts），
+		// 这里不再单独通知，否则同一个变更会推进两次游标。
 		onRemoved: (path) => {
 			void getDesktopSchedulerServiceIfReady()?.handleProjectRemoved(path);
 		},
@@ -57,4 +63,10 @@ export function getDesktopProjectService(): ProjectService {
 		},
 	});
 	return desktopProjectService;
+}
+
+export function getDesktopProjectChangeHub(): ProjectChangeHub {
+	getDesktopProjectService();
+	if (!desktopProjectChangeHub) throw new Error("Project change hub is unavailable");
+	return desktopProjectChangeHub;
 }

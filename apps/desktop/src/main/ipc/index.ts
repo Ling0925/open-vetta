@@ -38,6 +38,7 @@ import { registerSshIpc } from "./ssh.js";
 import { registerTerminalIpc } from "./terminal.js";
 import { registerThemesIpc } from "./themes.js";
 import { registerUpdaterIpc } from "./updater.js";
+import { registerWebAccessIpc } from "./web-access.js";
 import { registerWebhookIpc } from "./webhook.js";
 
 interface IpcTeardown {
@@ -79,6 +80,7 @@ interface IpcTeardown {
 	teardownDiagnostics: () => void;
 	teardownOnboarding: () => void;
 	teardownRemotePairing: () => void;
+	teardownWebAccess: () => void;
 }
 
 export function registerAllIpc(
@@ -86,7 +88,8 @@ export function registerAllIpc(
 	options: {
 		actionApprovalBroker: ActionApprovalBroker;
 		pluginActionService: PluginActionService;
-		remotePairingService: import("../remote-control/desktop-remote-pairing-service.js").DesktopRemotePairingService;
+		readonly remotePairingService: import("../remote-control/desktop-remote-pairing-service.js").DesktopRemotePairingService;
+		readonly webAccessService: import("../web-access/web-access-service.js").DesktopWebAccessService;
 	},
 ): IpcTeardown {
 	return {
@@ -128,6 +131,7 @@ export function registerAllIpc(
 		teardownDiagnostics: registerDiagnosticsIpc(),
 		teardownOnboarding: registerOnboardingIpc(),
 		teardownRemotePairing: registerRemotePairingIpc(options.remotePairingService),
+		teardownWebAccess: registerWebAccessIpc(webContents, options.webAccessService),
 	};
 }
 
@@ -170,6 +174,7 @@ export function teardownAllIpc(teardown: IpcTeardown): void {
 	teardown.teardownDiagnostics();
 	teardown.teardownOnboarding();
 	teardown.teardownRemotePairing();
+	teardown.teardownWebAccess();
 }
 
 export { registerBatchTasksIpc } from "./batch-tasks.js";

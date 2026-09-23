@@ -67,6 +67,7 @@ import { stopAllPluginDevWatches } from "./plugins/plugin-dev-watch.js";
 import { migrateLegacyPluginSettings } from "./plugins/plugin-legacy-settings-migration.js";
 import { createDesktopPluginPackageOpenService } from "./plugins/plugin-package-open.js";
 import { PLUGIN_PROTOCOL_PRIVILEGES, registerPluginProtocols } from "./plugins/plugin-protocol.js";
+import { getDesktopProjectChangeHub, getDesktopProjectService } from "./projects/project-service-instance.js";
 import { refreshDesktopProxy } from "./proxy/proxy-host.js";
 import { stopAllUiohookConsumers } from "./quickpanel-trigger.js";
 import { createQuickPanelWindow } from "./quickpanel-window.js";
@@ -95,6 +96,7 @@ import {
 } from "./tray-manager.js";
 import { consumePendingUpdateRelaunch } from "./update-relaunch-marker.js";
 import { getAppVersion, runUpgradeE2e, updaterService } from "./updater.js";
+import { DesktopWebAccessService } from "./web-access/web-access-service.js";
 import {
 	createWindow,
 	getMainWindow,
@@ -246,6 +248,7 @@ let ipcTeardown: IpcTeardown | undefined;
 let teardownSchedulerIpc: (() => void) | undefined;
 let teardownBatchTasksIpc: (() => void) | undefined;
 let localRpcServer: DesktopLocalRpcServerHandle | undefined;
+let webAccessService: DesktopWebAccessService | undefined;
 let appMonitorInitializationPromise: Promise<void> | undefined;
 
 function ensureAppMonitorInitialized(): Promise<void> {
@@ -754,12 +757,18 @@ if (!gotSingleLock) {
 			conversationCwd: join(getVettaHomePath(), "conversation"),
 			defaultRelayBaseUrl: process.env.VETTA_REMOTE_RELAY_BASE_URL,
 		});
+		webAccessService = new DesktopWebAccessService({
+			projectService: getDesktopProjectService(),
+			projectChanges: getDesktopProjectChangeHub(),
+			webRoot: app.isPackaged ? join(appRoot, "web") : join(appRoot, "dist", "web"),
+		});
 
 		// Register IPC handlers
 		ipcTeardown = registerAllIpc(mainWindow.webContents, {
 			actionApprovalBroker,
 			pluginActionService,
 			remotePairingService,
+			webAccessService,
 		});
 		teardownBatchTasksIpc = registerBatchTasksIpc(mainWindow.webContents, batchTaskService, batchTaskReadyPromise);
 		// 知识库手动操作 IPC 只做桥接，先注册以保证 renderer 不会遇到缺失 handler；
@@ -910,6 +919,8 @@ setQuitCleanup(async () => {
 	mainLog.info("quit cleanup started");
 	await stopDesktopRemoteAccess();
 	await stopDesktopRemoteDesktopHost();
+	await webAccessService?.dispose();
+	webAccessService = undefined;
 	beginSharedRuntimeShutdown();
 	const knowledgeShutdown = shutdownKnowledgePoller();
 	if (teardownSchedulerIpc) {

@@ -126,7 +126,7 @@ const DEFAULT_CONFIG: DesktopConfig = {
 	appshot: { enabled: false, gesture: "both-shift" },
 };
 
-function migrateProjectEntries(entries: unknown): ProjectEntry[] {
+export function migrateProjectEntries(entries: unknown): ProjectEntry[] {
 	if (!Array.isArray(entries) || entries.length === 0) return [];
 	if (typeof entries[0] === "string") {
 		return (entries as string[]).map((path) => ({ path }));
@@ -351,6 +351,28 @@ function normalizeSshHosts(value: unknown): SshHost[] | undefined {
 }
 
 /**
+ * 配置落盘后的观察点。
+ *
+ * 项目列表的持久化写入分散在项目服务、项目导入、批量任务注册与通用配置保存多处，
+ * 只在其中几个调用点手动通知，下一个写入方就会漏掉。这里把通知放在唯一的文件写入
+ * 边界上：谁写进来的都算，调用方不必记得自己通知。
+ *
+ * `previous` 是写入前的磁盘内容（未按白名单解析），由观察方自行判断自己关心的字段
+ * 是否真的变了——本模块不认识「项目投影」这类领域概念。
+ */
+export type DesktopConfigWriteObserver = (change: {
+	readonly previous: Record<string, unknown>;
+	readonly next: DesktopConfig;
+}) => void;
+
+let configWriteObserver: DesktopConfigWriteObserver | undefined;
+
+/** 由需要观察某个配置领域的模块在装配时登记。进程内只保留一个观察者。 */
+export function setDesktopConfigWriteObserver(observer: DesktopConfigWriteObserver | undefined): void {
+	configWriteObserver = observer;
+}
+
+/**
  * 整文件写回，但保留磁盘上本版本不认识的字段。
  *
  * 新旧版本共用同一份 `~/.vetta`（开发版与已安装的正式版、或升级后又回退）。读路径
@@ -366,6 +388,11 @@ export async function writeDesktopConfig(config: DesktopConfig): Promise<void> {
 	// sshHosts 由 writeSshHosts 独占：调用方手里的是读配置那一刻的快照，拿它写回会盖掉
 	// 期间刚增删的主机。
 	atomicWriteJSON(CONFIG_PATH, { ...raw, ...config, sshHosts: undefined });
+	try {
+		configWriteObserver?.({ previous: raw, next: config });
+	} catch {
+		// 写入已经落盘，观察失败不能让调用方以为这次写入失败了。
+	}
 }
 
 function readRawConfigSync(): Record<string, unknown> {

@@ -9,6 +9,7 @@ export const DESKTOP_BUILD_OUTPUTS = Object.freeze([
 	{ source: "dist/main", target: "main" },
 	{ source: "dist/preload", target: "preload" },
 	{ source: "dist/renderer", target: "renderer" },
+	{ source: "dist/web", target: "web" },
 	{ source: "dist/ocr-preload", target: "ocr-preload" },
 	{ source: "dist/ocr-runner", target: "ocr-runner" },
 ]);
@@ -26,5 +27,6 @@ export const DESKTOP_REQUIRED_SOURCE_FILES = Object.freeze([
 	"src/preload/index.ts",
 	"src/preload/remote-desktop.ts",
 	"src/renderer/index.html",
+	"src/web/index.html",
 	"src/renderer/remote-desktop-host.html",
 ]);

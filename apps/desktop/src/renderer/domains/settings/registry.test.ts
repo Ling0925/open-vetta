@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { filterVisibleSettingsTabs, SETTINGS_TABS, type SettingsTabVisibilityContext } from "./registry";
+import {
+	filterVisibleSettingsTabs,
+	SETTINGS_SECTIONS,
+	SETTINGS_TABS,
+	type SettingsTabVisibilityContext,
+} from "./registry";
 
 const BASE: SettingsTabVisibilityContext = {
 	isPersonal: true,
@@ -34,6 +39,18 @@ describe("设置标签可见性", () => {
 		for (const context of [{ isMac: true }, { isWindows: true }, {}]) {
 			expect(visibleKeys(context)).toEqual(expect.arrayContaining(["general", "appearance", "models"]));
 		}
+	});
+
+	it("Web 访问标签不需要平台或登录条件", () => {
+		expect(visibleKeys({})).toContain("webAccess");
+	});
+});
+
+describe("设置分区表", () => {
+	// 重复 id 会让设置页把同一个分区渲染两次，并让 SETTINGS_SECTION 静默丢掉其中一个。
+	it("分区 id 唯一", () => {
+		const ids = SETTINGS_SECTIONS.map((section) => section.id);
+		expect(ids).toHaveLength(new Set(ids).size);
 	});
 });
 

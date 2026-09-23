@@ -26,6 +26,7 @@ import { createSystemApi } from "./apis/system.js";
 import { createTelemetryApi } from "./apis/telemetry.js";
 import { createTerminalApi } from "./apis/terminal.js";
 import { createThemesApi } from "./apis/themes.js";
+import { createWebAccessApi } from "./apis/web-access.js";
 import { createWebhookApi } from "./apis/webhook.js";
 
 /** Assemble the raw host API without assuming Electron or a particular transport. */
@@ -59,5 +60,6 @@ export function createRawDesktopApi(transport: DesktopHostTransport): Omit<Deskt
 		...createI18nApi(ipc),
 		...createTelemetryApi(ipc),
 		...createSystemApi(ipc, filePath),
+		...createWebAccessApi(ipc),
 	};
 }

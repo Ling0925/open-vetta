@@ -45,6 +45,7 @@ import type { DesktopTerminalApi } from "./api-types/terminal.js";
 import type { DesktopThemeApi } from "./api-types/theme.js";
 import type { DesktopThemesApi } from "./api-types/themes.js";
 import type { DesktopUpdaterApi } from "./api-types/updater.js";
+import type { DesktopWebAccessApi } from "./api-types/web-access.js";
 import type { DesktopWebhookApi } from "./api-types/webhook.js";
 import type { DesktopFsApi } from "./fs-types.js";
 
@@ -83,6 +84,7 @@ export type * from "./api-types/terminal.js";
 export type * from "./api-types/theme.js";
 export type * from "./api-types/themes.js";
 export type * from "./api-types/updater.js";
+export type * from "./api-types/web-access.js";
 export type * from "./api-types/webhook.js";
 
 export interface DesktopHostAccessApi {
@@ -130,6 +132,7 @@ export interface DesktopApi {
 	ssh: DesktopSshApi;
 	terminal: DesktopTerminalApi;
 	webhook: DesktopWebhookApi;
+	webAccess: DesktopWebAccessApi;
 	runtimes: DesktopRuntimesApi;
 	permissions: DesktopPermissionsApi;
 	notification: DesktopNotificationApi;

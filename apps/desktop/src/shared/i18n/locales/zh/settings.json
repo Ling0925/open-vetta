@@ -141,6 +141,36 @@
       "error": "需要检查"
     }
   },
+  "webAccess": {
+    "title": "Web 访问",
+    "description": "通过可信 HTTPS 代理连接这台 Desktop。当前只读项目目录，不读取文件、不修改项目、不运行任务。",
+    "serviceTitle": "本地 Web 服务",
+    "serviceHint": "默认关闭。启用后仅监听 127.0.0.1，外部 HTTPS 由你配置的可信代理或 HTTPS VPN 入口终止。配置和授权只保存在本次 Desktop 运行期间。",
+    "originLabel": "HTTPS 公网 Origin",
+    "originPlaceholder": "https://vetta.example.com",
+    "portLabel": "回环端口",
+    "save": "保存配置",
+    "enable": "启用 Web 访问",
+    "disable": "关闭 Web 访问",
+    "pairTitle": "浏览器配对",
+    "pairHint": "打开下方网页地址，在浏览器中输入一次性配对码。配对码 5 分钟后失效，只能使用一次。",
+    "pair": "生成配对码",
+    "webUrl": "网页地址",
+    "code": "一次性配对码",
+    "codeHint": "配对码仅显示在 Desktop 内存中，不会放进 URL、日志或配置文件。",
+    "grantsTitle": "已授权浏览器",
+    "grantsHint": "每个浏览器授权都可以单独撤销；撤销会立即结束其项目观察请求。",
+    "noGrants": "还没有授权浏览器",
+    "revoke": "撤销",
+    "revokeAll": "撤销全部",
+    "expiresAt": "有效期至 {{time}}",
+    "status": {
+      "disabled": "已关闭",
+      "starting": "正在启动",
+      "enabled": "已启用",
+      "error": "启动失败"
+    }
+  },
   "general": "常规",
   "appearance": {
     "title": "外观",
@@ -1097,8 +1127,10 @@
   "tabPet": "Vetta Vivi",
   "tabPermissions": "权限管理",
   "tabRemote": "远程连接",
+  "tabWebAccess": "Web 访问",
   "section_remote-pairing": "手机配对",
   "section_remote-permissions": "控制权限",
+  "section_web-access": "Web 访问",
   "section_general-basics": "基础",
   "section_general-network": "网络代理",
   "section_general-app": "应用",

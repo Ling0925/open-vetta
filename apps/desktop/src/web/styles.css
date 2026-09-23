@@ -1,0 +1,3 @@
+@import "../renderer/styles.css";
+
+@source "./**/*.{ts,tsx}";

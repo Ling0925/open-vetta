@@ -17,6 +17,7 @@ test("production build outputs have stable staging destinations", () => {
 			{ source: "dist/main", target: "main" },
 			{ source: "dist/preload", target: "preload" },
 			{ source: "dist/renderer", target: "renderer" },
+			{ source: "dist/web", target: "web" },
 			{ source: "dist/ocr-preload", target: "ocr-preload" },
 			{ source: "dist/ocr-runner", target: "ocr-runner" },
 		],
