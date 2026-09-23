@@ -1,5 +1,5 @@
 import { traceIdentifier, traceObject } from "@vetta/runtime-telemetry";
-import type { AgentObservationQuery } from "./contracts.js";
+import type { AgentObservationQuery, AgentObservationSummaryQuery } from "./contracts.js";
 
 export function parseAgentObservationQuery(input: unknown): AgentObservationQuery {
 	const value = traceObject(input);
@@ -25,5 +25,30 @@ export function parseAgentObservationQuery(input: unknown): AgentObservationQuer
 		errorsOnly: value.errorsOnly as boolean | undefined,
 		limit: value.limit as number | undefined,
 		cursor: value.cursor as string | undefined,
+	};
+}
+
+/** Aggregation window must stay bounded so a rogue caller cannot scan the whole 7-day buffer. */
+const SUMMARY_MAX_WINDOW_MS = 31 * 24 * 60 * 60 * 1000;
+
+export function parseAgentObservationSummaryQuery(input: unknown): AgentObservationSummaryQuery {
+	const value = traceObject(input);
+	if (
+		!value ||
+		Object.keys(value).some((key) => !["from", "to", "sessionId"].includes(key)) ||
+		typeof value.from !== "number" ||
+		!Number.isFinite(value.from) ||
+		value.from < 0 ||
+		typeof value.to !== "number" ||
+		!Number.isFinite(value.to) ||
+		value.to <= value.from ||
+		value.to - value.from > SUMMARY_MAX_WINDOW_MS ||
+		(value.sessionId !== undefined && !traceIdentifier(value.sessionId))
+	)
+		throw new Error("TRACE_QUERY_INVALID");
+	return {
+		from: value.from,
+		to: value.to,
+		sessionId: value.sessionId as string | undefined,
 	};
 }

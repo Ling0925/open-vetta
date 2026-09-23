@@ -129,7 +129,88 @@ describe("bounded local observability persistence and query", () => {
 		])
 			await expect(repository.query(input)).rejects.toThrow("TRACE_QUERY_INVALID");
 	});
+
+	it("summarize aggregates generation usage per model and slot bucket", async () => {
+		const { repository } = await fixture();
+		repository.append(
+			generation("g1", 10, {
+				provider: "LingAPI",
+				model: "kimi-k3-1",
+				api: "openai-completions",
+				usage: { input: 1000, output: 200, cacheRead: 500 },
+				cost: { total: 0.005 },
+				endedAt: 2010,
+			}),
+		);
+		repository.append(
+			generation("g2", 20, {
+				provider: "LingAPI",
+				model: "deepseek-v4",
+				usage: { input: 500, output: 100 },
+				cost: { total: 0.001 },
+				endedAt: 1020,
+				state: "error",
+			}),
+		);
+		repository.append(row("span-ignored", 30));
+		const summary = await repository.summarize({ from: 0, to: 10_000 });
+		expect(summary.requests).toBe(2);
+		expect(summary.input).toBe(1500);
+		expect(summary.costTotal).toBeCloseTo(0.006, 9);
+		expect(summary.models.map((model) => model.model)).toEqual(["kimi-k3-1", "deepseek-v4"]);
+		const kimi = summary.models[0];
+		expect(kimi.requests).toBe(1);
+		expect(kimi.outputSpeed).toBeCloseTo(100, 3);
+		expect(kimi.buckets).toHaveLength(1);
+		const deepseek = summary.models[1];
+		expect(deepseek.errors).toBe(1);
+		expect(deepseek.api).toBe("");
+	});
+
+	it("summarize rejects out-of-window or malformed queries", async () => {
+		const { repository } = await fixture();
+		for (const input of [
+			{},
+			{ from: 10, to: 10 },
+			{ from: 0, to: 32 * 24 * 60 * 60 * 1000 },
+			{ from: 0, to: 1000, sessionId: 42 },
+		])
+			await expect(repository.summarize(input)).rejects.toThrow("TRACE_QUERY_INVALID");
+	});
 });
+function generation(
+	id: string,
+	startedAt: number,
+	overrides: {
+		provider: string;
+		model: string;
+		api?: string;
+		usage: Record<string, number>;
+		cost: Record<string, number>;
+		endedAt?: number;
+		state?: RuntimeTraceRecord["state"];
+	},
+): RuntimeTraceRecord {
+	return {
+		schemaVersion: 1,
+		id,
+		traceId: "trace",
+		name: `llm.${overrides.provider}:${overrides.model}`,
+		kind: "generation",
+		startedAt,
+		...(overrides.endedAt === undefined ? {} : { endedAt: overrides.endedAt }),
+		state: overrides.state ?? "completed",
+		context: { sessionId: "session", turnId: "turn", modelCallId: id },
+		metadata: {
+			provider: overrides.provider,
+			model: overrides.model,
+			...(overrides.api ? { api: overrides.api } : {}),
+		},
+		usage: overrides.usage,
+		cost: overrides.cost,
+	};
+}
+
 function row(id: string, startedAt: number, state: RuntimeTraceRecord["state"] = "completed"): RuntimeTraceRecord {
 	return {
 		schemaVersion: 1,

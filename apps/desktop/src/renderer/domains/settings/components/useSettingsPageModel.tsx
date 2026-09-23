@@ -151,6 +151,15 @@ export function useSettingsPageModel(): SettingsPageModel {
 		() =>
 			visibleTabRegistrations.map((tab) => {
 				const item = toNavigationItem(tab);
+				if (tab.key === "modelUsage") {
+					return {
+						...item,
+						children: [
+							{ key: "model-usage:overview", label: t("modelUsage.childOverview"), icon: "icon-[solar--graph-up-linear]" },
+							{ key: "model-usage:pricing", label: t("modelUsage.childPricing"), icon: "icon-[solar--bill-list-linear]" },
+						],
+					};
+				}
 				if (tab.key !== "extensions" || extensionEntries.length === 0) return item;
 				return {
 					...item,
@@ -163,16 +172,30 @@ export function useSettingsPageModel(): SettingsPageModel {
 					})),
 				};
 			}),
-		[extensionEntries, toNavigationItem, visibleTabRegistrations],
+		[extensionEntries, toNavigationItem, visibleTabRegistrations, t],
 	);
 
 	return {
 		activeTab,
 		embeddedView,
-		onSelectNavigationChild: (key) => extensionsByKey.get(key)?.open(),
+		onSelectNavigationChild: (key) => {
+			if (key === "model-usage:overview" || key === "model-usage:pricing") {
+				void navigate({
+					to: "/settings/$tab",
+					params: { tab: "modelUsage" },
+					search: { section: key === "model-usage:pricing" ? "model-usage-pricing" : "model-usage-overview" },
+				});
+				return;
+			}
+			extensionsByKey.get(key)?.open();
+		},
 		activeNavigationChildKey: embeddedView
 			? workspaceViewNavKey(embeddedView.pluginId, embeddedView.viewId)
-			: undefined,
+			: activeTab === "modelUsage" && sectionId === "model-usage-pricing"
+				? "model-usage:pricing"
+				: activeTab === "modelUsage"
+					? "model-usage:overview"
+					: undefined,
 		onCloseEmbeddedView: () => {
 			void navigate({ to: "/settings/$tab", params: { tab: "extensions" }, search: {} });
 		},

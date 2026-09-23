@@ -1,7 +1,8 @@
-import type { RuntimeHost, SessionEvent } from "@vetta/runtime-core";
+import type { RuntimeHost, SessionEvent, UsageUpdateEvent } from "@vetta/runtime-core";
 import type { AppMonitorEvent, AppMonitorInputImageAttachment } from "../../preload/api-types/app-monitor.js";
 import { type AbilityLifecycleLogContext, logAbilityLifecycleEvent } from "../abilities/ability-lifecycle-log.js";
 import { getAppLogger } from "../logger.js";
+import { getModelUsageLedger } from "../model-usage/usage-ledger.js";
 import { formatDayKey, getDayBounds, getPreviousDayKey, getPreviousMonthKey } from "./app-monitor-calendar.js";
 import { type AppMonitorData, createDefaultAppMonitorData } from "./app-monitor-data.js";
 import {
@@ -408,6 +409,7 @@ class AppMonitorService {
 					data.usage.cacheWriteTokens += Math.max(0, event.cacheWrite);
 					data.usage.costTotal += Math.max(0, event.costTotal);
 				}, event.timestamp);
+				recordModelUsageLedger(event);
 				break;
 			case "compaction.start":
 				this.mutate((data) => {
@@ -1077,6 +1079,32 @@ function normalizeMetricKey(value: string): string {
 function minPositive(current: number, next: number): number {
 	if (next <= 0) return current;
 	return current === 0 ? next : Math.min(current, next);
+}
+
+/**
+ * 把每次模型调用追加到账本（NDJSON），供「模型用量」页与 CSV 导出使用。
+ * 只转发 usage.update 的聚合字段；append 内部异步落盘、失败只 warn，符合旁路约束。
+ */
+function recordModelUsageLedger(event: UsageUpdateEvent): void {
+	const model = event.model;
+	if (!model || typeof model.provider !== "string" || typeof model.id !== "string") return;
+	try {
+		getModelUsageLedger().append({
+			at: event.timestamp,
+			sessionId: event.sessionId,
+			provider: model.provider,
+			model: model.id,
+			...(typeof model.api === "string" ? { api: model.api } : {}),
+			input: Math.max(0, event.input),
+			output: Math.max(0, event.output),
+			cacheRead: Math.max(0, event.cacheRead),
+			cacheWrite: Math.max(0, event.cacheWrite),
+			costTotal: Math.max(0, event.costTotal),
+			state: "completed",
+		});
+	} catch (error) {
+		log.warn("model usage ledger append failed", error);
+	}
 }
 
 function normalizeAmountDelta(value: number): number {

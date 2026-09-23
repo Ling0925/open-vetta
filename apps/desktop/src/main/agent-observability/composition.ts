@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import { RuntimeTraceRecorder, type RuntimeTracer } from "@vetta/runtime-telemetry";
 import { createLangfuseRuntimeTracerFromEnv } from "@vetta/runtime-telemetry/langfuse";
-import type { AgentObservationQuery } from "./contracts.js";
+import type { AgentObservationQuery, AgentObservationSummaryQuery } from "./contracts.js";
 import { LocalAgentObservationRepository } from "./local-observation-repository.js";
 
 /** The Runtime composition owns both native execution spans and Hub observations. */
@@ -30,6 +30,7 @@ export function createDesktopAgentObservability(
 		tracer: recorder,
 		port: recorder,
 		query: (query: AgentObservationQuery) => repository.query(query),
+		summarize: (query: AgentObservationSummaryQuery) => repository.summarize(query),
 		close: () => recorder.close(),
 	};
 }

@@ -2,8 +2,10 @@ import { type ConversationUserMessageViewModel, createConversationUserMessage } 
 import { beforeEach, describe, expect, it } from "vitest";
 import {
 	clearOptimisticUserMessages,
+	forgetOptimisticUserMessage,
 	reconcileOptimisticUserMessages,
 	rememberOptimisticUserMessage,
+	supersedeOptimisticUserMessageForMirror,
 } from "./optimistic-user-message-cache";
 
 function user(id: string, text: string): ConversationUserMessageViewModel {
@@ -126,5 +128,38 @@ describe("optimistic user message reconciliation", () => {
 
 		expect(reconcileOptimisticUserMessages("runtime-b", [])).toEqual([]);
 		expect(reconcileOptimisticUserMessages("runtime-a", [])).toEqual([optimistic]);
+	});
+
+	it("发送时只看到尾部预览：序号偏小也能对齐到规范历史里的那一条", () => {
+		// 打开历史会话时先显示尾部预览（只有一条），此时发送算出的序号比规范
+		// 历史里的下标小；对账必须向后找到真正那条，而不是当成永远对不上账的残渣。
+		const optimistic = user("optimistic-1", "第三条");
+		rememberOptimisticUserMessage("runtime-a", optimistic, [user("preview-1", "第二条")]);
+		const history = [user("persisted-1", "第一条"), user("persisted-2", "第二条"), user("persisted-3", "第三条")];
+
+		expect(reconcileOptimisticUserMessages("runtime-a", history)).toEqual(history);
+	});
+
+	it("气泡已从列表撤下时，对账不再把它重新追加成重复消息", () => {
+		const optimistic = user("optimistic-1", "继续");
+		rememberOptimisticUserMessage("runtime-a", optimistic, []);
+
+		forgetOptimisticUserMessage("runtime-a", "optimistic-1");
+
+		const history = [user("persisted-1", "上一轮用户消息")];
+		expect(reconcileOptimisticUserMessages("runtime-a", history)).toEqual(history);
+	});
+
+	it("队列镜像接管乐观记录：沿用原序号，同一消息不留两份记录", () => {
+		const optimistic = user("optimistic-1", "排队消息");
+		rememberOptimisticUserMessage("runtime-a", optimistic, [user("persisted-1", "第一条")]);
+
+		const supersededId = supersedeOptimisticUserMessageForMirror("runtime-a", user("mirror-1", "排队消息"));
+
+		expect(supersededId).toBe("optimistic-1");
+		const history = [user("persisted-1", "第一条"), user("persisted-2", "排队消息")];
+		expect(reconcileOptimisticUserMessages("runtime-a", history)).toEqual(history);
+		// 接管过的记录不再被二次接管：同文本的后一条消息走正常新建路径。
+		expect(supersedeOptimisticUserMessageForMirror("runtime-a", user("mirror-2", "排队消息"))).toBeUndefined();
 	});
 });

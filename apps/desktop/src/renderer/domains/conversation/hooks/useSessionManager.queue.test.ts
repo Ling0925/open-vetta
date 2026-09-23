@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 
+import { createConversationUserMessage } from "@shared/conversation";
 import type { OpenSessionOptions, SessionExecutionMode } from "@shared/store/atoms";
 import { getDefaultStore } from "jotai";
 import { act, createElement } from "react";
@@ -279,16 +280,113 @@ it(
 	},
 );
 
-it("失步竞态：以为空闲实则已在跑（回执 queued）时撤掉抢先的乐观气泡", async () => {
+it("失步竞态：以为空闲实则已在跑（回执 queued）时撤掉抢先的乐观气泡及它的待确认记录", async () => {
 	mocks.prompt.mockImplementation(async () => ({ status: "queued", pendingCount: 1, queueItemId: "q-2" }));
 	const store = await mount("竞态消息", false);
 	const { chatMessagesAtom } = await import("@shared/store/atoms");
+	const { reconcileOptimisticUserMessages } = await import("../services/optimistic-user-message-cache");
 
 	await act(async () => {
 		await manager?.sendMessage();
 	});
 
 	expect(store.get(chatMessagesAtom).filter((message) => message.kind === "user")).toEqual([]);
+	// 气泡与待确认记录必须一起撤：记录留着而气泡不在，下一次历史回流会把它当作
+	// 「尚未确认」重新追加到列表末尾，屏幕上就是同一条用户消息又出现了一遍。
+	const history = [createConversationUserMessage({ id: "hist-1", text: "上一轮用户消息" })];
+	expect(reconcileOptimisticUserMessages(runtimeId, history)).toEqual(history);
+});
+
+it("queued 回执晚于队列消费时，历史回流只保留一条用户消息", { timeout: 30_000 }, async () => {
+	let eventHandler: SessionEventHandler | undefined;
+	const promptOutcome = deferred<unknown>();
+	mocks.prompt.mockImplementation(() => promptOutcome.promise);
+	const sessionApi = (window as unknown as { vetta: { session: Record<string, unknown> } }).vetta.session;
+	sessionApi.create = vi.fn(async () => ({ cwd, sessionId: runtimeId, sessionPath }));
+	sessionApi.getSessionPath = vi.fn(async () => sessionPath);
+	sessionApi.getState = vi.fn(async () => ({
+		activeToolNames: [],
+		contextPercent: null,
+		contextWindow: 128_000,
+		executionMode: "full-access",
+		isStreaming: false,
+		messageCount: 0,
+		model: null,
+		scenario: "project",
+	}));
+	const historyRef: { current: unknown[] } = { current: [] };
+	const getFullHistory = vi.fn(async () => historyRef.current);
+	sessionApi.getFullHistory = getFullHistory;
+	sessionApi.subscribe = vi.fn(async (_sessionId: string, handler: SessionEventHandler) => {
+		eventHandler = handler;
+		return vi.fn();
+	});
+
+	const store = await mount("重复消息", false);
+	const { chatMessagesAtom } = await import("@shared/store/atoms");
+	// 会话里已有一轮历史（屏幕上已显示上一条用户消息），随后用户再发一条。
+	store.set(chatMessagesAtom, [
+		createConversationUserMessage({ id: "hist-u1", entryId: "hist-u1", text: "上一轮用户消息" }),
+	]);
+	await act(async () => {
+		await manager?.openSession(cwd);
+	});
+	if (!eventHandler) throw new Error("subscribe handler not captured");
+	const emit = (event: unknown): void => {
+		act(() => eventHandler?.(event));
+	};
+	const base = {
+		schemaVersion: 1,
+		sessionId: runtimeId,
+		eventId: "e-race",
+		timestamp: Date.now(),
+		source: "runtime-core",
+	};
+
+	let sendPromise: ReturnType<SessionManagerProbe["sendMessage"]> | undefined;
+	await act(async () => {
+		sendPromise = manager?.sendMessage();
+	});
+	await vi.waitFor(() => expect(mocks.prompt).toHaveBeenCalledTimes(1));
+	// Runtime 的运行事件与 queue.changed 先于 prompt() 的 queued 回执抵达。
+	emit({ ...base, type: "session.lifecycle", phase: "agent_start" });
+	emit({
+		...base,
+		type: "queue.changed",
+		paused: false,
+		entries: [{ id: "q-race", behavior: "followUp", displayText: "重复消息" }],
+		snapshot: {},
+	});
+	emit({ ...base, type: "queue.changed", paused: false, entries: [], snapshot: {} });
+
+	promptOutcome.resolve({ status: "queued", pendingCount: 1, queueItemId: "q-race" });
+	await act(async () => {
+		await sendPromise;
+	});
+	expect(store.get(chatMessagesAtom).filter((message) => message.kind === "user")).toHaveLength(1);
+
+	historyRef.current = [
+		{ type: "message", entryId: "user-race", message: { role: "user", content: "重复消息" } },
+		{
+			type: "message",
+			entryId: "assistant-race",
+			message: { role: "assistant", content: [{ type: "text", text: "已处理" }], stopReason: "end_turn" },
+		},
+	];
+	const historyCallsBeforeEnd = getFullHistory.mock.calls.length;
+	emit({ ...base, type: "session.lifecycle", phase: "agent_end" });
+	await vi.waitFor(() =>
+		expect(store.get(chatMessagesAtom).some((message) => message.kind === "user" && message.id === "user-race")).toBe(
+			true,
+		),
+	);
+	expect(getFullHistory).toHaveBeenCalledTimes(historyCallsBeforeEnd + 1);
+	expect(
+		store
+			.get(chatMessagesAtom)
+			.filter((message) => message.kind === "user")
+			.map((message) => message.text),
+	).toEqual(["重复消息"]);
 });
 
 it("turn 内接力消费：第二条回复的流式内容开新气泡、排在补出的用户气泡之后", async () => {

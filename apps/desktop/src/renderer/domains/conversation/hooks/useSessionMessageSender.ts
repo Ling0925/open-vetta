@@ -63,7 +63,7 @@ import {
 	toChatErrorDetails,
 } from "../services/chat-service";
 import { planFailedResendRollback } from "../services/failed-resend-rollback";
-import { rememberOptimisticUserMessage } from "../services/optimistic-user-message-cache";
+import { forgetOptimisticUserMessage, rememberOptimisticUserMessage } from "../services/optimistic-user-message-cache";
 import { applyDraftPlanMode } from "../services/plan-mode-draft";
 import { getSessionRuntimeWhenReady } from "../services/session-runtime-readiness";
 import {
@@ -574,7 +574,10 @@ export function useSessionMessageSender({ bumpSuggestionToken }: SessionMessageS
 					if (optimisticUserMsgId) {
 						// 以为空闲实则已在跑：消息已入 kernel 队列，撤掉抢先的乐观气泡，
 						// 待消费时经 queue.changed 重新上屏，保证顺序与模型可见一致。
+						// 待确认记录必须一起撤：气泡没了而记录还在，下一次历史回流会把它
+						// 当作「尚未确认」重新追加，屏幕上就多出同一条用户消息。
 						const staleId = optimisticUserMsgId;
+						forgetOptimisticUserMessage(session.runtimeId, staleId);
 						setChatMessages((prev) => prev.filter((m) => m.id !== staleId));
 					}
 					sendResult = { status: "queued", queueItemId: outcome.queueItemId };

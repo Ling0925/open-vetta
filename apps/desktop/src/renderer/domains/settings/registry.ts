@@ -6,6 +6,7 @@ export type SettingsTabLabelKey =
 	| "tabAppearance"
 	| "tabContext"
 	| "tabModels"
+	| "tabModelUsage"
 	| "tabIm"
 	| "tabWebhook"
 	| "tabArchive"
@@ -54,6 +55,7 @@ export const SETTINGS_TABS: readonly SettingsTabRegistration[] = [
 	{ key: "appearance", label: "外观", labelKey: "tabAppearance", icon: "icon-[mdi--palette-outline]" },
 	{ key: "context", label: "Agent配置", labelKey: "tabContext", icon: "icon-[mdi--robot-outline]" },
 	{ key: "models", label: "模型配置", labelKey: "tabModels", icon: "icon-[mdi--brain]" },
+	{ key: "modelUsage", label: "模型用量", labelKey: "tabModelUsage", icon: "icon-[solar--chart-2-linear]" },
 	{
 		key: "sshHosts",
 		label: "SSH 主机",
@@ -117,6 +119,13 @@ export const SETTINGS_SECTIONS = [
 	{ tab: "models", id: "models-thinking", title: "思考模式", titleKey: "section_models-thinking" },
 	{ tab: "models", id: "models-preset-providers", title: "预设服务商", titleKey: "section_models-preset-providers" },
 	{ tab: "models", id: "models-providers", title: "服务商", titleKey: "section_models-providers" },
+	{ tab: "modelUsage", id: "model-usage-overview", title: "时段与指标总览", titleKey: "section_model-usage-overview" },
+	{
+		tab: "modelUsage",
+		id: "model-usage-pricing",
+		title: "价格标准与账单拆解",
+		titleKey: "section_model-usage-pricing",
+	},
 	{ tab: "mcp", id: "mcp-remote-list", title: "远程 MCP", titleKey: "section_mcp-remote-list" },
 	{ tab: "mcp", id: "mcp-remote-available", title: "可添加的远程 MCP", titleKey: "section_mcp-remote-available" },
 	{ tab: "mcp", id: "mcp-builtin-list", title: "推荐 MCP", titleKey: "section_mcp-builtin-list" },

@@ -17,6 +17,7 @@ import { registerFileTransferIpc } from "./file-transfer.js";
 import { registerFsIpc } from "./fs.js";
 import { registerImIpc } from "./im.js";
 import { registerMediaIpc } from "./media.js";
+import { registerModelUsageIpc } from "./model-usage.js";
 import { registerOnboardingIpc } from "./onboarding.js";
 import { registerPermissionsIpc } from "./permissions.js";
 import { registerPetIpc } from "./pet.js";
@@ -60,6 +61,7 @@ interface IpcTeardown {
 	teardownIm: () => void;
 	teardownMedia: () => void;
 	teardownDebug: () => void;
+	teardownModelUsage: () => void;
 	teardownProjectExport: () => void;
 	teardownProjects: () => void;
 	teardownSsh: () => void;
@@ -94,6 +96,7 @@ export function registerAllIpc(
 ): IpcTeardown {
 	return {
 		teardownAbilities: registerAbilitiesIpc(),
+		teardownModelUsage: registerModelUsageIpc(),
 		teardownAgentTeams: registerAgentTeamsIpc(),
 		teardownActionApproval: registerActionApprovalIpc(options.actionApprovalBroker),
 		teardownAppMonitor: registerAppMonitorIpc(),
@@ -137,6 +140,7 @@ export function registerAllIpc(
 
 export function teardownAllIpc(teardown: IpcTeardown): void {
 	teardown.teardownAbilities();
+	teardown.teardownModelUsage();
 	teardown.teardownAgentTeams();
 	teardown.teardownActionApproval();
 	teardown.teardownAppMonitor();

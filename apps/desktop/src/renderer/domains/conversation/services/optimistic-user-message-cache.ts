@@ -47,6 +47,58 @@ export function rememberOptimisticUserMessage(
 }
 
 /**
+ * 气泡被撤下时（例如 queued 回执证明消息只进了 kernel 队列、尚未被消费，
+ * 或重发回退截断了列表），它的待确认记录必须一起撤销。
+ *
+ * 记录留着而气泡不在，下一次对账会以「还没被规范历史确认」为由把气泡重新
+ * 追加回列表末尾——屏幕上就是同一条用户消息又出现了一遍。
+ */
+export function forgetOptimisticUserMessage(runtimeId: string, messageId: string): void {
+	const pending = pendingByRuntimeId.get(runtimeId);
+	if (!pending?.length) return;
+	const next = pending.filter((entry) => entry.message.id !== messageId);
+	if (next.length === pending.length) return;
+	if (next.length === 0) {
+		pendingByRuntimeId.delete(runtimeId);
+		return;
+	}
+	pendingByRuntimeId.set(runtimeId, next);
+}
+
+/**
+ * 队列条目被 turn 消费时，同一条消息可能已经作为乐观气泡显示过（发送时以为空闲、
+ * 实际已在跑，queued 回执随后才到）。此时就地接管那条待确认记录：沿用发送时算出的
+ * 目标序号，只把消息对象换成镜像气泡。
+ *
+ * 否则同一条消息会留下两份序号不同的待确认记录，其中一份永远对不上账，
+ * 最终以重复气泡的形式被重新追加到列表末尾。
+ *
+ * @returns 被接管的气泡 id，调用方需要把它从列表里移除；没有可接管记录时为 undefined。
+ */
+export function supersedeOptimisticUserMessageForMirror(
+	runtimeId: string,
+	message: ConversationUserMessageViewModel,
+): string | undefined {
+	const pending = pendingByRuntimeId.get(runtimeId);
+	if (!pending?.length) return undefined;
+	// 只接管发送路径留下的记录：镜像路径自己补的记录已被接管过，再接管会把
+	// 先前那条消息的气泡一并撤掉（同文本连发两次时可见）。
+	const index = pending.findIndex(
+		(entry) => entry.matchTextOnly !== true && sameText(entry.message.text, message.text),
+	);
+	if (index < 0) return undefined;
+	const superseded = pending[index];
+	const next = [...pending];
+	next[index] = {
+		message,
+		precedingUserCount: superseded.precedingUserCount,
+		matchTextOnly: true,
+	};
+	pendingByRuntimeId.set(runtimeId, next);
+	return superseded.message.id;
+}
+
+/**
  * Reconcile a freshly loaded canonical history with optimistic user bubbles.
  * Text is checked at the recorded ordinal so an identical older prompt cannot
  * accidentally acknowledge a newer pending send.
@@ -66,20 +118,21 @@ export function reconcileOptimisticUserMessages(
 		ConversationUserMessageViewModel["inputSegments"]
 	>();
 	const unresolved: PendingOptimisticUserMessage[] = [];
+	// 同一条规范消息不能被两条待确认气泡同时认领，否则先对上的那条会把另一条挤成孤儿。
+	const claimed = new Set<number>();
 	for (const entry of pending) {
-		const canonical = canonicalUsers[entry.precedingUserCount];
-		// 规范历史还没写到这个序号：本轮消息仍在落盘途中，无条件保留。
-		if (!canonical) {
-			unresolved.push(entry);
-			continue;
-		}
-		const confirmed = entry.matchTextOnly
-			? sameText(canonical.text, entry.message.text)
-			: sameUserMessage(canonical, entry.message);
-		if (confirmed) {
+		const matched = findCanonicalUserIndex(canonicalUsers, claimed, entry);
+		if (matched >= 0) {
+			claimed.add(matched);
+			const canonical = canonicalUsers[matched];
 			if (!entry.matchTextOnly && entry.message.inputSegments) {
 				confirmedSnapshots.set(canonical, entry.message.inputSegments);
 			}
+			continue;
+		}
+		// 规范历史还没写到这个序号：本轮消息仍在落盘途中，无条件保留。
+		if (!canonicalUsers[entry.precedingUserCount]) {
+			unresolved.push(entry);
 			continue;
 		}
 		const attempts = (entry.unresolvedReconciles ?? 0) + 1;
@@ -98,6 +151,30 @@ export function reconcileOptimisticUserMessages(
 		...applyConfirmedInputSnapshots(history, confirmedSnapshots),
 		...unresolved.map(({ message }) => message).filter((message) => !historyIds.has(message.id)),
 	];
+}
+
+/**
+ * 记录下的序号只是「记这条时屏幕上有几条用户消息」，不一定等于规范历史里的下标：
+ * 用户可能在历史还没加载完（只有尾部预览）时发送，也可能因队列镜像多算了一条
+ * 已被撤下的气泡。因此从记录序号起向后找第一条尚未被认领的匹配消息。
+ *
+ * 不向前回退：更早序号上的同文本消息可能是旧的一轮，认错会让新消息被提前吸收
+ * 并丢失结构化快照（见「相同文本只出现在更早序号」用例）。
+ */
+function findCanonicalUserIndex(
+	canonicalUsers: readonly ConversationUserMessageViewModel[],
+	claimed: ReadonlySet<number>,
+	entry: PendingOptimisticUserMessage,
+): number {
+	for (let index = entry.precedingUserCount; index < canonicalUsers.length; index += 1) {
+		if (claimed.has(index)) continue;
+		const canonical = canonicalUsers[index];
+		const matched = entry.matchTextOnly
+			? sameText(canonical.text, entry.message.text)
+			: sameUserMessage(canonical, entry.message);
+		if (matched) return index;
+	}
+	return -1;
 }
 
 function applyConfirmedInputSnapshots(

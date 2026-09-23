@@ -95,6 +95,12 @@ const BUILTIN_NAV_ITEMS = [
 	},
 	{
 		type: "route",
+		settingsTab: "modelUsage" as const,
+		labelKey: "sidebar.nav.modelUsage",
+		icon: "icon-[solar--chart-2-linear]",
+	},
+	{
+		type: "route",
 		settingsTab: "context" as const,
 		labelKey: "sidebar.nav.agentSettings",
 		icon: "icon-[solar--user-speak-rounded-linear]",

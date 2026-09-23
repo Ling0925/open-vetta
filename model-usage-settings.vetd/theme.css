@@ -1,0 +1,32 @@
+@import "@fontsource-variable/space-grotesk";
+@import "@fontsource-variable/plus-jakarta-sans";
+@import "@fontsource-variable/jetbrains-mono";
+
+@theme {
+	--font-display: "Space Grotesk Variable", "PingFang SC", "Microsoft YaHei", ui-sans-serif, system-ui, sans-serif;
+	--font-sans: "Plus Jakarta Sans Variable", "PingFang SC", "Microsoft YaHei", ui-sans-serif, system-ui, sans-serif;
+	--font-mono: "JetBrains Mono Variable", "SF Mono", "Menlo", ui-monospace, monospace;
+
+	--color-surface: oklch(17.5% 0.016 264);
+	--color-surface-raised: oklch(21.2% 0.018 264);
+	--color-surface-subtle: oklch(25% 0.02 264);
+	--color-surface-foreground: oklch(92% 0.01 260);
+	--color-muted: oklch(67% 0.018 262);
+	--color-subtle: oklch(52% 0.016 262);
+	--color-border: oklch(28.5% 0.018 264);
+
+	--color-primary: oklch(66% 0.17 266);
+	--color-primary-foreground: oklch(98.5% 0.004 266);
+	--color-accent: oklch(74% 0.14 202);
+	--color-success: oklch(73% 0.15 162);
+	--color-warning: oklch(78% 0.15 84);
+	--color-danger: oklch(65% 0.19 25);
+
+	--color-series-1: oklch(68% 0.17 268);
+	--color-series-2: oklch(73% 0.14 205);
+	--color-series-3: oklch(73% 0.15 162);
+	--color-series-4: oklch(77% 0.15 85);
+	--color-series-5: oklch(71% 0.15 328);
+
+	--radius-card: 10px;
+}

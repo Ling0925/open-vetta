@@ -1,8 +1,14 @@
 import { readFile, stat } from "node:fs/promises";
 import { parseRuntimeTraceRecord, type RuntimeTraceRecord, traceObject } from "@vetta/runtime-telemetry";
 import { atomicWriteJSONAsync } from "@vetta/toolkit/atomic-write";
-import type { AgentObservationHealth, AgentObservationPage } from "./contracts.js";
-import { parseAgentObservationQuery } from "./observation-query.js";
+import type {
+	AgentObservationHealth,
+	AgentObservationModelSummary,
+	AgentObservationPage,
+	AgentObservationSummary,
+	AgentObservationSummaryBucket,
+} from "./contracts.js";
+import { parseAgentObservationQuery, parseAgentObservationSummaryQuery } from "./observation-query.js";
 import { correlateAgentTraces } from "./trace-correlation.js";
 
 export interface LocalAgentObservationRepositoryOptions {
@@ -90,6 +96,94 @@ export class LocalAgentObservationRepository {
 		return {
 			records: page,
 			nextCursor: records.length > page.length && last ? `${last.startedAt}:${last.id}` : null,
+			health: { records: this.records.size, dropped: this.dropped, issue: this.issue },
+		};
+	}
+	async summarize(input: unknown): Promise<AgentObservationSummary> {
+		const query = parseAgentObservationSummaryQuery(input);
+		await this.flush();
+		this.prune();
+		const models = new Map<string, MutableModelSummary>();
+		const totals = { requests: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, costTotal: 0 };
+		for (const record of correlateAgentTraces([...this.records.values()])) {
+			if (record.kind !== "generation") continue;
+			if (record.startedAt < query.from || record.startedAt >= query.to) continue;
+			if (query.sessionId && record.context.sessionId !== query.sessionId) continue;
+			const provider = typeof record.metadata.provider === "string" ? record.metadata.provider : "";
+			const modelId = typeof record.metadata.model === "string" ? record.metadata.model : record.name;
+			const api = typeof record.metadata.api === "string" ? record.metadata.api : "";
+			const modelKey = `${provider}/${modelId}`;
+			let model = models.get(modelKey);
+			if (!model) {
+				model = {
+					model: modelId,
+					provider,
+					api,
+					requests: 0,
+					errors: 0,
+					input: 0,
+					output: 0,
+					cacheRead: 0,
+					cacheWrite: 0,
+					totalTokens: 0,
+					costTotal: 0,
+					totalDurationMs: 0,
+					maxDurationMs: 0,
+					buckets: new Map<number, MutableBucket>(),
+				};
+				models.set(modelKey, model);
+			}
+			const usage = record.usage;
+			const input = usage.input ?? 0;
+			const output = usage.output ?? 0;
+			const cacheRead = usage.cacheRead ?? 0;
+			const cacheWrite = usage.cacheWrite ?? 0;
+			const totalTokens = usage.totalTokens ?? input + output + cacheRead + cacheWrite;
+			const costTotal = record.cost.total ?? 0;
+			const durationMs = record.endedAt !== undefined ? Math.max(0, record.endedAt - record.startedAt) : 0;
+			model.requests += 1;
+			if (record.state === "error" || record.state === "interrupted") model.errors += 1;
+			model.input += input;
+			model.output += output;
+			model.cacheRead += cacheRead;
+			model.cacheWrite += cacheWrite;
+			model.totalTokens += totalTokens;
+			model.costTotal += costTotal;
+			model.totalDurationMs += durationMs;
+			model.maxDurationMs = Math.max(model.maxDurationMs, durationMs);
+			totals.requests += 1;
+			totals.input += input;
+			totals.output += output;
+			totals.cacheRead += cacheRead;
+			totals.cacheWrite += cacheWrite;
+			totals.totalTokens += totalTokens;
+			totals.costTotal += costTotal;
+			const bucketStart = record.startedAt - (record.startedAt % SUMMARY_BUCKET_MS);
+			let bucket = model.buckets.get(bucketStart);
+			if (!bucket) {
+				bucket = {
+					startedAt: bucketStart,
+					requests: 0,
+					errors: 0,
+					input: 0,
+					output: 0,
+					cacheRead: 0,
+					cacheWrite: 0,
+					costTotal: 0,
+				};
+				model.buckets.set(bucketStart, bucket);
+			}
+			bucket.requests += 1;
+			if (record.state === "error" || record.state === "interrupted") bucket.errors += 1;
+			bucket.input += input;
+			bucket.output += output;
+			bucket.cacheRead += cacheRead;
+			bucket.cacheWrite += cacheWrite;
+			bucket.costTotal += costTotal;
+		}
+		return {
+			...totals,
+			models: [...models.values()].map(finalizeModelSummary).sort((left, right) => right.costTotal - left.costTotal),
 			health: { records: this.records.size, dropped: this.dropped, issue: this.issue },
 		};
 	}
@@ -187,6 +281,60 @@ export class LocalAgentObservationRepository {
 		}
 	}
 }
+/** 时段图固定 2 小时一格，与用量页横轴一致。 */
+const SUMMARY_BUCKET_MS = 2 * 60 * 60 * 1000;
+
+interface MutableBucket {
+	startedAt: number;
+	requests: number;
+	errors: number;
+	input: number;
+	output: number;
+	cacheRead: number;
+	cacheWrite: number;
+	costTotal: number;
+}
+
+interface MutableModelSummary {
+	model: string;
+	provider: string;
+	api: string;
+	requests: number;
+	errors: number;
+	input: number;
+	output: number;
+	cacheRead: number;
+	cacheWrite: number;
+	totalTokens: number;
+	costTotal: number;
+	totalDurationMs: number;
+	maxDurationMs: number;
+	buckets: Map<number, MutableBucket>;
+}
+
+function finalizeModelSummary(model: MutableModelSummary): AgentObservationModelSummary {
+	const buckets: AgentObservationSummaryBucket[] = [...model.buckets.values()].sort(
+		(left, right) => left.startedAt - right.startedAt,
+	);
+	return {
+		model: model.model,
+		provider: model.provider,
+		api: model.api,
+		requests: model.requests,
+		errors: model.errors,
+		input: model.input,
+		output: model.output,
+		cacheRead: model.cacheRead,
+		cacheWrite: model.cacheWrite,
+		totalTokens: model.totalTokens,
+		costTotal: model.costTotal,
+		totalDurationMs: model.totalDurationMs,
+		maxDurationMs: model.maxDurationMs,
+		outputSpeed: model.totalDurationMs > 0 ? model.output / (model.totalDurationMs / 1000) : 0,
+		buckets,
+	};
+}
+
 function newestFirst(left: RuntimeTraceRecord, right: RuntimeTraceRecord): number {
 	return right.startedAt - left.startedAt || right.id.localeCompare(left.id);
 }

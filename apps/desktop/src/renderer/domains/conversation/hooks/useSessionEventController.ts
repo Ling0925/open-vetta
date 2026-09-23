@@ -63,6 +63,7 @@ import { applyAgentEndHistoryRefresh } from "../services/live-history-patch";
 import {
 	reconcileOptimisticUserMessages,
 	rememberOptimisticUserMessage,
+	supersedeOptimisticUserMessageForMirror,
 } from "../services/optimistic-user-message-cache";
 import { diffConsumedQueueEntries } from "../services/queue-mirror";
 import type { ActiveSessionHandle } from "./session-manager-types";
@@ -227,12 +228,22 @@ export function useSessionEventController({ activeSessionRef }: SessionEventCont
 						text: consumed.displayText,
 						timestamp: Date.now(),
 					});
-					// 镜像条目只有 displayText（无 attachments/promptRef 元数据），
-					// 规范消息回流后按文本吸收即可，避免元数据不等造成气泡残留。
-					rememberOptimisticUserMessage(sessionId, consumedMsg, queueStore.get(chatMessagesAtom), {
-						matchTextOnly: true,
+					// 这条消息可能早就作为乐观气泡显示了（发送时以为空闲、实际已在跑，queued
+					// 回执随后才到）：接管它的待确认记录并换掉旧气泡，而不是再记一份——两份序号
+					// 不同的记录里总有一份对不上账，会以重复气泡的形式残留。
+					const supersededId = supersedeOptimisticUserMessageForMirror(sessionId, consumedMsg);
+					if (supersededId === undefined) {
+						// 镜像条目只有 displayText（无 attachments/promptRef 元数据），
+						// 规范消息回流后按文本吸收即可，避免元数据不等造成气泡残留。
+						rememberOptimisticUserMessage(sessionId, consumedMsg, queueStore.get(chatMessagesAtom), {
+							matchTextOnly: true,
+						});
+					}
+					setChatMessages((prev) => {
+						const kept =
+							supersededId === undefined ? prev : prev.filter((message) => message.id !== supersededId);
+						return [...kept, consumedMsg];
 					});
-					setChatMessages((prev) => [...prev, consumedMsg]);
 				}
 				return;
 			}

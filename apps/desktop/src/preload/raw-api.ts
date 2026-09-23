@@ -11,6 +11,7 @@ import { createConversationTagsApi } from "./apis/conversation-tags.js";
 import { createDownloadsApi } from "./apis/downloads.js";
 import { createI18nApi } from "./apis/i18n.js";
 import { createImApi } from "./apis/im.js";
+import { createModelUsageApi } from "./apis/model-usage.js";
 import { createNotificationApi } from "./apis/notification.js";
 import { createPetApi } from "./apis/pet.js";
 import { createPluginsApi } from "./apis/plugins.js";
@@ -38,6 +39,7 @@ export function createRawDesktopApi(transport: DesktopHostTransport): Omit<Deskt
 		...createActionApprovalApi(ipc),
 		...createAppLifecycleApi(ipc),
 		...createAppMonitorApi(ipc),
+		...createModelUsageApi(ipc),
 		...createSessionApi(ipc),
 		...createSpeechInputApi(ipc),
 		...createImApi(ipc),

@@ -1,0 +1,43 @@
+{
+	"version": 1,
+	"type": "vetta-design",
+	"canvas": {
+		"x": 58.29110315374351,
+		"y": -0.5101207837148536,
+		"zoom": 0.6953914791532266
+	},
+	"frames": [
+		{
+			"id": "index",
+			"file": "frames/index.tsx",
+			"x": 0,
+			"y": 0,
+			"width": 1440,
+			"height": 900,
+			"title": "模型用量 · 时段与指标总览",
+			"meta": {
+				"width": 1440,
+				"height": 900,
+				"title": "模型用量 · 时段与指标总览"
+			}
+		},
+		{
+			"id": "pricing",
+			"file": "frames/pricing.tsx",
+			"x": 1520,
+			"y": 0,
+			"width": 1440,
+			"height": 900,
+			"title": "模型用量 · 价格标准与账单拆解",
+			"meta": {
+				"width": 1440,
+				"height": 900,
+				"title": "模型用量 · 价格标准与账单拆解"
+			}
+		}
+	],
+	"defaultFrameSize": {
+		"width": 1440,
+		"height": 900
+	}
+}

@@ -33,6 +33,7 @@ export type SidebarLabelKey =
 	| "sidebar.nav.scenes"
 	| "sidebar.nav.plugins"
 	| "sidebar.nav.modelSettings"
+	| "sidebar.nav.modelUsage"
 	| "sidebar.nav.agentSettings"
 	| "sidebar.nav.appearance"
 	| "sidebar.nav.extensions"

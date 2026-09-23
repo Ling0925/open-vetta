@@ -16,6 +16,7 @@ export const SETTINGS_TAB_LOADERS = {
 	im: async () => ({ default: (await import("./ImBridgeSettings")).ImBridgeSettings }),
 	knowledge: async () => ({ default: (await import("./KnowledgeBaseSettings")).KnowledgeBaseSettings }),
 	models: async () => ({ default: (await import("./ModelsSettings")).ModelsSettings }),
+	modelUsage: async () => ({ default: (await import("./ModelUsageSettings")).ModelUsageSettings }),
 	permissions: async () => ({ default: (await import("./PermissionsSettings")).PermissionsSettings }),
 	remote: async () => ({ default: (await import("./RemotePairingSettings")).RemotePairingSettings }),
 	webAccess: async () => ({ default: (await import("./WebAccessSettings")).WebAccessSettings }),
