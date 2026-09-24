@@ -33,6 +33,7 @@ export async function executeRuntimeToolCalls(request: ExecuteToolCallsRequest):
 		request.signal.throwIfAborted();
 		const result = await executeOne(call, request);
 		results.push(result);
+		request.signal.throwIfAborted();
 
 		const steeringMessages = await request.takeSteeringMessages?.({
 			modelCallIndex: request.modelCallIndex + 1,
@@ -73,6 +74,7 @@ async function executeOne(call: ToolCall, request: ExecuteToolCallsRequest): Pro
 		}
 	}
 
+	request.signal.throwIfAborted();
 	request.emit({
 		type: "tool_execution_finish",
 		call,
@@ -100,12 +102,17 @@ async function executeValidatedTool(
 			messages: request.messages,
 			signal: request.signal,
 		});
+		// Authorization may outlive cancellation; never launch a new side effect afterwards.
+		request.signal.throwIfAborted();
 		const executed = await tool.execute(input, {
 			toolCallId: call.id,
 			messages: request.messages,
 			signal: request.signal,
-			onUpdate: (update: RuntimeToolResult) => request.emit({ type: "tool_execution_update", call, update }),
+			onUpdate: (update: RuntimeToolResult) => {
+				if (!request.signal.aborted) request.emit({ type: "tool_execution_update", call, update });
+			},
 			reportPhase: (label) => {
+				if (request.signal.aborted) return;
 				const phase = { label, atMs: Date.now() - startedAt };
 				phases.push(phase);
 				request.emit({ type: "tool_execution_phase", call, phase });

@@ -1,6 +1,7 @@
 import { createRuntimeId } from "../id-generator.js";
 import type {
 	QueuedSessionInput,
+	QueuedSessionInputReservation,
 	SessionContextRecord,
 	SessionInput,
 	SessionInputQueueMode,
@@ -49,6 +50,7 @@ interface QueueSlot {
 export class SessionInputQueue implements TurnInputQueue {
 	private readonly steeringQueue: QueueSlot[] = [];
 	private readonly followUpQueue: QueueSlot[] = [];
+	private readonly reserved = new Set<QueueSlot>();
 	private currentSteeringMode: SessionInputQueueMode;
 	private currentFollowUpMode: SessionInputQueueMode;
 	private isPaused = false;
@@ -227,6 +229,67 @@ export class SessionInputQueue implements TurnInputQueue {
 		return this.takeFollowUpInputs().flatMap((input) => (input.message ? [input.message] : []));
 	}
 
+	/** Reservations remain in snapshots until preparation succeeds; release never resurrects removed inputs. */
+	reserveSteeringInputs(): QueuedSessionInputReservation {
+		return this.reserve(this.steeringQueue, this.currentSteeringMode);
+	}
+
+	reserveFollowUpInputs(): QueuedSessionInputReservation {
+		return this.reserve(this.followUpQueue, this.currentFollowUpMode, true);
+	}
+
+	reserveById(id: string): QueuedSessionInputReservation | undefined {
+		for (const queue of [this.steeringQueue, this.followUpQueue]) {
+			for (const slot of queue) {
+				if (slot.input.operation || this.reserved.has(slot)) break;
+				if (slot.id === id && isExecutableInput(slot.input)) return this.reserveSlots(queue, [slot]);
+			}
+		}
+		return undefined;
+	}
+
+	private reserve(
+		queue: QueueSlot[],
+		mode: SessionInputQueueMode,
+		stopAtOperation = false,
+	): QueuedSessionInputReservation {
+		const slots: QueueSlot[] = [];
+		if (!this.isPaused) {
+			for (const slot of queue) {
+				if (this.reserved.has(slot) || (stopAtOperation && slot.input.operation)) break;
+				slots.push(slot);
+				if (mode === "one-at-a-time") break;
+			}
+		}
+		return this.reserveSlots(queue, slots);
+	}
+
+	private reserveSlots(queue: QueueSlot[], slots: readonly QueueSlot[]): QueuedSessionInputReservation {
+		for (const slot of slots) this.reserved.add(slot);
+		let settled = false;
+		const isValid = () => !settled && slots.every((slot) => queue.includes(slot) && this.reserved.has(slot));
+		const release = () => {
+			if (settled) return;
+			settled = true;
+			for (const slot of slots) this.reserved.delete(slot);
+		};
+		return {
+			inputs: slots.map((slot) => slot.input),
+			isValid,
+			release,
+			commit: () => {
+				if (!isValid()) {
+					release();
+					return false;
+				}
+				release();
+				for (const slot of slots) queue.splice(queue.indexOf(slot), 1);
+				if (slots.length > 0) this.notifyChange();
+				return true;
+			},
+		};
+	}
+
 	takeSteeringInputs(): readonly QueuedSessionInput[] {
 		return this.take(this.steeringQueue, this.currentSteeringMode);
 	}
@@ -238,7 +301,7 @@ export class SessionInputQueue implements TurnInputQueue {
 	/** 按 id 显式取出一条完整输入（「立即发送」在空闲态直接开 turn 用）；无视 paused。 */
 	takeById(id: string): QueuedSessionInput | undefined {
 		for (const queue of [this.steeringQueue, this.followUpQueue]) {
-			const operationIndex = queue.findIndex((slot) => slot.input.operation !== undefined);
+			const operationIndex = queue.findIndex((slot) => slot.input.operation !== undefined || this.reserved.has(slot));
 			const index = queue.findIndex(
 				(slot, candidateIndex) =>
 					slot.id === id &&
@@ -256,7 +319,9 @@ export class SessionInputQueue implements TurnInputQueue {
 
 	/** 显式取出 followUp 队首一条完整输入（resumeQueue 以队首开启新 turn 用）。 */
 	takeFollowUpHead(): QueuedSessionInput | undefined {
-		const operationIndex = this.followUpQueue.findIndex((slot) => slot.input.operation !== undefined);
+		const operationIndex = this.followUpQueue.findIndex(
+			(slot) => slot.input.operation !== undefined || this.reserved.has(slot),
+		);
 		const index = this.followUpQueue.findIndex(
 			(slot, candidateIndex) =>
 				(operationIndex < 0 || candidateIndex < operationIndex) && isExecutableInput(slot.input),
@@ -318,7 +383,9 @@ export class SessionInputQueue implements TurnInputQueue {
 		stopAtOperation = false,
 	): readonly QueuedSessionInput[] {
 		if (this.isPaused || queue.length === 0) return [];
-		const operationIndex = stopAtOperation ? queue.findIndex((slot) => slot.input.operation !== undefined) : -1;
+		const operationIndex = queue.findIndex(
+			(slot) => this.reserved.has(slot) || (stopAtOperation && slot.input.operation !== undefined),
+		);
 		const availableCount = operationIndex < 0 ? queue.length : operationIndex;
 		if (availableCount === 0) return [];
 		const takeCount = mode === "all" ? availableCount : 1;

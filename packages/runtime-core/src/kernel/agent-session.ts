@@ -48,6 +48,8 @@ export class AgentSession {
 	private currentState: AgentSessionState = "idle";
 	private activeController: AbortController | undefined;
 	private activeTurn: Promise<SessionSendResult> | undefined;
+	private immediateSendPending = false;
+	private cancellationVersion = 0;
 	private activeQueueOperation: { readonly id: string; readonly operation: SessionQueueOperation } | undefined;
 	private continuationRequested = false;
 	private continuationDrain: Promise<void> | undefined;
@@ -340,7 +342,7 @@ export class AgentSession {
 
 	/**
 	 * 「立即发送」某条排队消息：running 时**打断当前 turn**、以该条目立刻开启新 turn
-	 * （在 kernel 内原子完成 take → cancel → start，没有渲染端等待/超时竞态）；
+	 * 条目在等待取消期间保留于队列；重新检查 admission 后才提交消费；
 	 * 空闲时直接开启新 turn。其余排队条目保留并保持可消费（用户显式要继续，
 	 * 不落入 pause-on-terminal）。
 	 */
@@ -349,23 +351,36 @@ export class AgentSession {
 	): Promise<
 		{ readonly status: "missing" } | { readonly status: "started"; readonly turn: Promise<SessionSendResult> }
 	> {
-		if (this.currentState === "closed" || this.currentState === "closing") {
-			throw sessionClosedError();
-		}
-		if (this.currentState === "recovery_required") throw turnPersistenceError();
+		this.assertOpenForAdmission();
+		if (this.immediateSendPending) throw sessionBusyError();
 		if (this.activeQueueOperation) return { status: "missing" };
-		// 先取出条目再打断：确保这条消息绝不因中途失败而丢失在「已出队未发送」状态——
-		// takeById 失败即早退，成功后它只存在于本调用栈，随 startTurn 进入持久化。
-		const input = this.inputQueue.takeById(id);
-		if (!input) return { status: "missing" };
-		if (this.currentState !== "idle") {
-			await this.cancel("send queued message now");
+		const reservation = this.inputQueue.reserveById(id);
+		if (!reservation) return { status: "missing" };
+		this.immediateSendPending = true;
+		try {
+			// cancel() changes its version synchronously; a later explicit stop must win.
+			const cancelling = this.currentState === "idle" ? undefined : this.cancel("send queued message now");
+			const cancellationVersion = this.cancellationVersion;
+			await cancelling;
+			await this.contextWrite;
+			this.assertIdleForAdmission();
+			if (this.cancellationVersion !== cancellationVersion) throw continuationCancelledError();
+			if (!reservation.isValid()) return { status: "missing" };
+			this.inputQueue.resume();
+			// Queue observers can synchronously close the session or remove this entry.
+			this.assertIdleForAdmission();
+			if (this.cancellationVersion !== cancellationVersion) throw continuationCancelledError();
+			if (!reservation.isValid()) return { status: "missing" };
+			const input = reservation.inputs[0];
+			if (!input) return { status: "missing" };
+			const turn = this.startQueuedInput(input);
+			reservation.commit();
+			return { status: "started", turn };
+		} finally {
+			reservation.release();
+			this.immediateSendPending = false;
+			if (!this.inputQueue.paused && !this.startQueuedOperationIfHead()) this.scheduleRequestedContinuations();
 		}
-		await this.contextWrite;
-		// cancel 的 pause-on-terminal 会冻结其余排队条目；用户点「立即发送」表达的
-		// 是继续消费，解除暂停让它们在新 turn 的自然停止点接力。
-		this.inputQueue.resume();
-		return { status: "started", turn: this.startQueuedInput(input) };
 	}
 
 	/**
@@ -398,6 +413,9 @@ export class AgentSession {
 	 * Omit `waitMs` to wait indefinitely.
 	 */
 	async cancel(reason?: string, options?: { readonly waitMs?: number }): Promise<void> {
+		this.cancellationVersion += 1;
+		if (this.immediateSendPending || this.inputQueue.pendingCount > 0) this.inputQueue.pause();
+		this.rejectContinuationWaiters(continuationCancelledError());
 		if (this.currentState !== "running" && this.currentState !== "cancelling") return;
 		this.currentState = "cancelling";
 		// A continuation queued behind the cancelled turn belongs to that turn's
@@ -425,22 +443,19 @@ export class AgentSession {
 
 	async close(): Promise<void> {
 		if (this.currentState === "closed") return;
-		if (!this.activeTurn) {
+		// Close admission before the first await, including the idle/context-write case.
+		this.currentState = "closing";
+		this.cancellationVersion += 1;
+		this.rejectContinuationWaiters(sessionClosedError());
+		this.activeController?.abort("Session closed");
+		try {
+			await this.activeTurn;
 			await this.contextWrite;
+		} finally {
 			this.inputQueue.clear();
 			this.nextTurnContext.length = 0;
 			this.currentState = "closed";
-			this.rejectContinuationWaiters(sessionClosedError());
-			return;
 		}
-
-		this.currentState = "closing";
-		this.activeController?.abort("Session closed");
-		await this.activeTurn;
-		this.inputQueue.clear();
-		this.nextTurnContext.length = 0;
-		this.currentState = "closed";
-		this.rejectContinuationWaiters(sessionClosedError());
 	}
 
 	private queueInput(behavior: SessionStreamingBehavior, input: SessionInput): QueuedSessionInputResult {
@@ -462,21 +477,21 @@ export class AgentSession {
 		continuationContext: readonly SessionContextRecord[] = [],
 		retrying = false,
 	): Promise<TurnResult> {
+		this.assertIdleForAdmission();
 		this.currentState = "running";
 		const controller = new AbortController();
 		this.activeController = controller;
-		const turn = input
-			? this.pipeline.run(this.identity, input, controller.signal, this.inputQueue)
-			: retrying
-				? this.pipeline.retry(this.identity, controller.signal, this.inputQueue)
-				: this.pipeline.continue(this.identity, controller.signal, this.inputQueue, continuationContext);
-		this.activeTurn = turn;
-
 		try {
+			const turn = input
+				? this.pipeline.run(this.identity, input, controller.signal, this.inputQueue)
+				: retrying
+					? this.pipeline.retry(this.identity, controller.signal, this.inputQueue)
+					: this.pipeline.continue(this.identity, controller.signal, this.inputQueue, continuationContext);
+			this.activeTurn = turn;
 			const result = await turn;
 			// pause-on-terminal（ADR-0060）：aborted/failed 收尾时冻结残留队列，
 			// 避免它们在下一个不相干的 turn 里被自然停止点突然消费。
-			if (result.status !== "completed" && this.inputQueue.pendingCount > 0) {
+			if ((controller.signal.aborted || result.status !== "completed") && this.inputQueue.pendingCount > 0) {
 				this.inputQueue.pause();
 			}
 			return result;
@@ -487,7 +502,7 @@ export class AgentSession {
 			if (this.inputQueue.pendingCount > 0) this.inputQueue.pause();
 			throw error;
 		} finally {
-			this.finishActiveTurn();
+			this.finishActiveTurn(controller);
 		}
 	}
 
@@ -497,6 +512,7 @@ export class AgentSession {
 		signal?: AbortSignal,
 	): Promise<SessionSendResult> {
 		signal?.throwIfAborted();
+		this.assertIdleForAdmission();
 		this.currentState = "running";
 		const controller = new AbortController();
 		this.activeController = controller;
@@ -507,11 +523,14 @@ export class AgentSession {
 		};
 		signal?.addEventListener("abort", abort, { once: true });
 		if (signal?.aborted) abort();
-		const turn = this.pipeline.runRequest(this.identity, request, controller.signal, this.inputQueue, preparer);
-		this.activeTurn = turn;
 		try {
+			const turn = this.pipeline.runRequest(this.identity, request, controller.signal, this.inputQueue, preparer);
+			this.activeTurn = turn;
 			const result = await turn;
-			if (result.status !== "completed" && result.status !== "handled" && this.inputQueue.pendingCount > 0) {
+			if (
+				(controller.signal.aborted || (result.status !== "completed" && result.status !== "handled")) &&
+				this.inputQueue.pendingCount > 0
+			) {
 				this.inputQueue.pause();
 			}
 			return result;
@@ -523,11 +542,12 @@ export class AgentSession {
 			throw error;
 		} finally {
 			signal?.removeEventListener("abort", abort);
-			this.finishActiveTurn();
+			this.finishActiveTurn(controller);
 		}
 	}
 
 	private startQueuedInput(input: QueuedSessionInput): Promise<SessionSendResult> {
+		this.assertIdleForAdmission();
 		if (input.request) return this.startRequest(input.request, this.inputRequestPreparer);
 		if (input.message) return this.startTurn(input as SessionInput);
 		throw new Error("Queued input does not contain a message or request");
@@ -537,26 +557,35 @@ export class AgentSession {
 		readonly id: string;
 		readonly operation: SessionQueueOperation;
 	}): Promise<SessionSendResult> {
+		this.assertIdleForAdmission();
 		this.currentState = "running";
 		this.activeQueueOperation = entry;
 		const controller = new AbortController();
 		this.activeController = controller;
 		const work = (async (): Promise<SessionSendResult> => {
+			let succeeded = false;
 			try {
 				if (!this.onQueueOperation) {
 					throw new Error(`Queued operation is unavailable: ${entry.operation.type}`);
 				}
 				await this.onQueueOperation(entry.operation, controller.signal);
+				controller.signal.throwIfAborted();
+				succeeded = true;
 			} catch (error) {
+				this.inputQueue.pause();
+				this.rejectContinuationWaiters(error);
 				try {
 					await this.onQueueOperationError?.(entry.operation, error);
 				} catch (reportError) {
 					console.warn("[runtime-core] failed to report queued operation error", reportError);
 				}
 			} finally {
-				if (this.activeQueueOperation?.id === entry.id) this.activeQueueOperation = undefined;
-				this.finishActiveTurn(true);
-				this.scheduleQueueAfterOperation();
+				if (this.activeController === controller) {
+					if (!succeeded || controller.signal.aborted) this.inputQueue.pause();
+					if (this.activeQueueOperation?.id === entry.id) this.activeQueueOperation = undefined;
+					this.finishActiveTurn(controller, true);
+					if (succeeded && !controller.signal.aborted) this.scheduleQueueAfterOperation();
+				}
 			}
 			return { status: "handled", sessionId: this.id };
 		})();
@@ -565,7 +594,12 @@ export class AgentSession {
 	}
 
 	private startQueuedOperationIfHead(): boolean {
-		if (this.currentState !== "idle" || this.inputQueue.paused || !this.inputQueue.peekFollowUpOperation()) {
+		if (
+			this.immediateSendPending ||
+			this.currentState !== "idle" ||
+			this.inputQueue.paused ||
+			!this.inputQueue.peekFollowUpOperation()
+		) {
 			return false;
 		}
 		const entry = this.inputQueue.takeFollowUpOperationHead();
@@ -575,8 +609,14 @@ export class AgentSession {
 	}
 
 	private scheduleQueueAfterOperation(): void {
+		const cancellationVersion = this.cancellationVersion;
 		queueMicrotask(() => {
-			if (this.currentState !== "idle" || this.inputQueue.paused) return;
+			if (
+				this.immediateSendPending ||
+				this.cancellationVersion !== cancellationVersion ||
+				this.currentState !== "idle" ||
+				this.inputQueue.paused
+			) return;
 			const entry = this.inputQueue.takeFollowUpOperationHead();
 			if (entry) {
 				void this.startQueuedOperation(entry);
@@ -607,7 +647,18 @@ export class AgentSession {
 		}
 	}
 
-	private finishActiveTurn(deferContinuations = false): void {
+	private assertOpenForAdmission(): void {
+		if (this.currentState === "closed" || this.currentState === "closing") throw sessionClosedError();
+		if (this.currentState === "recovery_required") throw turnPersistenceError();
+	}
+
+	private assertIdleForAdmission(): void {
+		this.assertOpenForAdmission();
+		if (this.currentState !== "idle") throw sessionBusyError();
+	}
+
+	private finishActiveTurn(controller: AbortController, deferContinuations = false): void {
+		if (this.activeController !== controller) return;
 		this.activeController = undefined;
 		this.activeTurn = undefined;
 		this.currentState =
@@ -621,7 +672,7 @@ export class AgentSession {
 	}
 
 	private scheduleRequestedContinuations(): void {
-		if (!this.continuationRequested || this.continuationDrain) return;
+		if (this.immediateSendPending || !this.continuationRequested || this.continuationDrain) return;
 		if (this.currentState === "closed" || this.currentState === "closing") {
 			this.rejectContinuationWaiters(sessionClosedError());
 			return;
