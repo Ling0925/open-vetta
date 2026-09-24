@@ -6,7 +6,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 export type ModelUsageRange = "24h" | "7d" | "30d" | "billingCycle";
-export type ModelUsageView = "overview" | "pricing";
 
 const MODEL_COLORS = ["indigo", "cyan", "emerald", "amber", "pink", "violet", "slate"] as const;
 
@@ -26,15 +25,11 @@ function rangeToMs(range: ModelUsageRange, now: number): { from: number; to: num
 	return { from: date.getTime(), to: now };
 }
 
-export function useModelUsageQuery(range: ModelUsageRange): ModelUsageQuery {
-	return useMemo(() => rangeToMs(range, Date.now()), [range]);
-}
-
 export interface ModelUsageModelState {
-	readonly view: ModelUsageView;
 	readonly range: ModelUsageRange;
 	readonly metric: "tokens" | "cost" | "requests";
 	readonly loading: boolean;
+	readonly error: boolean;
 	readonly exporting: boolean;
 	readonly summary: ModelUsageSummary | null;
 	readonly selectedSlotKey: string | undefined;
@@ -42,8 +37,8 @@ export interface ModelUsageModelState {
 }
 
 export interface ModelUsageModelActions {
-	readonly setView: (view: ModelUsageView) => void;
 	readonly setRange: (range: ModelUsageRange) => void;
+	readonly retry: () => void;
 	readonly setMetric: (metric: "tokens" | "cost" | "requests") => void;
 	readonly setSelectedSlotKey: (key: string | undefined) => void;
 	readonly exportCsv: () => Promise<void>;
@@ -59,16 +54,22 @@ export interface ModelUsageModel {
 export function useModelUsageModel(): ModelUsageModel {
 	const { t } = useTranslation("settings");
 	const config = useAtomValue(localModelsConfigAtom);
-	const [view, setView] = useState<ModelUsageView>("overview");
 	const [range, setRange] = useState<ModelUsageRange>("24h");
+	const [requestedAt, setRequestedAt] = useState(Date.now);
 	const [metric, setMetric] = useState<"tokens" | "cost" | "requests">("tokens");
 	const [loading, setLoading] = useState(false);
+	const [error, setError] = useState(false);
 	const [exporting, setExporting] = useState(false);
 	const [summary, setSummary] = useState<ModelUsageSummary | null>(null);
 	const [selectedSlotKey, setSelectedSlotKey] = useState<string | undefined>(undefined);
 	const requestSeq = useRef(0);
 
-	const query = useModelUsageQuery(range);
+	const query = useMemo(() => rangeToMs(range, requestedAt), [range, requestedAt]);
+	const changeRange = (next: ModelUsageRange) => {
+		setRange(next);
+		setRequestedAt(Date.now());
+	};
+	const retry = () => setRequestedAt((previous) => Math.max(Date.now(), previous + 1));
 
 	useEffect(() => {
 		void modelCatalog.revalidate({ sources: ["local"] });
@@ -77,17 +78,22 @@ export function useModelUsageModel(): ModelUsageModel {
 	useEffect(() => {
 		const seq = ++requestSeq.current;
 		setLoading(true);
+		setError(false);
+		setSummary(null);
 		window.vetta.modelUsage
 			.summary(query)
 			.then((result) => {
 				if (requestSeq.current === seq) setSummary(result);
 			})
 			.catch(() => {
-				if (requestSeq.current === seq) setSummary(null);
+				if (requestSeq.current === seq) setError(true);
 			})
 			.finally(() => {
 				if (requestSeq.current === seq) setLoading(false);
 			});
+		return () => {
+			requestSeq.current += 1;
+		};
 	}, [query]);
 
 	const defaultModelKey = useMemo(() => {
@@ -126,16 +132,16 @@ export function useModelUsageModel(): ModelUsageModel {
 
 	return {
 		state: {
-			view,
 			range,
 			metric,
 			loading,
+			error,
 			exporting,
 			summary,
 			selectedSlotKey,
 			defaultModelKey,
 		},
-		actions: { setView, setRange, setMetric, setSelectedSlotKey, exportCsv, syncOfficialPrices },
+		actions: { setRange: changeRange, retry, setMetric, setSelectedSlotKey, exportCsv, syncOfficialPrices },
 		config,
 	};
 }
@@ -188,7 +194,7 @@ export function formatSlotLabel(startedAt: number): string {
 	return `${String(startHour).padStart(2, "0")}-${String(endHour).padStart(2, "0")}`;
 }
 
-/** 把连续 12 个 2 小时槽位铺满 24h；其他区间按真实 bucket。 */
+/** 24 小时滚动窗口通常跨越 13 个两小时格，保留首尾的部分时段。 */
 export function buildOverviewSlots(summary: ModelUsageSummary | null): Array<{
 	startedAt: number;
 	label: string;
@@ -232,7 +238,7 @@ export function buildOverviewSlots(summary: ModelUsageSummary | null): Array<{
 			slot.byModel.set(key, prev);
 		}
 	}
-	// 24h 视图铺满 12 个槽；其他范围只画有数据的槽
+	// 24h 视图铺满所有相交的时段；其他范围只画有数据的时段
 	const slots: Array<{
 		startedAt: number;
 		label: string;
@@ -244,8 +250,7 @@ export function buildOverviewSlots(summary: ModelUsageSummary | null): Array<{
 	}> = [];
 	if (summary.to - summary.from <= 24 * 60 * 60 * 1000 + BUCKET_MS) {
 		const first = Math.floor(summary.from / BUCKET_MS) * BUCKET_MS;
-		for (let index = 0; index < 12; index += 1) {
-			const startedAt = first + index * BUCKET_MS;
+		for (let startedAt = first; startedAt < summary.to; startedAt += BUCKET_MS) {
 			const slot = slotMap.get(startedAt);
 			slots.push({
 				startedAt,

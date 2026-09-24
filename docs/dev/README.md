@@ -15,13 +15,13 @@ Vetta Debug 的会话操作参数见 [Vetta Debug](./vetta-debug.md)；真实模
 
 ## 验证 Profile
 
-所有命令都在仓库根目录执行。三个 Profile 使用不同的 Vetta home、Electron user data、Action RPC endpoint 和 Playwright session，因此可以与普通开发应用同时运行：
+所有命令都在仓库根目录执行。Fresh、Debug 和 Dev 使用互不相同的 Vetta home、Electron user data、Action RPC endpoint 和 Playwright session。Dev 专用于显式启动的隔离开发实例；普通 `dev` 默认共用正式版数据，不作为自动化 UI 验证对象：
 
 | Profile | 用途 | 数据生命周期 |
 | --- | --- | --- |
 | Fresh | 初始化、首次启动、空状态流程；也是无后缀命令的默认值 | 每次启动创建新的临时 home，从不复用上一次数据 |
 | Debug | 反复调试模型和 Agent 流程 | 使用当前工作树专属的 `~/.vetta-ui-debug/<workspace-id>`，重启后保留 |
-| Dev | 调试已经由 Desktop `dev` 命令启动的普通开发应用 | 只附着 `~/.vetta-dev`，验证脚本不会启动、同步或停止它 |
+| Dev | 附着由 Desktop `dev:isolated` 命令启动的开发应用 | 只附着 `~/.vetta-dev`，验证脚本不会启动、同步或停止它 |
 
 Fresh 标准流程：
 
@@ -34,7 +34,7 @@ bun run verify:ui:stop
 
 `verify:ui:start`、`status`、`pw`、`attach`、`debug`、`stop` 继续作为 Fresh 的兼容别名。`start` 会在后台启动实例，等待主 Renderer 的 CDP target 可用并完成 Playwright 附着后才返回；失败会在 120 秒内退出并给出 `logPath`，不再无限等待。
 
-Debug 首次启动时，从 `~/.vetta-dev` 白名单播种模型配置；之后使用自己的持久数据：
+Debug 首次启动时，从隔离开发目录 `~/.vetta-dev` 白名单播种模型配置；之后使用自己的持久数据，不会读取普通 `dev` 共用的正式版目录：
 
 ```powershell
 bun run verify:ui:start:debug
@@ -44,7 +44,7 @@ bun run verify:ui:debug:debug -- <Debug CLI 参数>
 bun run verify:ui:stop:debug
 ```
 
-Debug 停止后，可以显式同步开发环境当前的模型配置和相关凭据：
+Debug 停止后，可以显式同步隔离开发目录的模型配置和相关凭据：
 
 ```powershell
 bun run verify:ui:sync:debug
@@ -52,10 +52,10 @@ bun run verify:ui:sync:debug
 
 播种和同步只写入净化后的 `agent/models.json`，并复制其中 `credentialRef` 实际引用的 `models/api-key` 加密记录。模型参数和环境变量取密引用会保留，内联明文 key 与命令型取密配置会删除；凭据保持 Electron `safeStorage` 密文，不解密、不输出。首次播种还会生成一份关闭通知、知识库、Quick Panel 和 Appshot 后台能力的安全桌面配置，并只注册当前仓库。以下内容不会复制：会话、锁、Action RPC endpoint、登录态、项目历史、插件、MCP、Skill、调度器、批处理、IM/Webhook 数据和缓存。后续同步不会覆盖 Debug 中已经修改的桌面配置。
 
-要附着已经运行的普通开发应用，先在另一个终端启动 Desktop，再使用 Dev 命令：
+要附着已经运行的隔离开发应用，先在另一个终端启动 Desktop，再使用 Dev 命令；不要对共用正式版数据的普通 `dev` 实例运行此流程：
 
 ```powershell
-bun run --cwd apps/desktop dev
+bun run --cwd apps/desktop dev:isolated
 bun run verify:ui:status:dev
 bun run verify:ui:attach:dev
 bun run verify:ui:pw:dev -- snapshot

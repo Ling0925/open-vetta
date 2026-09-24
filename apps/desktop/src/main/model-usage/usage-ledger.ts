@@ -1,4 +1,4 @@
-import { appendFile, mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, readdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { getVettaHomePath } from "@vetta/action-rpc";
 import { getAppLogger } from "../logger.js";
@@ -59,6 +59,7 @@ export class ModelUsageLedger {
 
 	/** 读取时间范围内的全部记录（跨月自动拼接）。 */
 	async read(range: ModelUsageReadRange): Promise<ModelUsageRecord[]> {
+		await this.tail;
 		const months = monthKeysInRange(range.from, range.to);
 		const records: ModelUsageRecord[] = [];
 		for (const month of months) {
@@ -71,7 +72,18 @@ export class ModelUsageLedger {
 	}
 
 	/** 读取某个时间范围内已存在的记录并一次性重写（用于回填成本）。 */
-	async rewrite(
+	rewrite(range: ModelUsageReadRange, transform: (record: ModelUsageRecord) => ModelUsageRecord): Promise<number> {
+		const work = this.tail.then(() => this.rewriteUnsafe(range, transform));
+		this.tail = work.then(
+			() => undefined,
+			(error: unknown) => {
+				log.warn("rewrite failed", error);
+			},
+		);
+		return work;
+	}
+
+	private async rewriteUnsafe(
 		range: ModelUsageReadRange,
 		transform: (record: ModelUsageRecord) => ModelUsageRecord,
 	): Promise<number> {
@@ -159,7 +171,6 @@ export class ModelUsageLedger {
 	private async writeFileAtomic(filePath: string, content: string): Promise<void> {
 		const temporary = `${filePath}.${this.now()}.tmp`;
 		await writeFile(temporary, content, "utf8");
-		await rm(filePath, { force: true });
 		await rename(temporary, filePath);
 	}
 }

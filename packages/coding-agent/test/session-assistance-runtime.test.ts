@@ -27,7 +27,12 @@ function assistantText(model: Model<Api>, text: string): AssistantMessage {
 	};
 }
 
-function assistantToolCall(model: Model<Api>, name: string, args: unknown, id = "call-1"): AssistantMessage {
+function assistantToolCall(
+	model: Model<Api>,
+	name: string,
+	args: Record<string, unknown>,
+	id = "call-1",
+): AssistantMessage {
 	return {
 		...createAssistantMessage({ api: model.api, provider: model.provider, model: model.id }),
 		content: [{ type: "toolCall", id, name, arguments: args }],
@@ -144,6 +149,19 @@ describe("CodingAgentSessionAssistanceRuntime", () => {
 		expect(sanitizeAutoTitle('  "修复 Runtime 架构。"  ')).toBe("修复 Runtime 架构");
 		expect(sanitizeSuggestions('analysis [step 1]\n["继续重构", "补充测试"]')).toEqual(["继续重构", "补充测试"]);
 		expect(cleanSuggestionList(["继续重构", "继续重构", 42, "补充测试"])).toEqual(["继续重构", "补充测试"]);
+	});
+
+	it("keeps the reasoning-channel fallback for next-prompt suggestions", async () => {
+		const model = createModel("suggest-thinking", "model");
+		const { runtime } = createTitleRuntime(model, [
+			{
+				...createAssistantMessage({ api: model.api, provider: model.provider, model: model.id }),
+				content: [{ type: "thinking", thinking: '先看当前实现。\n["继续重构", "补充测试"]' }],
+			},
+		]);
+
+		// 与标题不同，下一问建议仍接受推理通道里的候选项；两者共用该回退时不得互相牵连。
+		await expect(runtime.generateNextPrompts("用户：重构 runtime")).resolves.toEqual(["继续重构", "补充测试"]);
 	});
 
 	it("truncates over-long titles at the same limit the title prompt asks for", () => {

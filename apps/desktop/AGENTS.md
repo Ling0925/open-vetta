@@ -367,7 +367,7 @@ imLog.debug("sidecar debug message");
 
 `bun run verify:ui:*` 是按需启动或附着真实 Desktop、观察 Renderer UI 的人工验收入口，不是功能测试或常规质量门禁。只有用户在当前任务中明确要求运行 UI 验证、操作真实 Desktop 或执行具体 `verify:ui:*` 命令时才能使用；修改 UI、图标、样式、Renderer 或 Main 本身不构成授权。未获授权时使用组件/Hook 测试、合同测试和适用的 WebdriverIO/Electron E2E 覆盖行为风险，不要为了获得授权而例行追问。
 
-获得授权后默认附着已经运行的 Dev Profile，使用根目录的 `verify:ui:status:dev`、`verify:ui:attach:dev` 和 `verify:ui:pw:dev`；Fresh 只用于首次启动、空状态、迁移、隔离数据等确实需要新环境的验收，或用户明确指定 Fresh 的场景。Dev 是用户日常开发实例，不得替用户启动、停止或清理它。
+获得授权后优先附着由 `dev:isolated` 启动的隔离开发实例，使用根目录的 `verify:ui:status:dev`、`verify:ui:attach:dev` 和 `verify:ui:pw:dev`；普通 `dev` 默认共用正式版数据，不能作为 Dev Profile 的验证对象。Fresh 只用于首次启动、空状态、迁移、隔离数据等确实需要新环境的验收，或用户明确指定 Fresh 的场景。Dev 是用户日常启动的隔离开发实例，不得替用户启动、停止或清理它。
 
 ### bun dev 前置依赖构建
 

@@ -32,12 +32,13 @@ cd apps/desktop
 bun run dev
 ```
 
-会同时启动 Vite renderer、主题开发服务器和 Electron。数据目录是 `~/.vetta-dev`，不会动已安装应用的 `~/.vetta`。
+会同时启动 Vite renderer、主题开发服务器和 Electron。默认与已安装应用共用 `~/.vetta` 数据，启动前先退出正式版；开发操作可能改写真实数据。需要隔离数据时使用 `dev:isolated`。
 
 | 命令 | 数据根 | 什么时候用 |
 |---|---|---|
-| `bun run dev` | `~/.vetta-dev` | 默认沙箱 |
-| `bun run dev:home` | `~/.vetta` | 希望开发构建读写真实用户数据 |
+| `bun run dev` | `~/.vetta` | 默认：使用本机真实用户数据调试 |
+| `bun run dev:isolated` | `~/.vetta-dev` | 需要与正式版数据隔离 |
+| `bun run dev:home` | `~/.vetta` | 与默认入口相同，保留兼容 |
 
 仓库**根目录**的 `bun run dev` 只监视核心库，不会启动应用。
 

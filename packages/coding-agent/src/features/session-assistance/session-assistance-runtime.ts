@@ -274,6 +274,18 @@ function readText(content: readonly unknown[]): string {
 		.join("")
 		.trim();
 }
+// 下一问建议是启发式回退：模型把候选写在推理通道时，思考文本仍比没有强；
+// 只是要先抽掉推理散文，再由 sanitizeSuggestions 从方括号数组里取值。
+function readThinking(content: readonly unknown[]): string {
+	return content
+		.filter(
+			(item): item is { readonly type: "thinking"; readonly thinking: string } =>
+				isRecord(item) && item.type === "thinking" && typeof item.thinking === "string",
+		)
+		.map((item) => item.thinking)
+		.join("\n")
+		.trim();
+}
 
 function readTitleToolCall(content: readonly unknown[]): string {
 	const toolCall = content.find(

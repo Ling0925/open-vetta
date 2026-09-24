@@ -142,19 +142,14 @@ Run `bun dev` from this package after installing the monorepo dependencies. The 
 uses the root Turborepo task graph and local cache to build changed workspace prerequisites, stages
 plugin and theme manifests, then starts the renderer, theme server, and Electron process in parallel.
 
-Normal development is isolated from packaged application data: it defaults to
-`VETTA_CONFIG_DIR=.vetta-dev` and stores the Chromium profile under
-`~/.vetta-dev/electron-user-data`. Packaged builds continue to use `~/.vetta`. Set
-`VETTA_CONFIG_DIR` and `VETTA_DESKTOP_USER_DATA_DIR` together when a custom isolated development
-environment is required.
+Normal development shares the installed application's `~/.vetta` data and Chromium profile by default. Quit the installed app before launching it to avoid concurrent writes; development code may modify real user data. The default development launcher requires App Action approval when using that data. To use a separate `~/.vetta-dev` profile, run the isolated entry point. Set `VETTA_CONFIG_DIR` and `VETTA_DESKTOP_USER_DATA_DIR` together when a custom isolated development environment is required.
 
-Because the Chromium profile is derived from the config directory, switching `VETTA_CONFIG_DIR`
-switches the whole environment — data root and browser profile — with no shared state between them.
-Two scripts make the common pair explicit:
+Switching `VETTA_CONFIG_DIR` switches the data root and browser profile together; no existing data is migrated between them. The supported entry points are:
 
 ```bash
-bun run dev:isolated   # ~/.vetta-dev (same as `bun dev`)
-bun run dev:home       # ~/.vetta
+bun run dev            # ~/.vetta (default)
+bun run dev:home       # ~/.vetta (compatibility alias)
+bun run dev:isolated   # ~/.vetta-dev
 ```
 
 Saved credentials are shared too: `safeStorage` derives its master key from the Electron app name, so
@@ -162,10 +157,7 @@ that name is fixed by `src/shared/app-identity.ts` and must stay equal to the na
 packaged `package.json` by `scripts/prepare-pack.js`. Changing it strands every credential already
 encrypted under the old name.
 
-`bun run dev:home` shares `~/.vetta` with packaged builds; do not run both at the same time, since
-the single-instance lock keys on the Chromium profile and will not stop the second process. The
-project-level `<cwd>/.vetta` directory is intentionally fixed and does not follow `VETTA_CONFIG_DIR`
-(see `packages/coding-agent/src/config.ts`).
+`bun run dev` and `bun run dev:home` share `~/.vetta` with packaged builds; do not run them alongside the installed app, since the single-instance lock keys on the Chromium profile and will not stop the second process. The project-level `<cwd>/.vetta` directory is intentionally fixed and does not follow `VETTA_CONFIG_DIR` (see `packages/coding-agent/src/config.ts`).
 
 Set `VETTA_CONFIG_DIR` on the command line, not in `.env.development`: the dev launcher is plain
 Node and never reads `.env` files, so a value placed there would only reach the vite-inlined main

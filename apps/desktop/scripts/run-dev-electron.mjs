@@ -55,7 +55,7 @@ function canConnect(port) {
 export function resolveDevLaunchEnvironment(environment = process.env, homeDirectory = homedir()) {
 	const verificationEnabled = environment.VETTA_UI_VERIFICATION === "1";
 	const configDir =
-		environment.VETTA_CONFIG_DIR?.trim() || (verificationEnabled ? ".vetta-ui-verify" : ".vetta-dev");
+		environment.VETTA_CONFIG_DIR?.trim() || (verificationEnabled ? ".vetta-ui-verify" : ".vetta");
 	const configuredUserDataDir = environment.VETTA_DESKTOP_USER_DATA_DIR?.trim();
 	const userDataDir = configuredUserDataDir
 		? resolve(configuredUserDataDir)
@@ -74,12 +74,15 @@ export function resolveDevPluginIds(
 	return tenant.pluginIds ? Array.from(tenant.pluginIds).sort().join(",") : "";
 }
 
-export function resolveDevProcessEnvironment(environment = process.env) {
+export function resolveDevProcessEnvironment(
+	environment = process.env,
+	configDir = resolveDevLaunchEnvironment(environment).configDir,
+) {
 	return {
 		...environment,
-		// Keep local action/plugin iteration frictionless without weakening packaged builds.
-		// Set to "0" when manually testing the approval flow in development.
-		VETTA_DEV_AUTO_APPROVE_ACTIONS: environment.VETTA_DEV_AUTO_APPROVE_ACTIONS ?? "1",
+		// Shared installed-app data must not inherit the isolated development approval bypass.
+		VETTA_DEV_AUTO_APPROVE_ACTIONS:
+			environment.VETTA_DEV_AUTO_APPROVE_ACTIONS ?? (configDir === ".vetta" ? "0" : "1"),
 	};
 }
 
@@ -103,7 +106,7 @@ async function main() {
 	const electronProcess = spawn(electronPath, electronArgs, {
 		cwd: projectRoot,
 		env: {
-			...resolveDevProcessEnvironment(),
+			...resolveDevProcessEnvironment(process.env, configDir),
 			VETTA_CONFIG_DIR: configDir,
 			VETTA_DESKTOP_DEV_URL: rendererUrl,
 			VETTA_PLUGIN_DEV: pluginIds,

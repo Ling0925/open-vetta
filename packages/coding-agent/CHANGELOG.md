@@ -30,6 +30,8 @@
 
 - 自动标题不再把推理通道的末行当标题：标题调用现在带 `provide_session_title` 结构化工具，结果优先取工具参数与可见正文，不再回退到 thinking 文本。此前模型把结论写在 thinking 通道时，思考片段会成为会话名（真实样本：中文提问得到 `We need answer`）。
 
+- 修回被误删的 `readThinking`：上一版从标题链路删除 thinking 回退时连同该函数一起删了，而 `generateNextPrompts` 仍用它兜底，`tsgo -p tsconfig.build.json` 因此报 TS2304。现在标题继续不读 thinking，下一问建议保留原有的推理通道回退。
+
 - Session execution owner 尚未完成索引或正在回滚时，全局工具 Provider 不再贡献 `shell`、`bash`、`read`、`write`、`edit` 等 Session 工具，避免与 Session-local 工具产生重复定义。
 
 - 模型输出在思考阶段就耗尽预算、正文零产出时不再注入"从中断处继续"的续接消息：这种截断无处可续，只会再烧三轮后判死，现在直接给出失败原因，并带上上游自报的输出 token 数——这个数常常远小于模型上限，因为这类网关既不上报隐藏推理 token，也会丢掉截断中途未完成的工具调用。续接次数在模型恢复正常收尾后归零，长 Turn 里零散的网关抖动不会再累积到判死。

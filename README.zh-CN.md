@@ -71,7 +71,7 @@ cd apps/desktop
 bun run dev
 ```
 
-开发应用默认使用 `~/.vetta-dev`，不会改动正式安装版位于 `~/.vetta` 的数据。仓库根目录的 `bun run dev` 只监听核心库，不会启动 Electron。完整环境准备与检查命令见 [`QUICKSTART.zh-CN.md`](QUICKSTART.zh-CN.md)。
+开发应用默认与正式安装版共用 `~/.vetta` 数据，调试前请退出正式版，避免两个进程同时写入。需要隔离数据时，在 `apps/desktop` 运行 `bun run dev:isolated`（使用 `~/.vetta-dev`）。仓库根目录的 `bun run dev` 只监听核心库，不会启动 Electron。完整环境准备与检查命令见 [`QUICKSTART.zh-CN.md`](QUICKSTART.zh-CN.md)。
 
 ## 可以用它做什么
 

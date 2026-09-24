@@ -71,7 +71,7 @@ cd apps/desktop
 bun run dev
 ```
 
-The development app uses `~/.vetta-dev` by default, keeping installed-app data in `~/.vetta` untouched. Root-level `bun run dev` watches core libraries; it does not launch Electron. See [`QUICKSTART.md`](QUICKSTART.md) for the complete setup and validation commands.
+The development app shares the installed app's `~/.vetta` data by default. Quit the installed app before starting development to avoid concurrent writes. Run `bun run dev:isolated` from `apps/desktop` to use `~/.vetta-dev` instead. Root-level `bun run dev` watches core libraries; it does not launch Electron. See [`QUICKSTART.md`](QUICKSTART.md) for the complete setup and validation commands.
 
 ## What you can do
 

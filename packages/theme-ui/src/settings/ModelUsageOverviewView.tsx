@@ -203,9 +203,9 @@ export function ModelUsageOverviewView({
 		topModels.map((model) => model.name).join(" 与 "),
 	);
 	return (
-		<div className="flex flex-col gap-5">
+		<div className="flex flex-col gap-6">
 			{/* 页头 */}
-			<div className="flex flex-wrap items-start justify-between gap-3">
+			<div className="flex flex-wrap items-start justify-between gap-4 pb-1">
 				<div className="min-w-0">
 					<div className="flex items-center gap-2">
 						<h1 className="text-[20px] font-bold text-foreground">{labels.title}</h1>
@@ -215,7 +215,7 @@ export function ModelUsageOverviewView({
 					</div>
 					<p className="mt-1.5 text-[12px] text-muted-foreground">{labels.description}</p>
 				</div>
-				<div className="flex items-center gap-2">
+				<div className="flex flex-wrap items-center gap-2">
 					<div className="flex items-center gap-1 rounded-lg bg-muted/50 p-1">
 						{ranges.map((item) => (
 							<button
@@ -243,8 +243,8 @@ export function ModelUsageOverviewView({
 			</div>
 
 			{/* 顶部统计卡 */}
-			<div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-				<div className="rounded-xl border border-border/50 bg-card/40 px-3.5 py-3">
+			<div className="grid grid-cols-2 gap-4 @min-[58rem]:grid-cols-4">
+				<div className="rounded-xl border border-border/50 bg-card/40 p-4">
 					<div className="flex items-center justify-between text-[11px] text-muted-foreground">
 						<span>{labels.stats.periodCost}</span>
 						{stats.vsLastPeriod !== undefined && (
@@ -259,7 +259,7 @@ export function ModelUsageOverviewView({
 						{formatCost(stats.cacheSavings)}
 					</div>
 				</div>
-				<div className="rounded-xl border border-border/50 bg-card/40 px-3.5 py-3">
+				<div className="rounded-xl border border-border/50 bg-card/40 p-4">
 					<div className="text-[11px] text-muted-foreground">
 						{labels.stats.totalTokens}（{labels.stats.activeModels(stats.activeModelCount)}）
 					</div>
@@ -272,7 +272,7 @@ export function ModelUsageOverviewView({
 						{formatTokens(stats.cacheReadTokens)} · {labels.stats.outputLabel} {formatTokens(stats.outputTokens)}
 					</div>
 				</div>
-				<div className="rounded-xl border border-border/50 bg-card/40 px-3.5 py-3">
+				<div className="rounded-xl border border-border/50 bg-card/40 p-4">
 					<div className="text-[11px] text-muted-foreground">{labels.stats.requests}</div>
 					<div className="mt-1.5 text-[20px] font-bold tabular-nums text-foreground">
 						{stats.requests.toLocaleString()}
@@ -283,7 +283,7 @@ export function ModelUsageOverviewView({
 						{labels.stats.peakTps} {stats.peakOutputSpeed.toFixed(0)} tok/s
 					</div>
 				</div>
-				<div className="rounded-xl border border-border/50 bg-card/40 px-3.5 py-3">
+				<div className="rounded-xl border border-border/50 bg-card/40 p-4">
 					<div className="text-[11px] text-muted-foreground">{labels.stats.cacheHitRate}</div>
 					<div className="mt-1.5 text-[20px] font-bold tabular-nums text-foreground">
 						{formatPercent(stats.cacheHitRate)}
@@ -295,14 +295,14 @@ export function ModelUsageOverviewView({
 			</div>
 
 			{empty ? (
-				<div className="rounded-xl border border-dashed border-border/60 bg-card/30 px-6 py-12 text-center text-[12px] text-muted-foreground">
+				<div className="rounded-xl border border-dashed border-border/60 bg-card/30 px-6 py-16 text-center text-[12px] text-muted-foreground">
 					{labels.empty}
 				</div>
 			) : (
 				<>
 					{/* 时段图 + 剖析 */}
-					<div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_300px]">
-						<div className="rounded-xl border border-border/50 bg-card/40 px-3.5 py-3">
+					<div className="grid gap-4 @min-[72rem]:grid-cols-[minmax(0,1fr)_300px]">
+						<div className="min-w-0 rounded-xl border border-border/50 bg-card/40 p-4">
 							<div className="flex flex-wrap items-center justify-between gap-2">
 								<div className="text-[12px] font-medium text-foreground">{peakTitle}</div>
 								<div className="flex items-center gap-1 rounded-lg bg-muted/50 p-0.5">
@@ -332,7 +332,7 @@ export function ModelUsageOverviewView({
 								))}
 							</div>
 							{/* 堆叠柱状图 */}
-							<div className="mt-3 flex h-36 items-end gap-1.5">
+							<div className="mt-4 flex h-40 items-end gap-1.5">
 								{slots.map((slot) => {
 									const height = Math.max(2, (metric === "tokens" ? slot.totalTokens : metric === "cost" ? slot.totalCost : slot.requests) / maxSlotValue * 100);
 									const selected = String(slot.startedAt) === (selectedSlotKey ?? String(selectedSlot?.startedAt ?? ""));
@@ -375,7 +375,7 @@ export function ModelUsageOverviewView({
 						</div>
 						{/* 时段剖析 */}
 						{selectedSlot && (
-							<div className="rounded-xl border border-border/50 bg-card/40 px-3.5 py-3">
+							<div className="rounded-xl border border-border/50 bg-card/40 p-4">
 								<div className="flex items-center justify-between">
 									<div className="text-[12px] font-medium text-foreground">{labels.peak.slotDetail}</div>
 									<span className="rounded-full bg-primary/10 px-2 py-px text-[10px] font-medium text-primary">
@@ -414,7 +414,7 @@ export function ModelUsageOverviewView({
 					</div>
 
 					{/* 各模型明细表 */}
-					<div className="rounded-xl border border-border/50 bg-card/40 px-3.5 py-3">
+					<div className="rounded-xl border border-border/50 bg-card/40 p-4">
 						<div className="flex flex-wrap items-baseline justify-between gap-2">
 							<div>
 								<div className="text-[12px] font-medium text-foreground">{labels.models.title}</div>
@@ -426,7 +426,8 @@ export function ModelUsageOverviewView({
 								<span className="flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full bg-amber-400" />{labels.legend.output}</span>
 							</div>
 						</div>
-						<div className="mt-3 flex flex-col divide-y divide-border/40">
+						<div role="region" aria-label={labels.models.title} tabIndex={0} className="mt-4 overflow-x-auto focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring">
+							<div className="flex min-w-[980px] flex-col divide-y divide-border/40">
 							{models.map((model) => {
 								const total = Math.max(1, model.input + model.cacheRead + model.output);
 								return (
@@ -489,6 +490,7 @@ export function ModelUsageOverviewView({
 									</div>
 								);
 							})}
+							</div>
 						</div>
 						<div className="mt-2 flex flex-wrap items-center justify-between gap-2 border-t border-border/40 pt-2.5 text-[10px] text-muted-foreground/70">
 							<span>{labels.models.footer}</span>

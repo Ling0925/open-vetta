@@ -211,7 +211,7 @@ export class ModelUsageService {
 	async summary(query: ModelUsageQuery): Promise<ModelUsageSummary> {
 		const records = await this.ledger.read({ from: query.from, to: query.to });
 		const filtered = query.sessionId ? records.filter((record) => record.sessionId === query.sessionId) : records;
-		return summarizeModelUsageRecords(filtered);
+		return { ...summarizeModelUsageRecords(filtered), from: query.from, to: query.to };
 	}
 
 	/** 按当前 models.json 单价重算 [from, to) 范围内的 costTotal。 */

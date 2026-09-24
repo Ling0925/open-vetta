@@ -62,6 +62,7 @@ export interface ModelUsagePricingViewProps {
 	readonly labels: {
 		readonly title: string;
 		readonly description: string;
+		readonly scrollHint: string;
 		readonly back: string;
 		readonly syncOfficial: string;
 		readonly exportCsv: string;
@@ -146,11 +147,11 @@ export function ModelUsagePricingView({
 }: ModelUsagePricingViewProps): JSX.Element {
 	const slotTotals = slots.map((slot) => slot.totalCost);
 	return (
-		<div className="flex flex-col gap-5">
+		<div className="flex flex-col gap-6">
 			{/* 页头 */}
-			<div className="flex flex-wrap items-start justify-between gap-3">
+			<div className="flex flex-wrap items-start justify-between gap-4 pb-1">
 				<div className="min-w-0">
-					<div className="flex items-center gap-2">
+					<div className="flex flex-wrap items-center gap-3">
 						<button
 							type="button"
 							onClick={onBack}
@@ -162,8 +163,9 @@ export function ModelUsagePricingView({
 						<h1 className="text-[20px] font-bold text-foreground">{labels.title}</h1>
 					</div>
 					<p className="mt-1.5 text-[12px] text-muted-foreground">{labels.description}</p>
+					<p className="mt-2 text-[11px] text-muted-foreground @min-[60rem]:hidden">{labels.scrollHint}</p>
 				</div>
-				<div className="flex items-center gap-2">
+				<div className="flex flex-wrap items-center gap-2">
 					<button
 						type="button"
 						onClick={onSyncOfficial}
@@ -184,11 +186,11 @@ export function ModelUsagePricingView({
 				</div>
 			</div>
 
-			<div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_300px]">
+			<div className="flex flex-col gap-5">
 				{/* 热力矩阵 */}
-				<div className="rounded-xl border border-border/50 bg-card/40 px-3.5 py-3">
+				<div className="min-w-0 rounded-xl border border-border/50 bg-card/40 p-4">
 					<div className="flex flex-wrap items-center justify-between gap-2">
-						<div className="text-[12px] font-medium text-foreground">{labels.heatmapTitle}</div>
+						<div className="text-[13px] font-medium text-foreground">{labels.heatmapTitle}</div>
 						<div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
 							{labels.heatmapHint}
 							<span className="h-2.5 w-2.5 rounded-sm bg-primary/20" />
@@ -198,13 +200,13 @@ export function ModelUsagePricingView({
 							{labels.heatmapHintPeak}
 						</div>
 					</div>
-					<div className="mt-3 overflow-x-auto">
-						<table className="w-full border-separate" style={{ borderSpacing: "2px" }}>
+					<div role="region" aria-label={labels.heatmapTitle} tabIndex={0} className="mt-4 overflow-x-auto focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring">
+						<table className="w-full min-w-[940px] border-separate" style={{ borderSpacing: "3px" }}>
 							<thead>
 								<tr>
-									<th className="min-w-36 text-left text-[10px] font-normal text-muted-foreground" />
+									<th className="min-w-40 text-left text-[11px] font-normal text-muted-foreground" />
 									{slots.map((slot) => (
-										<th key={slot.startedAt} className="text-center text-[9px] font-normal tabular-nums text-muted-foreground/70">
+										<th key={slot.startedAt} className="min-w-12 text-center text-[10px] font-normal tabular-nums text-muted-foreground/70">
 											{slot.label}
 										</th>
 									))}
@@ -224,7 +226,7 @@ export function ModelUsagePricingView({
 											</td>
 											{model.slotCosts.map((value, index) => (
 												<td key={slots[index]?.startedAt ?? index} className="text-center">
-													<div className={cn("rounded px-1 py-0.5 text-[9px] tabular-nums", heatClass(value, max))}>
+											<div className={cn("rounded px-1.5 py-1 text-[10px] tabular-nums", heatClass(value, max))}>
 														${value.toFixed(2)}
 													</div>
 												</td>
@@ -252,15 +254,15 @@ export function ModelUsagePricingView({
 				</div>
 
 				{/* 四维计费构成 + 预算 */}
-				<div className="flex flex-col gap-3">
-					<div className="rounded-xl border border-border/50 bg-card/40 px-3.5 py-3">
-						<div className="flex items-center justify-between">
-							<div className="text-[12px] font-medium text-foreground">{labels.compositionTitle}</div>
+				<div className="flex flex-col">
+					<div className="@container grid gap-5 rounded-xl border border-border/50 bg-card/40 p-4 @min-[60rem]:grid-cols-[minmax(0,1fr)_minmax(280px,0.75fr)]">
+						<div className="flex items-center justify-between @min-[60rem]:col-span-2">
+							<div className="text-[13px] font-medium text-foreground">{labels.compositionTitle}</div>
 							<span className="rounded-full bg-emerald-500/15 px-2 py-px text-[10px] font-medium text-emerald-400">
 								{labels.savedBadge(`${(composition.cacheSavingsShare * 100).toFixed(1)}%`)}
 							</span>
 						</div>
-						<div className="mt-3 flex flex-col gap-2 text-[11px]">
+						<div className="flex flex-col gap-3 text-[12px]">
 							<div className="flex items-center justify-between">
 								<span className="text-muted-foreground">{labels.regularInput(composition.inputTokens)}</span>
 								<span className="tabular-nums text-foreground">{formatCost(composition.inputCost)}</span>
@@ -283,7 +285,7 @@ export function ModelUsagePricingView({
 								<span className="tabular-nums text-foreground">{formatCost(composition.outputCost)}</span>
 							</div>
 						</div>
-						<div className="mt-4 border-t border-border/40 pt-3">
+						<div className="border-t border-border/40 pt-4 @min-[60rem]:border-l @min-[60rem]:border-t-0 @min-[60rem]:pl-6 @min-[60rem]:pt-0">
 							<div className="flex items-center justify-between text-[11px]">
 								<span className="text-muted-foreground">{labels.budgetTitle}</span>
 								<span className="tabular-nums text-muted-foreground">
@@ -296,7 +298,7 @@ export function ModelUsagePricingView({
 									style={{ width: `${Math.min(100, (budget.used / Math.max(1e-9, budget.total)) * 100)}%` }}
 								/>
 							</div>
-							<div className="mt-1.5 flex items-center justify-between text-[10px] text-muted-foreground/70">
+							<div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-[11px] text-muted-foreground/70">
 								<span>{labels.budgetHint(formatCost(budget.projected))}</span>
 								<span className="text-emerald-400">{labels.budgetSafe}</span>
 							</div>
@@ -306,15 +308,15 @@ export function ModelUsagePricingView({
 			</div>
 
 			{/* 单价目录 */}
-			<div className="rounded-xl border border-border/50 bg-card/40 px-3.5 py-3">
+			<div className="rounded-xl border border-border/50 bg-card/40 p-4">
 				<div className="flex flex-wrap items-baseline justify-between gap-2">
 					<div>
-						<div className="text-[12px] font-medium text-foreground">{labels.catalogTitle}</div>
+						<div className="text-[13px] font-medium text-foreground">{labels.catalogTitle}</div>
 						<div className="mt-0.5 text-[10px] text-muted-foreground/70">{labels.catalogHint}</div>
 					</div>
 				</div>
-				<div className="mt-3 overflow-x-auto">
-					<table className="w-full">
+				<div role="region" aria-label={labels.catalogTitle} tabIndex={0} className="mt-3 overflow-x-auto focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring">
+					<table className="w-full min-w-[1040px]">
 						<thead>
 							<tr className="border-b border-border/40 text-left text-[10px] text-muted-foreground">
 								<th className="pb-2 pr-3 font-normal">{labels.columns.model}</th>

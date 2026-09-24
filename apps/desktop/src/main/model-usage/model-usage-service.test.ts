@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { summarizeModelUsageRecords } from "./model-usage-service.js";
+import { ModelUsageService, summarizeModelUsageRecords } from "./model-usage-service.js";
+import type { ModelUsageLedger } from "./usage-ledger.js";
 import type { ModelUsageRecord } from "./usage-record.js";
 
 const BASE_AT = Date.UTC(2026, 8, 20, 10, 0, 0);
@@ -60,5 +61,23 @@ describe("summarizeModelUsageRecords", () => {
 		expect(summary.requests).toBe(0);
 		expect(summary.models).toEqual([]);
 		expect(summary.totalTokens).toBe(0);
+	});
+});
+
+describe("ModelUsageService.summary", () => {
+	it("返回用户选择的时间窗口，而不是数据的首末时间", async () => {
+		const from = BASE_AT - 24 * 60 * 60 * 1000;
+		const to = BASE_AT + 60 * 60 * 1000;
+		const ledger = { read: async () => [record()] } as unknown as ModelUsageLedger;
+		const summary = await new ModelUsageService(ledger).summary({ from, to });
+		expect(summary).toMatchObject({ from, to, requests: 1 });
+	});
+
+	it("空范围也保留选定窗口供时间刻度与空态使用", async () => {
+		const from = BASE_AT - 24 * 60 * 60 * 1000;
+		const to = BASE_AT;
+		const ledger = { read: async () => [] } as unknown as ModelUsageLedger;
+		const summary = await new ModelUsageService(ledger).summary({ from, to });
+		expect(summary).toMatchObject({ from, to, requests: 0 });
 	});
 });

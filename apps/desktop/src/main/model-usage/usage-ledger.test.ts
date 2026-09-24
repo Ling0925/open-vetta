@@ -57,6 +57,26 @@ describe("ModelUsageLedger", () => {
 		expect(records[0].at).toBe(BASE_AT);
 	});
 
+	it("刚收到一次调用后无需手动 flush 即可在用量页读到", async () => {
+		const ledger = await createLedger();
+		ledger.append(recordAt(0));
+		const records = await ledger.read({ from: BASE_AT - 1, to: BASE_AT + 1000 });
+		expect(records).toHaveLength(1);
+	});
+
+	it("写入排队时回填费用不会遗漏或覆盖调用", async () => {
+		const ledger = await createLedger();
+		ledger.append(recordAt(0));
+		const updated = await ledger.rewrite({ from: BASE_AT - 1, to: BASE_AT + 1000 }, (entry) => ({
+			...entry,
+			costTotal: 0.01,
+		}));
+		const records = await ledger.read({ from: BASE_AT - 1, to: BASE_AT + 1000 });
+		expect(updated).toBe(1);
+		expect(records).toHaveLength(1);
+		expect(records[0]?.costTotal).toBe(0.01);
+	});
+
 	it("时间范围过滤：范围外的记录不返回", async () => {
 		const ledger = await createLedger();
 		ledger.append(recordAt(0));

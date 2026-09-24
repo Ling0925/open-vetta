@@ -1,7 +1,8 @@
+import { useNavigate, useSearch } from "@tanstack/react-router";
+import { Button } from "@shared/components/ui/button";
 import { ModelUsageOverviewView, ModelUsagePricingView } from "@vetta-org/theme-ui/settings";
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { SettingsPageShellView } from "@vetta-org/theme-ui/settings";
 import {
 	buildOverviewSlots,
 	formatModelUsageTokens,
@@ -13,6 +14,16 @@ import {
 export function ModelUsageSettings(): JSX.Element {
 	const { t } = useTranslation("settings");
 	const model = useModelUsageModel();
+	const search = useSearch({ strict: false });
+	const navigate = useNavigate();
+	const view = search.section === "model-usage-pricing" ? "pricing" : "overview";
+	const selectView = (next: "overview" | "pricing") => {
+		void navigate({
+			to: "/settings/$tab",
+			params: { tab: "modelUsage" },
+			search: { section: next === "pricing" ? "model-usage-pricing" : "model-usage-overview" },
+		});
+	};
 	const { state, actions, config } = model;
 
 	const slots = useMemo(
@@ -160,11 +171,18 @@ export function ModelUsageSettings(): JSX.Element {
 		return { used, total, projected };
 	}, [state.summary]);
 
-	const empty = !state.loading && (state.summary?.requests ?? 0) === 0;
-	const view = state.view;
+	const empty = !state.loading && !state.error && (state.summary?.requests ?? 0) === 0;
+	const selectedSlotLabel = (slots.find((slot) => String(slot.startedAt) === state.selectedSlotKey) ?? slots.at(-1))?.label ?? "";
 
 	return (
-		<SettingsPageShellView title={t("modelUsage.title")} loading={state.loading && !state.summary} loadingLabel={t("loading")}>
+		<div className="@container mx-auto w-full max-w-[1240px] px-8 pt-6 pb-8">
+			{state.loading && !state.summary && <div role="status" className="mb-4 text-[12px] text-muted-foreground">{t("loading")}</div>}
+			{state.error && (
+				<div role="alert" className="mb-4 flex items-center gap-3 rounded-lg border border-destructive/40 p-3 text-[12px] text-foreground">
+					<span>{t("modelUsage.loadFailed")}</span>
+					<Button type="button" variant="outline" size="sm" onClick={actions.retry}>{t("modelUsage.retry")}</Button>
+				</div>
+			)}
 			{view === "overview" ? (
 				<ModelUsageOverviewView
 					range={state.range}
@@ -176,7 +194,7 @@ export function ModelUsageSettings(): JSX.Element {
 					models={overviewModels}
 					selectedSlotKey={state.selectedSlotKey}
 					onSelectSlot={(startedAt) => actions.setSelectedSlotKey(String(startedAt))}
-					onOpenPricing={() => actions.setView("pricing")}
+					onOpenPricing={() => selectView("pricing")}
 					loading={state.loading}
 					empty={empty}
 					footer={{
@@ -210,11 +228,11 @@ export function ModelUsageSettings(): JSX.Element {
 							peakTps: t("modelUsage.stats.peakTps"),
 						},
 						peak: {
-							title: (share, models) => t("modelUsage.peak.title", { range: slots.at(-1)?.label ?? "", share, models }),
+							title: (share, models) => t("modelUsage.peak.title", { range: selectedSlotLabel, share, models }),
 							tokenMetric: t("modelUsage.peak.tokenMetric"),
 							costMetric: t("modelUsage.peak.costMetric"),
 							requestsMetric: t("modelUsage.peak.requestsMetric"),
-							slotDetail: t("modelUsage.peak.slotDetail", { range: slots.at(-1)?.label ?? "" }),
+							slotDetail: t("modelUsage.peak.slotDetail", { range: selectedSlotLabel }),
 							allDayPeak: t("modelUsage.peak.allDayPeak"),
 							slotTotal: t("modelUsage.peak.slotTotal"),
 							slotBill: t("modelUsage.peak.slotBill"),
@@ -257,10 +275,11 @@ export function ModelUsageSettings(): JSX.Element {
 					exporting={state.exporting}
 					onExportCsv={() => void actions.exportCsv()}
 					onSyncOfficial={() => void actions.syncOfficialPrices()}
-					onBack={() => actions.setView("overview")}
+					onBack={() => selectView("overview")}
 					labels={{
 						title: t("modelUsage.pricing.title"),
 						description: t("modelUsage.pricing.description"),
+						scrollHint: t("modelUsage.pricing.scrollHint"),
 						back: t("modelUsage.childOverview"),
 						syncOfficial: t("modelUsage.pricing.syncOfficial"),
 						exportCsv: t("modelUsage.pricing.exportCsv"),
@@ -301,7 +320,7 @@ export function ModelUsageSettings(): JSX.Element {
 					}}
 				/>
 			)}
-		</SettingsPageShellView>
+		</div>
 	);
 }
 

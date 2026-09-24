@@ -3,6 +3,8 @@
 import { createConversationUserMessage } from "@shared/conversation";
 import { type InputSegment, segmentsToText } from "@shared/lib/input-tokens";
 import type { ChatConversationItem, OpenSessionOptions, SessionExecutionMode } from "@shared/store/atoms";
+import { createAssistantMessage } from "@vetta/ai/protocol";
+import type { SessionEvent } from "@vetta/runtime-core";
 import { getDefaultStore } from "jotai";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -263,6 +265,146 @@ it("切回仍在执行的会话时保留尚未进入历史快照的乐观用户�
 
 	pendingPrompt?.resolve(undefined);
 	await sendPromise;
+});
+
+it("切回运行中会话时，完整历史刚写入助手过程也只显示一条持续等待的回复", { timeout: 10_000 }, async () => {
+	const { activeSessionAtom, chatMessagesAtom } = await import("@shared/store/atoms");
+	const { useSessionManager } = await import("./useSessionManager");
+	const store = getDefaultStore();
+	const startedAt = 1_700_000_000_000;
+	const previewHistory = userHistory("inspect this", "user-1");
+	const canonicalHistory = [
+		...previewHistory,
+		{
+			type: "message" as const,
+			entryId: "assistant-1",
+			message: {
+				role: "assistant" as const,
+				content: [{ type: "toolCall" as const, id: "tool-1", name: "read_file", arguments: {} }],
+				timestamp: startedAt + 1,
+			},
+		},
+	];
+	const idleCallbacks: IdleRequestCallback[] = [];
+	vi.stubGlobal("requestIdleCallback", (callback: IdleRequestCallback) => {
+		idleCallbacks.push(callback);
+		return idleCallbacks.length;
+	});
+	store.set(activeSessionAtom, { cwd, runtimeId: "runtime-second", sessionPath: secondSessionPath });
+	store.set(chatMessagesAtom, []);
+	let onEvent: ((event: SessionEvent) => void) | undefined;
+	const sessionApi = {
+		autoTitle: vi.fn(),
+		create: vi.fn(async () => ({ cwd, sessionId: "runtime-first", sessionPath: firstCanonicalPath })),
+		getFullHistory: vi.fn(async () => canonicalHistory),
+		getQueueState: vi.fn(async () => ({ paused: false, entries: [] })),
+		getSessionPath: vi.fn(async () => firstCanonicalPath),
+		getState: vi.fn(async () => ({
+			activeToolNames: [],
+			contextPercent: null,
+			contextWindow: 128_000,
+			currentTurnStartedAt: startedAt,
+			executionMode: "full-access" as const,
+			isStreaming: true,
+			messageCount: 2,
+			model: null,
+			scenario: "project" as const,
+		})),
+		openViewer: vi.fn(async () => ({ history: previewHistory })),
+		prompt: vi.fn(),
+		subscribe: vi.fn(async (_sessionId: string, callback: (event: SessionEvent) => void) => {
+			onEvent = callback;
+			return vi.fn();
+		}),
+		updateSettings: vi.fn(async () => undefined),
+	};
+	Object.defineProperty(window, "vetta", {
+		configurable: true,
+		value: {
+			batchTasks: { resumeTaskWithText: vi.fn() },
+			config: { get: vi.fn() },
+			dialog: { persistImages: vi.fn() },
+			session: sessionApi,
+		},
+	});
+	function Probe() {
+		manager = useSessionManager();
+		return null;
+	}
+	await act(async () => {
+		root = createRoot(container as HTMLDivElement);
+		root.render(createElement(Probe));
+	});
+	await act(async () => {
+		await manager?.openSession(cwd, firstSessionPath);
+	});
+	const pending = store.get(chatMessagesAtom).filter((message) => message.kind === "agent");
+	expect(pending).toHaveLength(1);
+	expect(pending[0]).toMatchObject({ phase: "streaming", blocks: [], startedAt });
+	expect(idleCallbacks).toHaveLength(1);
+
+	const toolCall = { type: "toolCall" as const, id: "tool-2", name: "grep", arguments: {} };
+	const partial = createAssistantMessage(
+		{ api: "openai-completions", provider: "openai", model: "test-model" },
+		{ timestamp: startedAt + 2 },
+	);
+	partial.content.push(toolCall);
+	await act(async () => {
+		onEvent?.({
+			type: "toolcall_end",
+			channel: "assistant",
+			schemaVersion: 1,
+			sessionId: "runtime-first",
+			turnId: "turn-1",
+			modelCallIndex: 0,
+			eventId: "tool-2-call",
+			timestamp: startedAt + 2,
+			source: "agent",
+			contentIndex: 0,
+			toolCall,
+			partial,
+		});
+	});
+
+	await act(async () => {
+		idleCallbacks.shift()?.({ didTimeout: false, timeRemaining: () => 50 });
+	});
+	const assistants = store.get(chatMessagesAtom).filter((message) => message.kind === "agent");
+	expect(assistants).toHaveLength(1);
+	expect(assistants[0]).toMatchObject({ phase: "streaming", startedAt, entryId: "assistant-1" });
+	expect(assistants[0]?.blocks).toEqual([
+		expect.objectContaining({ type: "tool_call", toolCallId: "tool-1", status: "success" }),
+		expect.objectContaining({ type: "tool_call", toolCallId: "tool-2", status: "pending" }),
+	]);
+	const nextToolCall = { type: "toolCall" as const, id: "tool-3", name: "read_file", arguments: {} };
+	const nextPartial = createAssistantMessage(
+		{ api: "openai-completions", provider: "openai", model: "test-model" },
+		{ timestamp: startedAt + 3 },
+	);
+	nextPartial.content.push(nextToolCall);
+	await act(async () => {
+		onEvent?.({
+			type: "toolcall_end",
+			channel: "assistant",
+			schemaVersion: 1,
+			sessionId: "runtime-first",
+			turnId: "turn-1",
+			modelCallIndex: 1,
+			eventId: "tool-3-call",
+			timestamp: startedAt + 3,
+			source: "agent",
+			contentIndex: 0,
+			toolCall: nextToolCall,
+			partial: nextPartial,
+		});
+	});
+	const continued = store.get(chatMessagesAtom).filter((message) => message.kind === "agent");
+	expect(continued).toHaveLength(1);
+	expect(continued[0]?.blocks).toEqual([
+		expect.objectContaining({ toolCallId: "tool-1" }),
+		expect.objectContaining({ toolCallId: "tool-2" }),
+		expect.objectContaining({ toolCallId: "tool-3" }),
+	]);
 });
 
 it("新会话先导航并完成一帧绘制，再创建 runtime，同时保留暂存消息", { timeout: 10_000 }, async () => {
