@@ -33,6 +33,10 @@
 		"./sandbox": {
 			"types": "./dist/sandbox/index.d.ts",
 			"import": "./dist/sandbox/index.js"
+		},
+		"./codex-app-server": {
+			"types": "./dist/codex-app-server/index.d.ts",
+			"import": "./dist/codex-app-server/index.js"
 		}
 	},
 	"files": [

@@ -11,6 +11,7 @@ Vetta Runtime 协议的共享 Node.js 实现层。
 - `@vetta/runtime-node/coding`：具体 Coding Tool、Schema、模型描述、文件/命令/PDF/OCR 实现与 Node Host 原语
 - `@vetta/runtime-node/mcp`：文件配置与凭证、stdio/HTTP Client、MCP SDK/OAuth 和 Device Flow 实现
 - `@vetta/runtime-node/host`：资源、Knowledge、结果制品与通用文本文件等 Node Host 适配器
+- `@vetta/runtime-node/codex-app-server`：开发者预览的 Codex 独占进程/协议/会话适配器；尚未装配到桌面 Backend，见 [接入说明](../../docs/runtime/codex-app-server.md)
 
 `runtime-node` 不拥有 Agent Turn/Session Kernel，也不拥有 Electron IPC、Desktop 生命周期、UI 或产品策略。
 平台无关编排属于 `runtime-core`，Desktop 生命周期和平台装配属于 `runtime-desktop`。当前
