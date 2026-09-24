@@ -1,3 +1,4 @@
+import { registerCodexWorkspaceIpc } from "./codex-workspace.js";
 import type { WebContents } from "electron";
 import type { ActionApprovalBroker } from "../app-actions/approval-broker.js";
 import { registerNotificationIpc } from "../notifications/index.js";
@@ -43,6 +44,7 @@ import { registerWebAccessIpc } from "./web-access.js";
 import { registerWebhookIpc } from "./webhook.js";
 
 interface IpcTeardown {
+	teardownCodexWorkspace: () => void;
 	teardownAbilities: () => void;
 	teardownAgentTeams: () => void;
 	teardownActionApproval: () => void;
@@ -95,6 +97,7 @@ export function registerAllIpc(
 	},
 ): IpcTeardown {
 	return {
+		teardownCodexWorkspace: registerCodexWorkspaceIpc(webContents),
 		teardownAbilities: registerAbilitiesIpc(),
 		teardownModelUsage: registerModelUsageIpc(),
 		teardownAgentTeams: registerAgentTeamsIpc(),
@@ -139,6 +142,7 @@ export function registerAllIpc(
 }
 
 export function teardownAllIpc(teardown: IpcTeardown): void {
+	teardown.teardownCodexWorkspace();
 	teardown.teardownAbilities();
 	teardown.teardownModelUsage();
 	teardown.teardownAgentTeams();

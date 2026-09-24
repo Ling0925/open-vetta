@@ -1,0 +1,72 @@
+{
+	"title": "Codex preview",
+	"shortcut": "Try Codex preview",
+	"subtitle": "An independent Codex conversation. Existing chat stays unchanged.",
+	"native": "Back to a Native conversation",
+	"limits": "Preview supports local projects and text only. Native tools, attachments, model switching and usage accounting are not available. Leaving does not stop an active task, but cancels pending approvals.",
+	"loading": "Reading configuration and saved sessions…",
+	"reconnect": "Reconnect preview",
+	"technical": "Technical details",
+	"errorHelp": "This operation was not confirmed. Your input is retained. Check the state first. When the outcome is uncertain, close and resume the original session to reconcile its history before sending again.",
+	"configuration": "Codex configuration",
+	"profileWarning": "Choose a trusted Codex executable and a separate Codex home. Authentication is managed by that home; this app has not verified the account. Configured MCP servers or plugins may cause remote effects that a local read-only sandbox cannot restrict.",
+	"confirmTitle": "Confirm Codex configuration",
+	"confirmMessage": "Saving does not launch the program. Creating or resuming a session will. Verify the executable, authentication directory and permissions.",
+	"save": "Confirm and save configuration",
+	"cancel": "Cancel",
+	"browse": "Choose path",
+	"create": "New Codex session",
+	"resume": "Resume: {{name}}",
+	"close": "Close connection, keep history",
+	"approvalTitle": "Codex requests permission",
+	"approvalScope": "The full request is shown below. Approval applies only to this operation. Stopping, leaving this page or request expiry invalidates it.",
+	"decline": "Decline operation",
+	"acceptOnce": "Approve once",
+	"conversation": "Conversation history",
+	"empty": "No conversation yet. Configure Codex, then create or resume a session.",
+	"earlier": "This bounded view shows at most 200 records. Full history remains with Codex.",
+	"truncated": "This displayed record is truncated. Full content remains in Codex history.",
+	"prompt": "Instruction for Codex",
+	"draftHelp": "You may draft the next instruction while a task runs. An unchanged draft clears only after successful completion; failure or stop preserves it.",
+	"send": "Send instruction",
+	"stop": "Stop current task",
+	"versionHelp": "The exact version must match codex --version. A match is not compatibility certification. Preview does not install Codex or sign in automatically.",
+	"fields": {
+		"executable": "Codex executable (absolute path)",
+		"expectedVersion": "Configured exact version",
+		"codexHome": "Separate Codex home",
+		"cwd": "Local workspace",
+		"model": "Codex model (optional)",
+		"sandbox": "Local sandbox permissions"
+	},
+	"permissions": {
+		"read-only": "Local read-only",
+		"workspace-write": "Workspace writes; ask for additional permissions"
+	},
+	"phases": {
+		"setup": "Configure Codex first",
+		"ready": "Ready",
+		"opening": "Starting or resuming session…",
+		"running": "Task running",
+		"stopping": "Stop requested; awaiting confirmation…",
+		"closing": "Closing connection…",
+		"recovery": "Reconciliation required; close and resume the original session",
+		"closed": "Connection closed"
+	},
+	"outcomes": {
+		"completed": "Task completed",
+		"cancelled": "Task stopped",
+		"failed": "Task unsuccessful"
+	},
+	"roles": {
+		"user": "You",
+		"assistant": "Codex",
+		"thinking": "Reasoning summary",
+		"tool": "Tool operation and result",
+		"error": "Execution error",
+		"note": "Other record"
+	},
+	"savedSessions": "Saved sessions (latest 200)",
+	"chooseSession": "Choose a session",
+	"resumeSelected": "Resume selected session"
+}

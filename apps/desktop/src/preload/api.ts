@@ -1,3 +1,4 @@
+import type { DesktopCodexWorkspaceApi } from "../shared/codex-workspace.js";
 import type { DesktopAbilitiesApi } from "./api-types/abilities.js";
 import type { DesktopActionApprovalApi } from "./api-types/action-approval.js";
 import type { DesktopAgentTeamsApi } from "./api-types/agent-teams.js";
@@ -95,6 +96,7 @@ export interface DesktopHostAccessApi {
 }
 
 export interface DesktopApi {
+	codexWorkspace: DesktopCodexWorkspaceApi;
 	hostAccess: DesktopHostAccessApi;
 	abilities: DesktopAbilitiesApi;
 	agentTeams: DesktopAgentTeamsApi;
