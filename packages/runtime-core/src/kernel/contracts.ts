@@ -88,7 +88,17 @@ export interface QueuedSessionInputResult {
 /** 只在已有 Turn 运行时排队；用于需要避免“检查后启动”竞态的宿主编排。 */
 export type QueueSessionInputIfRunningResult = QueuedSessionInputResult | { readonly status: "idle" };
 
+/** An in-memory claim. Entries remain in serializable queue snapshots until commit. */
+export interface QueuedSessionInputReservation {
+	readonly inputs: readonly QueuedSessionInput[];
+	isValid(): boolean;
+	commit(): boolean;
+	release(): void;
+}
+
 export interface TurnInputQueue {
+	reserveSteeringInputs?(): QueuedSessionInputReservation;
+	reserveFollowUpInputs?(): QueuedSessionInputReservation;
 	takeSteering(): readonly UserMessage[];
 	takeFollowUps(): readonly UserMessage[];
 	takeSteeringInputs?(): readonly QueuedSessionInput[];

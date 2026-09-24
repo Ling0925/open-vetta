@@ -47,6 +47,7 @@ import type {
 import { KERNEL_ERROR_CODES, TurnExecutionError, turnProtocolError } from "./errors.js";
 import { withPromptCacheDiagnostics } from "./model-call-diagnostics.js";
 import { composeModelCallSystemPrompt, resolveModelCallFrame } from "./model-call-frame.js";
+import { consumeQueuedInputBatch } from "./queued-input-consumption.js";
 import { RuntimeToolExecutionError } from "./tool-execution-error.js";
 
 const DEFAULT_MAX_RECOVERY_ATTEMPTS = 100;
@@ -311,9 +312,12 @@ export class StatelessAgentCoreTurnEngine implements TurnEnginePort {
 					: undefined,
 			takeSteeringMessages: inputQueue
 				? async () =>
-						inputQueue.takeSteeringInputs
-							? this.consumeQueuedInputs(inputQueue.takeSteeringInputs(), request, identities)
-							: [...inputQueue.takeSteering()]
+						consumeQueuedInputBatch(
+							inputQueue,
+							"steer",
+							(inputs) => this.consumeQueuedInputs(inputs, request, identities),
+							request.signal,
+						)
 				: undefined,
 			takeContinuationMessages:
 				inputQueue || request.snapshot.continuationPolicy
@@ -339,9 +343,12 @@ export class StatelessAgentCoreTurnEngine implements TurnEnginePort {
 							// 仍借队列做排序与节流（用户 follow-up 优先、one-at-a-time），但标记为
 							// internal：这是内部控制信号，不该出现在面向用户的队列投影里。
 							inputQueue.enqueueFollowUps(policyMessages, { internal: true });
-							return inputQueue.takeFollowUpInputs
-								? this.consumeQueuedInputs(inputQueue.takeFollowUpInputs(), request, identities)
-								: [...inputQueue.takeFollowUps()];
+							return consumeQueuedInputBatch(
+								inputQueue,
+								"followUp",
+								(inputs) => this.consumeQueuedInputs(inputs, request, identities),
+								signal,
+							);
 						}
 					: undefined,
 		};
@@ -352,22 +359,26 @@ export class StatelessAgentCoreTurnEngine implements TurnEnginePort {
 		request: TurnEngineRequest,
 		identities: WeakMap<object, RuntimeMessageEnvelope>,
 	): Promise<Message[]> {
-		const preparedInputs = await Promise.all(
-			inputs.map(async (input): Promise<QueuedSessionInput | undefined> => {
-				if (!input.request) return input;
-				const preparer = request.snapshot.inputRequestPreparer;
-				if (!preparer) throw new Error("Runtime snapshot does not provide an input request preparer");
-				const prepared = await preparer.prepare(input.request, {
-					sessionId: request.sessionId,
-					turnId: request.turnId,
-					signal: request.signal,
-					queueing: true,
-					modelBinding: request.modelBinding,
-				});
-				return prepared.action === "continue" ? prepared.input : undefined;
-			}),
-		);
-		const admittedInputs = preparedInputs.filter((input): input is QueuedSessionInput => input !== undefined);
+		const admittedInputs: QueuedSessionInput[] = [];
+		// Do not leave sibling preparations running after one request fails.
+		for (const input of inputs) {
+			request.signal.throwIfAborted();
+			if (!input.request) {
+				admittedInputs.push(input);
+				continue;
+			}
+			const preparer = request.snapshot.inputRequestPreparer;
+			if (!preparer) throw new Error("Runtime snapshot does not provide an input request preparer");
+			const prepared = await preparer.prepare(input.request, {
+				sessionId: request.sessionId,
+				turnId: request.turnId,
+				signal: request.signal,
+				queueing: true,
+				modelBinding: request.modelBinding,
+			});
+			request.signal.throwIfAborted();
+			if (prepared.action === "continue") admittedInputs.push(prepared.input);
+		}
 		const context = admittedInputs.flatMap((input) => input.context ?? []);
 		if (context.length > 0) await request.appendQueuedContext?.(context);
 		return admittedInputs.flatMap((input) => {
