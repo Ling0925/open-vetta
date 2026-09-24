@@ -1,8 +1,9 @@
 # Codex App Server 接入（开发者预览）
 
-本分支完成的是 **R0.1：Node 进程、协议与会话适配层**，不是已经可在桌面设置中选择的 Codex 后端。
-桌面 Backend 装配、Catalog、能力开关、审批界面和真实二进制验收属于 R0.2 / R0.3；见
-[实施路线](runtime-roadmap.md)。现有 Native runtime、默认设置、旧会话格式均未改动。
+本页介绍 **R0.1：Node 进程、协议与会话适配层**。PR #2 现已继续实现 R0.2 的 RuntimeHost Backend、
+关联目录、历史/事件投影与能力矩阵，见 [后端接入说明](codex-host-backend.md)。
+**Electron 组合根、桌面选择器和审批界面尚未接线**，还不能在 App 中直接选择 Codex。
+原生集成及真实二进制验收待完成，见 [实施路线](runtime-roadmap.md)。Native runtime、默认设置和旧会话格式不变。
 
 ## 边界
 
@@ -28,6 +29,7 @@
 先在隔离目录配置可信的 Codex CLI。认证由 Codex 自身负责，适配器不读取、复制、写入 `auth.json`，
 也不接收 Vetta 的 OAuth token。启动的 Codex 仍会按自己的配置访问凭证、写会话历史和发送模型请求。
 省略 `codexHome` 时会使用 Codex 的默认目录，因此开发验证建议显式指定隔离目录，不指向真实工作会话。
+R0.2 的 Host Backend 则强制显式提供 codexHome，另在其下保存 Vetta Thread 租约，不修改认证或配置文件。
 不要把真实凭证、完整协议转储或任务输出放进测试日志。
 
 构建 `runtime-node` 及依赖后，可在可信 Node 宿主中调用：
@@ -93,12 +95,12 @@ stdout 仅作 NDJSON 协议；stderr 排空但不记录，协议畸形/非法 UT
 
 事件携带 `instanceId + sequence + threadId`，保留 Codex 的 `turnId / itemId`。
 这是本实例的实时观察序列，不是跨进程事件日志。历史在 idle 状态用 `refreshHistory()` 读取，
-不能将历史快照与任意旧事件盲目混合。终态前的晚订阅实时回放、历史分页、桌面投影属于后续工作。
+不能将历史快照与任意旧事件盲目混合。R0.2 已增加 Host 侧条目投影与完整历史核对；
+终态前的晚订阅实时回放、历史分页和桌面投影接线仍属于后续工作。
 
 ## 验证
 
-新增测试位于 `packages/runtime-node/test/codex-app-server/`，只替换外部 Codex 边界。
-完整检出环境从根目录运行：
+新增测试位于 `packages/runtime-node/test/codex-app-server/`。完整检出环境从根目录运行：
 
 ```bash
 bun scripts/quality/run-vitest.mjs --run --config packages/runtime-node/vitest.config.ts packages/runtime-node/test/codex-app-server
@@ -106,6 +108,8 @@ bun run test:pkg runtime-node
 bun run check
 ```
 
-本次离线验证使用实际新模块、Node 子进程/管道和独立临时目录；只将测试注册接口从 Vitest 换成 node:test。
-严格类型检查仅覆盖新增生产模块。完整 Bun/Vitest、全仓类型/格式/架构检查、真实 Codex 二进制和桌面 E2E
+R0.1 首次提交的离线验证使用实际模块、Node 子进程/管道和独立临时目录；只将测试注册接口从 Vitest 换成 node:test，
+严格类型检查当时仅覆盖 R0.1 新增生产模块。这是上一阶段的验证记录，不代表当前分支整体已完成严格类型检查。
+本轮 R0.2 新增测试和执行范围单独记录在 [后端接入说明](codex-host-backend.md)：40 项离线测试通过，
+2 项真实 RuntimeHost/文件锁集成用例待执行。完整 Bun/Vitest、全仓类型/格式/架构检查、真实 Codex 二进制和桌面 E2E
 尚未执行，不能将替身协议测试当成这些检查通过。PR 保持 Draft，以上门禁完成前不建议合并或启用。
