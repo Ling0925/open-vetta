@@ -59,7 +59,7 @@ describe.skipIf(!executable || !entry)("pinned real Codex with an isolated local
 			assert.ok(Array.isArray(input));
 			assert.ok(input.some((value: unknown) => value && typeof value === "object" &&
 				"type" in value && value.type === "function_call_output" && "call_id" in value && value.call_id === "call_contract" &&
-				"output" in value && JSON.stringify(value.output).includes(TOOL_MARKER)), "Missing the actual shell output");
+				"output" in value && JSON.stringify(value.output).includes(TOOL_MARKER)), `Missing the actual shell output: ${JSON.stringify(input.filter((value: unknown) => value && typeof value === "object" && "type" in value && value.type === "function_call_output")).slice(0, 4096)}`);
 			const before = host.getFullHistory(created.sessionId);
 			assert.ok(JSON.stringify(before).includes(ANSWER_MARKER));
 			const path = host.getSessionPath(created.sessionId);

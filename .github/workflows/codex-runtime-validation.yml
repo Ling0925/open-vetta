@@ -41,9 +41,12 @@ jobs:
       - name: Install frozen workspace dependencies
         id: dependencies
         uses: ./.github/actions/install-bun-dependencies
+      - name: Install required native test tools
+        run: sudo apt-get update && sudo apt-get install -y ripgrep fd-find
       - name: Runtime package and real Host/file-lease tests
         run: bun run test:pkg runtime-node
       - name: Desktop Codex, DOM, IPC, preload and quit regression tests
+        if: always() && !cancelled() && steps.dependencies.outcome == 'success'
         run: >-
           bun scripts/quality/run-vitest.mjs --run --config apps/desktop/vitest.config.ts
           src/main/codex-workspace
@@ -56,12 +59,42 @@ jobs:
       - name: Full existing quality checks (no relaxed baselines)
         if: always() && !cancelled() && steps.dependencies.outcome == 'success'
         run: bun run check
+      - name: Preserve tracked source and the locked formatter for failure review
+        if: failure() && steps.dependencies.outcome == 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          review="$RUNNER_TEMP/codex-review-inputs"
+          mkdir -p "$review"
+          # Only committed code/configuration, never the runner environment, Git credentials or runtime home.
+          mapfile -d '' files < <(git ls-files -z -- \
+            tsconfig.json tsconfig.base.json biome.json biome.jsonc package.json bun.lock \
+            .github/release-notes/v0.5.59.md apps/desktop/src apps/desktop/vitest.config.ts \
+            packages/runtime-node/src/codex-app-server packages/runtime-node/test/codex-app-server \
+            packages/runtime-node/vitest.config.ts)
+          git archive --format=tar.gz --output="$review/tracked-source.tar.gz" HEAD -- "${files[@]}"
+          biome="$(find node_modules -path '*/@biomejs/cli-linux-x64/biome' -type f -print -quit)"
+          test -n "$biome"
+          "$biome" --version > "$review/formatter-version.txt"
+          cp "$biome" "$review/biome"
+          git rev-parse HEAD > "$review/source-commit.txt"
+          (cd "$review" && sha256sum tracked-source.tar.gz biome > SHA256SUMS)
+      - name: Upload bounded review inputs after failed checks
+        if: failure() && steps.dependencies.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: codex-review-inputs
+          path: ${{ runner.temp }}/codex-review-inputs/
+          if-no-files-found: error
+          retention-days: 2
       - name: Upload only test reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: codex-native-reports
-          path: '**/codex-desktop-junit.xml'
+          path: |
+            apps/desktop/codex-desktop-junit.xml
+            codex-desktop-junit.xml
           if-no-files-found: ignore
           retention-days: 7
 
@@ -114,6 +147,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: codex-real-binary-report
-          path: '**/codex-real-junit.xml'
+          path: |
+            packages/runtime-node/codex-real-junit.xml
+            codex-real-junit.xml
           if-no-files-found: ignore
           retention-days: 7
