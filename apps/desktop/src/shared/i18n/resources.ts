@@ -1,3 +1,5 @@
+import enCodex from "./locales/en/codex.json";
+import zhCodex from "./locales/zh/codex.json";
 // 静态打包的 catalog 聚合（见 ADR-0031）。main 与 renderer 都顶层 import 本文件，
 // 由各自 Vite bundle 把 JSON 内联——零运行时 fs、零 async、不闪。新增语言/ns =
 // 在此加一条 import + 在 resources 里加一项。
@@ -29,6 +31,7 @@ import zhSkills from "./locales/zh/skills.json";
 
 export const resources = {
 	zh: {
+		codex: zhCodex,
 		common: zhCommon,
 		main: zhMain,
 		chat: zhChat,
@@ -43,6 +46,7 @@ export const resources = {
 		"agent-teams": zhAgentTeams,
 	},
 	en: {
+		codex: enCodex,
 		common: enCommon,
 		main: enMain,
 		chat: enChat,

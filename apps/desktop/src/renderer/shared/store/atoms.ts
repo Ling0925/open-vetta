@@ -29,3 +29,4 @@ export * from "./subagents-atoms";
 export * from "./todo-atoms";
 export * from "./ui-atoms";
 export * from "./updater-atoms";
+export * from "./codex-workspace-atoms";

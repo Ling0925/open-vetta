@@ -1,0 +1,172 @@
+name: codex-runtime-validation
+
+on:
+  push:
+    branches: [feat/codex-desktop-preview]
+  pull_request:
+    branches: [main]
+    paths:
+      - 'apps/desktop/**'
+      - 'packages/runtime-*/**'
+      - 'packages/ai/**'
+      - 'packages/agent/**'
+      - 'packages/toolkit/**'
+      - 'scripts/quality/**'
+      - 'tsconfig*.json'
+      - 'package.json'
+      - 'bun.lock'
+      - '.github/actions/install-bun-dependencies/**'
+      - '.github/workflows/codex-runtime-validation.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: codex-validation-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  native-contracts:
+    if: github.repository == 'Ling0925/open-vetta' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == 'Ling0925/open-vetta')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - name: Install frozen workspace dependencies
+        id: dependencies
+        uses: ./.github/actions/install-bun-dependencies
+      - name: Install required native test tools
+        run: sudo apt-get update && sudo apt-get install -y ripgrep fd-find
+      - name: Runtime package and real Host/file-lease tests
+        run: bun run test:pkg runtime-node
+      - name: Desktop Codex, DOM, IPC, preload and quit regression tests
+        if: always() && !cancelled() && steps.dependencies.outcome == 'success'
+        run: >-
+          bun scripts/quality/run-vitest.mjs --run --config apps/desktop/vitest.config.ts
+          src/main/codex-workspace
+          src/main/ipc/codex-workspace.test.ts
+          src/main/quit-cleanup.test.ts
+          src/main/quit-cleanup-participants.test.ts
+          src/preload/apis/codex-workspace.test.ts
+          src/renderer/domains/codex-workspace
+          --reporter=default --reporter=junit --outputFile=codex-desktop-junit.xml
+      - name: Full existing quality checks (no relaxed baselines)
+        if: always() && !cancelled() && steps.dependencies.outcome == 'success'
+        run: bun run check
+      - name: Preserve tracked source and the locked formatter for failure review
+        if: failure() && steps.dependencies.outcome == 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          review="$RUNNER_TEMP/codex-review-inputs"
+          mkdir -p "$review"
+          # Only committed code/configuration, never the runner environment, Git credentials or runtime home.
+          mapfile -d '' files < <(git ls-files -z -- \
+            tsconfig.json tsconfig.base.json biome.json biome.jsonc package.json bun.lock \
+            .github/release-notes/v0.5.59.md apps/desktop/src apps/desktop/vitest.config.ts \
+            packages/runtime-node/src/codex-app-server packages/runtime-node/test/codex-app-server \
+            packages/runtime-node/vitest.config.ts)
+          git archive --format=tar.gz --output="$review/tracked-source.tar.gz" HEAD -- "${files[@]}"
+          biome="$(find node_modules -path '*/@biomejs/cli-linux-x64/biome' -type f -print -quit)"
+          test -n "$biome"
+          "$biome" --version > "$review/formatter-version.txt"
+          cp "$biome" "$review/biome"
+          git rev-parse HEAD > "$review/source-commit.txt"
+          (cd "$review" && sha256sum tracked-source.tar.gz biome > SHA256SUMS)
+      - name: Upload bounded review inputs after failed checks
+        if: failure() && steps.dependencies.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: codex-review-inputs
+          path: ${{ runner.temp }}/codex-review-inputs/
+          if-no-files-found: error
+          retention-days: 2
+      - name: Upload only test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: codex-native-reports
+          path: |
+            apps/desktop/codex-desktop-junit.xml
+            codex-desktop-junit.xml
+          if-no-files-found: ignore
+          retention-days: 7
+
+  real-codex-contract:
+    if: github.repository == 'Ling0925/open-vetta' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == 'Ling0925/open-vetta')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - name: Install frozen workspace dependencies
+        uses: ./.github/actions/install-bun-dependencies
+      - name: Install and verify the supported Linux sandbox prerequisites
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Use the distribution's bwrap and its scoped Ubuntu 24.04 AppArmor profile.
+          # Do not disable AppArmor globally or downgrade Codex to full access to pass this test.
+          # https://developers.openai.com/codex/concepts/sandboxing#prerequisites
+          sudo apt-get update
+          sudo apt-get install -y bubblewrap apparmor-profiles apparmor-utils
+          profile=/etc/apparmor.d/bwrap-userns-restrict
+          if [ ! -f "$profile" ]; then
+            test -f /usr/share/apparmor/extra-profiles/bwrap-userns-restrict
+            sudo install -m 0644 /usr/share/apparmor/extra-profiles/bwrap-userns-restrict "$profile"
+          fi
+          sudo apparmor_parser -r "$profile"
+          bwrap --version
+          bwrap --unshare-user --unshare-net --ro-bind / / --proc /proc --dev /dev /bin/true
+      - name: Build only the runtime dependency surface
+        run: bunx turbo run build --filter=@vetta/runtime-node... --summarize
+      - name: Install the exact test-only Codex release outside the workspace
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/codex-contract-cli" "$RUNNER_TEMP/codex-contract-home"
+          printf '{"private":true}\n' > "$RUNNER_TEMP/codex-contract-cli/package.json"
+          bun add --cwd "$RUNNER_TEMP/codex-contract-cli" --exact @openai/codex@0.157.0
+          test -f "$RUNNER_TEMP/codex-contract-cli/node_modules/@openai/codex/bin/codex.js"
+      - name: Real Codex plus local fixture, with all external networking disabled
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Only bring up loopback. Do not fall back to an unisolated run if unshare fails.
+          # Drop root and remove inherited environment before executing repository test code.
+          sudo unshare --net -- bash -c '
+            set -euo pipefail
+            ip link set lo up
+            cd "$7"
+            exec runuser -u "$1" -- env -i \
+              PATH="$2" HOME="$3" TMPDIR="$4" LANG=C.UTF-8 \
+              VETTA_TEST_NODE="$5" VETTA_CODEX_TEST_EXECUTABLE="$5" \
+              VETTA_CODEX_TEST_ENTRY="$6" VETTA_CODEX_TEST_REQUIRED=1 \
+              "$5" scripts/quality/run-vitest.mjs --run \
+              --config packages/runtime-node/vitest.config.ts \
+              test/codex-app-server/real-binary.test.ts \
+              --reporter=default --reporter=junit --outputFile=codex-real-junit.xml
+          ' bash "$(id -un)" "$PATH" "$RUNNER_TEMP/codex-contract-home" \
+            "$RUNNER_TEMP" "$(command -v node)" \
+            "$RUNNER_TEMP/codex-contract-cli/node_modules/@openai/codex/bin/codex.js" "$PWD"
+      - name: Upload only the real-binary test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: codex-real-binary-report
+          path: |
+            packages/runtime-node/codex-real-junit.xml
+            codex-real-junit.xml
+          if-no-files-found: ignore
+          retention-days: 7

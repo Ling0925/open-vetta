@@ -1,3 +1,4 @@
+import type codex from "@/shared/i18n/locales/zh/codex.json";
 // react-i18next 类型增强：基于 zh 资源给 t() / useTranslation 提供 key 自动补全与校验。
 import "i18next";
 import type abilities from "@/shared/i18n/locales/zh/abilities.json";
@@ -17,6 +18,7 @@ declare module "i18next" {
 	interface CustomTypeOptions {
 		defaultNS: "common";
 		resources: {
+			codex: typeof codex;
 			common: typeof common;
 			main: typeof main;
 			message: typeof message;

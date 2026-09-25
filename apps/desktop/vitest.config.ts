@@ -9,6 +9,14 @@ export default defineConfig({
 	root: __dirname,
 	resolve: {
 		alias: [
+			{
+				find: "@vetta/ssh-transport/project-uri",
+				replacement: resolve(__dirname, "../../packages/ssh-transport/src/project-uri.ts"),
+			},
+			{
+				find: "@vetta/runtime-node/codex-app-server",
+				replacement: resolve(__dirname, "../../packages/runtime-node/src/codex-app-server/index.ts"),
+			},
 			{ find: /^@vetta\/agent-team$/, replacement: resolve(__dirname, "../../packages/agent-team/src/index.ts") },
 			{ find: "@vetta/runtime-telemetry/langfuse", replacement: resolve(__dirname, "../../packages/runtime-telemetry/src/langfuse.ts") },
 			{ find: "@vetta/runtime-telemetry", replacement: resolve(__dirname, "../../packages/runtime-telemetry/src/index.ts") },

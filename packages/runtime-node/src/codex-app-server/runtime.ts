@@ -1,3 +1,4 @@
+import { codexGatewayThreadConfig } from "./provider-bridge.js";
 import { realpath } from "node:fs/promises";
 import { isAbsolute, relative, sep } from "node:path";
 import { object, readThread, text } from "./protocol.js";
@@ -18,8 +19,9 @@ export async function openCodexAppServerSession(options: OpenCodexSessionOptions
 	if (sandbox === "workspace-write" && !options.onApproval) {
 		throw new CodexRuntimeError("CONFIGURATION", "Workspace-write requires an explicit host approval handler");
 	}
+	const gateway = options.gateway ? codexGatewayThreadConfig(options.gateway) : undefined;
 	const cwd = await realpath(options.cwd);
-	const transport = await CodexStdioTransport.launch({ ...options, cwd });
+	const transport = await CodexStdioTransport.launch({ ...options, cwd }, { localGateway: Boolean(options.gateway) });
 	let rpc: CodexRpcConnection | undefined;
 	let session: CodexAppServerSession | undefined;
 	try {
@@ -31,8 +33,12 @@ export async function openCodexAppServerSession(options: OpenCodexSessionOptions
 		await rpc.initialize();
 		const response = object(await rpc.request(options.threadId ? "thread/resume" : "thread/start", {
 			...(options.threadId ? { threadId: options.threadId } : {}), cwd,
-			...(options.model ? { model: options.model } : {}), sandbox, approvalPolicy: "on-request", approvalsReviewer: "user",
+			...(options.model ? { model: options.model } : {}),
+			...(gateway ?? {}), sandbox, approvalPolicy: "on-request", approvalsReviewer: "user",
 		}));
+		if (gateway && (response.modelProvider !== gateway.modelProvider || response.model !== gateway.model)) {
+			throw new CodexRuntimeError("PROVIDER_MISMATCH", "Codex did not bind the selected gateway/model");
+		}
 		const thread = readThread(response.thread);
 		if (options.threadId && thread.id !== options.threadId)
 			throw new CodexRuntimeError("PROTOCOL", "Resumed thread identity mismatch");

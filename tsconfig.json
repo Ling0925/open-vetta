@@ -132,6 +132,7 @@
 			"@vetta/runtime-storage/conversation": ["./packages/runtime-storage/src/conversation/index.ts"],
 			"@vetta/runtime-storage/*": ["./packages/runtime-storage/src/*"],
 			"@vetta/runtime-node": ["./packages/runtime-node/src/index.ts"],
+			"@vetta/runtime-node/codex-app-server": ["./packages/runtime-node/src/codex-app-server/index.ts"],
 			"@vetta/runtime-node/conversation": ["./packages/runtime-node/src/conversation/index.ts"],
 			"@vetta/runtime-node/conversation/legacy": ["./packages/runtime-node/src/conversation/legacy.ts"],
 			"@vetta/runtime-node/coding": ["./packages/runtime-node/src/coding/index.ts"],

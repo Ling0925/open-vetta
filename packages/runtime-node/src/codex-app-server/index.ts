@@ -9,3 +9,6 @@ export { createCodexRuntimeHostIntegration } from "./host-composition.js";
 export type { CodexRuntimeHostIntegrationOptions } from "./host-composition.js";
 export { CODEX_HOST_CAPABILITIES } from "./host-contracts.js";
 export type { CodexHostAssembly, CodexHostBackendOptions, CodexHostEvent, CodexHostProfile, CodexSessionRecord } from "./host-contracts.js";
+
+export { startCodexProviderBridge } from "./provider-bridge.js";
+export type { CodexGatewayProvider, CodexGatewaySource, CodexGatewayTarget, CodexProviderBridge } from "./provider-bridge.js";

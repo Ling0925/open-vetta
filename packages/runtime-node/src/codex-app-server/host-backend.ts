@@ -62,7 +62,8 @@ export class CodexRuntimeHostBackend implements RuntimeHostSessionBackend {
 			executable: await realpath(this.profile.executable) };
 		const fingerprint = createHash("sha256").update(JSON.stringify({ id: profile.id, home: profile.codexHome,
 			executable: profile.executable, executableArgs: profile.executableArgs ?? [], version: profile.expectedVersion,
-			model: profile.model ?? null, sandbox: profile.sandbox ?? "read-only" })).digest("hex");
+			model: profile.model ?? null, sandbox: profile.sandbox ?? "read-only",
+			...(profile.providerIdentity ? { providerIdentity: profile.providerIdentity } : {}) })).digest("hex");
 		const sessionId = request.sessionId ?? randomUUID();
 		const path = request.sessionPath ? resolve(request.sessionPath) : await this.catalog.pathFor(sessionId);
 		if (!await this.catalog.ownsSession(path)) throw new CodexRuntimeError("CATALOG_FOREIGN", "Codex backend cannot open a Native session");

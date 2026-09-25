@@ -1,3 +1,4 @@
+import { createCodexWorkspaceApi } from "./apis/codex-workspace.js";
 import type { DesktopHostTransport } from "../shared/host-transport.js";
 import type { DesktopApi } from "./api.js";
 import { createAbilitiesApi } from "./apis/abilities.js";
@@ -34,6 +35,7 @@ import { createWebhookApi } from "./apis/webhook.js";
 export function createRawDesktopApi(transport: DesktopHostTransport): Omit<DesktopApi, "hostAccess"> {
 	const { ipc, filePath } = transport;
 	return {
+		...createCodexWorkspaceApi(ipc),
 		...createAbilitiesApi(ipc),
 		...createAgentTeamsApi(ipc),
 		...createActionApprovalApi(ipc),

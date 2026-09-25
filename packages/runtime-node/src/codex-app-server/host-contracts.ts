@@ -7,6 +7,8 @@ import type { OpenCodexSessionOptions } from "./types.js";
 export interface CodexHostProfile extends Omit<OpenCodexSessionOptions, "cwd" | "threadId"> {
 	readonly id: string;
 	readonly codexHome: string;
+	/** Stable host model-source identity; excludes ephemeral bridge port/token and raw secrets. */
+	readonly providerIdentity?: string;
 }
 
 /** An index, not another Conversation store. Codex owns messages, tools and authoritative history. */
