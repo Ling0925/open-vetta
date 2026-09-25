@@ -81,5 +81,7 @@
 	"reuseHelp": "地址、密钥、请求头和代理继续使用 Vetta 模型设置；无需重新登录 ChatGPT 或复制密钥。",
 	"responsesOnly": "此预览只接受明确配置为 OpenAI Responses 的模型；其他协议不会被自动转换。",
 	"dataHomeHelp": "Codex 数据目录用于保存独立的运行历史。复用 Vetta 网关时，不需要在这个目录再配置 API Key。",
-	"modelEmpty": "还没有可选模型。请先在 Vetta 模型设置中配置网关及 Responses 模型，然后刷新此列表。"
+	"modelEmpty": "还没有可选模型。请先在 Vetta 模型设置中配置网关及 Responses 模型，然后刷新此列表。",
+	"bundledRuntime": "安装包已内置 Codex {{version}}。选择已有模型和工作目录，保存后即可新建会话。",
+	"useBundledRuntime": "使用内置 Codex 和独立历史目录"
 }

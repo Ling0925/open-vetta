@@ -1,0 +1,21 @@
+{
+	"schemaVersion": 1,
+	"version": "0.157.0",
+	"targets": {
+		"darwin-arm64": {
+			"package": "@openai/codex-darwin-arm64",
+			"triple": "aarch64-apple-darwin",
+			"binary": "codex"
+		},
+		"darwin-x64": {
+			"package": "@openai/codex-darwin-x64",
+			"triple": "x86_64-apple-darwin",
+			"binary": "codex"
+		},
+		"win32-x64": {
+			"package": "@openai/codex-win32-x64",
+			"triple": "x86_64-pc-windows-msvc",
+			"binary": "codex.exe"
+		}
+	}
+}

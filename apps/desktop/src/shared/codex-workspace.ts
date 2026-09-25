@@ -15,7 +15,17 @@ export interface CodexWorkspaceProfile {
 	/** Existing Vetta provider/model reference; mutually exclusive with the legacy model override. */
 	vettaModelKey?: string;
 }
-export type CodexWorkspacePhase = "setup" | "ready" | "opening" | "running" | "stopping" | "closing" | "recovery" | "closed";
+/** Suggestions from the installed app, not a confirmed or persisted profile. */
+export type CodexRuntimeDefaults = Pick<CodexWorkspaceProfile, "executable" | "expectedVersion" | "codexHome">;
+export type CodexWorkspacePhase =
+	| "setup"
+	| "ready"
+	| "opening"
+	| "running"
+	| "stopping"
+	| "closing"
+	| "recovery"
+	| "closed";
 export interface CodexWorkspaceRow {
 	id: string;
 	kind: "user" | "assistant" | "thinking" | "tool" | "error" | "note";
@@ -36,6 +46,7 @@ export interface CodexWorkspaceSnapshot {
 	revision: number;
 	phase: CodexWorkspacePhase;
 	profile?: CodexWorkspaceProfile;
+	runtimeDefaults?: CodexRuntimeDefaults;
 	sessionId?: string;
 	activeInputId?: string;
 	rows: CodexWorkspaceRow[];
@@ -57,7 +68,13 @@ export type CodexWorkspaceCommand =
 	| { type: "close" }
 	| { type: "approval"; approvalId: string; decision: "accept" | "decline" };
 export type CodexWorkspaceReply =
-	| { ok: true; snapshot?: CodexWorkspaceSnapshot; chosenPath?: string; acceptedInputId?: string; models?: CodexModelChoice[] }
+	| {
+			ok: true;
+			snapshot?: CodexWorkspaceSnapshot;
+			chosenPath?: string;
+			acceptedInputId?: string;
+			models?: CodexModelChoice[];
+	  }
 	| { ok: false; code: string };
 export interface DesktopCodexWorkspaceApi {
 	attach(): Promise<{ token: string; snapshot: CodexWorkspaceSnapshot }>;

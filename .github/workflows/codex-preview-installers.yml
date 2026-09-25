@@ -1,0 +1,130 @@
+name: codex-preview-installers
+
+on:
+  push:
+    branches: [feat/codex-install-preview]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: codex-installers-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contracts:
+    if: github.repository == 'Ling0925/open-vetta'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - uses: ./.github/actions/install-bun-dependencies
+      - run: node --test apps/desktop/scripts/stage-codex-runtime.node-test.mjs
+      - name: Desktop setup, gateway, approval, cancellation and form contracts
+        run: >-
+          bun scripts/quality/run-vitest.mjs --run --config apps/desktop/vitest.config.ts
+          src/main/codex-workspace src/main/ipc/codex-workspace.test.ts
+          src/preload/apis/codex-workspace.test.ts src/renderer/domains/codex-workspace
+
+  # Keep full quality results visible. Install-test artifacts are not stable releases;
+  # existing full quality and real-binary validation workflows are not removed or weakened.
+  quality:
+    if: github.repository == 'Ling0925/open-vetta'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - uses: ./.github/actions/install-bun-dependencies
+      - run: bun run check
+
+  installers:
+    needs: contracts
+    if: github.repository == 'Ling0925/open-vetta'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            target: darwin-arm64
+          - runner: macos-15-intel
+            target: darwin-x64
+          - runner: windows-latest
+            target: win32-x64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    env:
+      VETTA_BUILD_ENV: opensource
+      VETTA_CLOUD_ENABLED: 'false'
+      VETTA_UPDATE_PROVIDER: github
+      VETTA_UPDATE_GITHUB_OWNER: Ling0925
+      VETTA_UPDATE_GITHUB_REPO: open-vetta
+      VETTA_VENDOR_PLATFORM: ${{ matrix.target }}
+      VETTA_CLI_TARGET_PLATFORMS: ${{ matrix.target }}
+      VETTA_SPEECH_INPUT_ENABLED: 'false'
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: apps/im-gateway/go.mod
+          cache-dependency-path: apps/im-gateway/go.sum
+      - uses: ./.github/actions/install-bun-dependencies
+      - name: Build unpublished native-host preview with pinned Codex
+        run: node apps/desktop/scripts/build-codex-preview.mjs
+      - name: Verify installed Electron entry and bundled binary
+        working-directory: apps/desktop
+        env:
+          VETTA_E2E_PACKAGED: '1'
+          VETTA_E2E_UPDATE_FEED: '0'
+          VETTA_CODEX_PREVIEW_REQUIRED: '1'
+          VETTA_HOME: ${{ runner.temp }}/vetta-codex-install-smoke
+        run: bun run test:e2e -- --spec ./e2e/codex-preview.e2e.ts
+      - name: Add guide and checksums for the exact tested artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp docs/runtime/codex-install-testing.md apps/desktop/release/INSTALL-CODEX.md
+          node --input-type=module <<'JS'
+          import { createHash } from 'node:crypto';
+          import { createReadStream } from 'node:fs';
+          import { readdir, writeFile } from 'node:fs/promises';
+          const root = 'apps/desktop/release';
+          const files = (await readdir(root)).filter(name => /\.(dmg|zip)$/.test(name)).sort();
+          if (!files.length) throw new Error('No installer or application archive was produced');
+          const sums = [];
+          for (const name of files) {
+            const hash = createHash('sha256');
+            for await (const chunk of createReadStream(`${root}/${name}`)) hash.update(chunk);
+            sums.push(`${hash.digest('hex')}  ${name}`);
+          }
+          await writeFile(`${root}/SHA256SUMS`, `${sums.join('\n')}\n`);
+          JS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: codex-preview-${{ matrix.target }}-${{ github.sha }}
+          path: |
+            apps/desktop/release/*.dmg
+            apps/desktop/release/*.zip
+            apps/desktop/release/CODEX-PREVIEW.txt
+            apps/desktop/release/INSTALL-CODEX.md
+            apps/desktop/release/SHA256SUMS
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
