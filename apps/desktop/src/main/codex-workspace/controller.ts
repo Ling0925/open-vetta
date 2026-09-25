@@ -1,3 +1,4 @@
+import type { CodexModelChoice } from "../../shared/codex-workspace.js";
 import { createHash, randomUUID } from "node:crypto";
 import type { CodexWorkspaceCommand, CodexWorkspaceProfile, CodexWorkspaceReply, CodexWorkspaceSnapshot } from "../../shared/codex-workspace.js";
 import { CodexWorkspaceApprovals, type WorkspaceApprovalRequest } from "./approvals.js";
@@ -18,6 +19,7 @@ export interface WorkspaceBackend {
 }
 export interface CodexWorkspaceControllerOptions {
 	readProfile(): Promise<CodexWorkspaceProfile | undefined>;
+	listModels?(): Promise<CodexModelChoice[]>;
 	writeProfile(profile: CodexWorkspaceProfile): Promise<void>;
 	confirmProfile(profile: CodexWorkspaceProfile): Promise<boolean>;
 	choosePath(field: "executable" | "codexHome" | "cwd"): Promise<string | undefined>;
@@ -88,6 +90,10 @@ export class CodexWorkspaceController {
 				if (this.phase === "opening") void this.closeSession().catch(() => undefined);
 				return { ok: true };
 			}
+			if (action.type === "models") {
+				const models = await this.options.listModels?.() ?? [];
+				this.assertToken(token); return { ok: true, models };
+			}
 			if (action.type === "snapshot") return { ok: true, snapshot: this.snapshot() };
 			if (action.type === "choose") {
 				const chosenPath = await this.options.choosePath(action.field);
@@ -150,6 +156,11 @@ export class CodexWorkspaceController {
 		if (this.active || this.exclusive || this.configuring || this.sessionClosing) throw new CodexWorkspaceError("BUSY");
 		this.configuring = true;
 		try {
+			if (profile.vettaModelKey) {
+				const model = (await this.options.listModels?.() ?? []).find(item => item.modelKey === profile.vettaModelKey);
+				if (!model || model.unavailable) throw new CodexWorkspaceError(model?.unavailable ?? "MODEL_REFERENCE_MISSING");
+				this.assertToken(token);
+			}
 			if (!await this.options.confirmProfile(profile)) throw new CodexWorkspaceError("CANCELLED");
 			this.assertToken(token);
 			await this.backend?.close(); this.backend = undefined;

@@ -64,6 +64,8 @@ export interface CodexSessionOptions {
 }
 export interface OpenCodexSessionOptions extends CodexLaunchOptions, Omit<RpcOptions, "onRequest">, CodexSessionOptions {
 	readonly threadId?: string;
+	/** Revocable local gateway binding; never an upstream API key. */
+	readonly gateway?: import("./provider-bridge.js").CodexGatewayProvider;
 	readonly model?: string;
 	readonly sandbox?: "read-only" | "workspace-write";
 }

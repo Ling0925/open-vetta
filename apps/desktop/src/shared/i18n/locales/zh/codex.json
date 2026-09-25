@@ -9,7 +9,7 @@
 	"technical": "技术信息",
 	"errorHelp": "本次操作未确认成功。输入仍保留；请先检查状态。结果不明时，关闭连接并恢复原会话核对记录，不要直接重发任务。",
 	"configuration": "Codex 配置",
-	"profileWarning": "请选择可信的 Codex 程序及独立的 Codex 登录目录。认证由该目录管理，应用尚未核验实际账号。所选配置中的 MCP 或插件可能具有远端副作用，本地只读沙箱不能限制这些操作。",
+	"profileWarning": "请选择可信的 Codex 程序和独立数据目录。复用 Vetta 模型时无需再配置网关认证；目录内仍可能存在 MCP 或插件，它们的远端副作用不受本地只读沙箱完整约束。",
 	"confirmTitle": "确认 Codex 配置",
 	"confirmMessage": "保存后，明确新建或恢复会话才会启动所选程序。请确认程序来源、登录目录和权限范围。",
 	"save": "确认并保存配置",
@@ -34,7 +34,7 @@
 	"fields": {
 		"executable": "Codex 可执行文件（绝对路径）",
 		"expectedVersion": "配置的精确版本",
-		"codexHome": "独立 Codex 登录目录",
+		"codexHome": "独立 Codex 数据目录",
 		"cwd": "本地工作目录",
 		"model": "Codex 模型（可选）",
 		"sandbox": "本地沙箱权限"
@@ -68,5 +68,18 @@
 	},
 	"savedSessions": "已保存会话（最近 200 个）",
 	"chooseSession": "选择一个会话",
-	"resumeSelected": "恢复选中会话"
+	"resumeSelected": "恢复选中会话",
+	"modelSource": "模型来源",
+	"existingModel": "使用 Vetta 已有网关和模型",
+	"codexHomeModel": "使用 Codex 目录中的模型配置",
+	"chooseModel": "选择已配置的模型",
+	"modelLoading": "正在读取已有模型…",
+	"modelLoadFailed": "无法读取模型设置，已保留输入。请刷新重试。",
+	"refreshModels": "刷新模型列表",
+	"modelUnavailable": "不可用于当前 Codex 预览",
+	"modelMissing": "之前选择的模型已删除或不可用，请重新选择。",
+	"reuseHelp": "地址、密钥、请求头和代理继续使用 Vetta 模型设置；无需重新登录 ChatGPT 或复制密钥。",
+	"responsesOnly": "此预览只接受明确配置为 OpenAI Responses 的模型；其他协议不会被自动转换。",
+	"dataHomeHelp": "Codex 数据目录用于保存独立的运行历史。复用 Vetta 网关时，不需要在这个目录再配置 API Key。",
+	"modelEmpty": "还没有可选模型。请先在 Vetta 模型设置中配置网关及 Responses 模型，然后刷新此列表。"
 }

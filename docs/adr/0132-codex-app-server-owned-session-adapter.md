@@ -52,3 +52,18 @@ Codex 出错不得静默切 Native。一条会话只由一个 runtime 管理权�
 参见 [路线与验收](../runtime/runtime-roadmap.md)、[适配器说明](../runtime/codex-app-server.md)
 和 [RuntimeHost 后端说明](../runtime/codex-host-backend.md)。本决策沿用 ADR-0077 的 Agent/Runtime/Product
 所有权划分，不将外部 Agent Loop 再实现一遍。
+
+
+## 补充决策：复用宿主已有的网关配置
+
+Codex 预览新增可选 `vettaModelKey`，仍以 Desktop 原有 ModelSettingsService/Vault 为唯一配置与凭据来源。
+不选择将真实 API Key 写入 Codex 的 config/env/argv，而是使用生命周期绑定、鉴权的 loopback Responses 桥接；
+上游凭据、代理路由和配置变更核验保留在主进程，Node 层只实现独立网络端口。
+这引入一个有界的本机网络组件，但避免秘密复制、失效凭据复用以及第二套供应商设置。
+
+实际模型由显式引用决定，校验 Responses 协议、固定端点和请求头，配置变化要求显式重开，不自动回退。
+profile 指纹仅追加非秘密的 Provider 身份，旧模式保持原指纹。选择列表、IPC 与持久化配置均不携带上游密钥。
+Codex 仅获得可撤销的本机令牌；这不是针对恶意同用户进程的隔离边界，也不是网关内部账号身份认证。
+跨存储 exactly-once、真实二进制/网关认证、MCP 副作用及全部桌面验收仍未由此切片解决。
+
+实现、限制与验证范围见 [复用现有网关配置](../runtime/codex-existing-models.md)。

@@ -1,3 +1,4 @@
+import { listDesktopCodexModels } from "./model-source-host.js";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { getVettaHomePath } from "@vetta/action-rpc";
@@ -36,6 +37,7 @@ export function createDesktopCodexWorkspace(owner: WebContents) {
 	};
 	const create = () => new CodexWorkspaceController({
 		readProfile: store.read, writeProfile: store.write,
+		listModels: listDesktopCodexModels,
 		createBackend: (profile, approval) => createWorkspaceBackend(join(root, "sessions"), profile, approval),
 		choosePath: async field => {
 			const result = await dialog.showOpenDialog(getWindow(), {
@@ -45,7 +47,10 @@ export function createDesktopCodexWorkspace(owner: WebContents) {
 			return result.canceled ? undefined : result.filePaths[0];
 		},
 		confirmProfile: async profile => {
+			const selectedModel = profile.vettaModelKey ? (await listDesktopCodexModels()).find(item => item.modelKey === profile.vettaModelKey) : undefined;
+			if (profile.vettaModelKey && (!selectedModel || selectedModel.unavailable)) throw new CodexWorkspaceError("MODEL_REFERENCE_MISSING");
 			const detail = [
+				...(selectedModel ? [mainT("codex:existingModel"), selectedModel.label, selectedModel.baseUrl ?? ""] : []),
 				`${mainT("codex:fields.executable")}: ${profile.executable}`,
 				`${mainT("codex:fields.expectedVersion")}: ${profile.expectedVersion}`,
 				`${mainT("codex:fields.model")}: ${profile.model ?? "—"}`,

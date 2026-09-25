@@ -1,3 +1,4 @@
+import { createSharedModelWorkspaceBackend } from "./shared-model-backend.js";
 import { CodexRuntimeHostBackend } from "@vetta/runtime-node/codex-app-server";
 import { FileConversationOwnershipManager } from "@vetta/runtime-node/conversation";
 import type { CodexWorkspaceProfile } from "../../shared/codex-workspace.js";
@@ -8,6 +9,7 @@ import { CodexWorkspaceError, errorCode } from "./validation.js";
 
 export function createWorkspaceBackend(catalogRoot: string, profile: CodexWorkspaceProfile,
 	approval: (request: WorkspaceApprovalRequest) => Promise<"accept" | "decline" | "cancel">): WorkspaceBackend {
+	if (profile.vettaModelKey) return createSharedModelWorkspaceBackend(catalogRoot, profile, approval);
 	const backend = new CodexRuntimeHostBackend({
 		catalogRoot,
 		profile: {

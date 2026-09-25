@@ -42,7 +42,7 @@ export class CodexStdioTransport implements CodexTransport {
 			this.fail(new CodexRuntimeError("PROCESS_EXIT", "App-server exited; an in-flight operation may need reconciliation"));
 		});
 	}
-	static async launch(options: CodexLaunchOptions): Promise<CodexStdioTransport> {
+	static async launch(options: CodexLaunchOptions, routing?: { readonly localGateway: boolean }): Promise<CodexStdioTransport> {
 		if (!isAbsolute(options.executable) || !isAbsolute(options.cwd) || (options.codexHome && !isAbsolute(options.codexHome))) {
 			throw new CodexRuntimeError("CONFIGURATION", "Codex executable, cwd and optional home must be absolute paths");
 		}
@@ -54,6 +54,11 @@ export class CodexStdioTransport implements CodexTransport {
 		const timeout = positive(options.startupTimeoutMs, 10000);
 		const cwd = await realpath(options.cwd);
 		const env = environment(options.codexHome);
+		if (routing?.localGateway) {
+			// The host handles upstream routing; never send a local bearer through a system proxy.
+			delete env.HTTP_PROXY; delete env.HTTPS_PROXY; delete env.ALL_PROXY;
+			env.NO_PROXY = "*";
+		}
 		const version = await new Promise<string>((resolve, reject) => {
 			execFile(options.executable, [...(options.executableArgs ?? []), "--version"], {
 				cwd, env, timeout, maxBuffer: 2048, windowsHide: true, encoding: "utf8",

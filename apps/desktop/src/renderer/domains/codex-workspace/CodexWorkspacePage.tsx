@@ -1,3 +1,4 @@
+import { useCodexModelChoices } from "./useCodexModelChoices";
 import { type ReactElement, useEffect, useRef, useState } from "react";
 import { useAtom } from "jotai";
 import { useNavigate } from "@tanstack/react-router";
@@ -13,6 +14,7 @@ import { CodexTranscript } from "./CodexTranscript";
 export function CodexWorkspacePage(): ReactElement {
 	const { t } = useTranslation("codex"); const navigate = useNavigate();
 	const [attempt, retry] = useState(0); const { state, run } = useCodexWorkspace(attempt);
+	const modelChoices = useCodexModelChoices(run, state.connection === "ready" && !state.snapshot?.sessionId);
 	const data = state.snapshot; const [drafts, setDrafts] = useAtom(codexWorkspaceDraftsAtom);
 	const scope = data?.sessionId ?? "new"; const draft = drafts[scope] ?? "";
 	const submitted = useRef<{ sessionId: string; text: string; id: string } | undefined>(undefined);
@@ -63,7 +65,7 @@ export function CodexWorkspacePage(): ReactElement {
 			{data && <>
 				<p role="status" className="my-3">{t(`phases.${data.phase}`)}{data.outcome ? ` · ${t(`outcomes.${data.outcome}`)}` : ""}</p>
 				{!data.sessionId && data.phase !== "opening" && data.phase !== "closing" && <CodexProfileForm key={JSON.stringify(data.profile)}
-					initial={data.profile} disabled={!editable || state.pending.includes("configure")} save={configure}
+					initial={data.profile} models={modelChoices.models} modelsStatus={modelChoices.status} reloadModels={modelChoices.reload} disabled={!editable || state.pending.includes("configure")} save={configure}
 					choose={async field => { const reply = await run({ type: "choose", field }); return reply.ok ? reply.chosenPath : undefined; }} />}
 				{!data.sessionId && <div className="my-4 flex flex-wrap gap-3">
 					<Button disabled={!editable || !data.profile || state.pending.includes("configure") || data.phase !== "ready"}

@@ -9,7 +9,7 @@
 	"technical": "Technical details",
 	"errorHelp": "This operation was not confirmed. Your input is retained. Check the state first. When the outcome is uncertain, close and resume the original session to reconcile its history before sending again.",
 	"configuration": "Codex configuration",
-	"profileWarning": "Choose a trusted Codex executable and a separate Codex home. Authentication is managed by that home; this app has not verified the account. Configured MCP servers or plugins may cause remote effects that a local read-only sandbox cannot restrict.",
+	"profileWarning": "Choose a trusted Codex executable and a separate data directory. Reusing Vetta models requires no second gateway credential setup. MCP servers or plugins configured in that directory can still have remote effects outside the local read-only sandbox.",
 	"confirmTitle": "Confirm Codex configuration",
 	"confirmMessage": "Saving does not launch the program. Creating or resuming a session will. Verify the executable, authentication directory and permissions.",
 	"save": "Confirm and save configuration",
@@ -34,7 +34,7 @@
 	"fields": {
 		"executable": "Codex executable (absolute path)",
 		"expectedVersion": "Configured exact version",
-		"codexHome": "Separate Codex home",
+		"codexHome": "Separate Codex data directory",
 		"cwd": "Local workspace",
 		"model": "Codex model (optional)",
 		"sandbox": "Local sandbox permissions"
@@ -68,5 +68,18 @@
 	},
 	"savedSessions": "Saved sessions (latest 200)",
 	"chooseSession": "Choose a session",
-	"resumeSelected": "Resume selected session"
+	"resumeSelected": "Resume selected session",
+	"modelSource": "Model source",
+	"existingModel": "Use an existing Vetta gateway and model",
+	"codexHomeModel": "Use the model configured in Codex home",
+	"chooseModel": "Choose a configured model",
+	"modelLoading": "Reading existing models…",
+	"modelLoadFailed": "Could not read model settings. Your input is retained. Refresh to retry.",
+	"refreshModels": "Refresh models",
+	"modelUnavailable": "Unavailable in this Codex preview",
+	"modelMissing": "The previously selected model is missing or unavailable. Select it again.",
+	"reuseHelp": "Reuse the URL, credential, headers and proxy from Vetta model settings. No separate ChatGPT login or copied API key is required.",
+	"responsesOnly": "This preview requires models explicitly configured for OpenAI Responses. Other protocols are not converted automatically.",
+	"dataHomeHelp": "Codex home stores separate runtime history. When using a Vetta gateway, no API key needs to be configured in this directory.",
+	"modelEmpty": "No models are listed yet. Configure your gateway and a Responses model in Vetta model settings, then refresh this list."
 }

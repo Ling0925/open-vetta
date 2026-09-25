@@ -12,6 +12,8 @@ export interface CodexWorkspaceProfile {
 	cwd: string;
 	sandbox: "read-only" | "workspace-write";
 	model?: string;
+	/** Existing Vetta provider/model reference; mutually exclusive with the legacy model override. */
+	vettaModelKey?: string;
 }
 export type CodexWorkspacePhase = "setup" | "ready" | "opening" | "running" | "stopping" | "closing" | "recovery" | "closed";
 export interface CodexWorkspaceRow {
@@ -45,6 +47,7 @@ export interface CodexWorkspaceSnapshot {
 }
 export type CodexWorkspaceCommand =
 	| { type: "snapshot" }
+	| { type: "models" }
 	| { type: "detach" }
 	| { type: "choose"; field: "executable" | "codexHome" | "cwd" }
 	| { type: "configure"; profile: CodexWorkspaceProfile }
@@ -54,10 +57,19 @@ export type CodexWorkspaceCommand =
 	| { type: "close" }
 	| { type: "approval"; approvalId: string; decision: "accept" | "decline" };
 export type CodexWorkspaceReply =
-	| { ok: true; snapshot?: CodexWorkspaceSnapshot; chosenPath?: string; acceptedInputId?: string }
+	| { ok: true; snapshot?: CodexWorkspaceSnapshot; chosenPath?: string; acceptedInputId?: string; models?: CodexModelChoice[] }
 	| { ok: false; code: string };
 export interface DesktopCodexWorkspaceApi {
 	attach(): Promise<{ token: string; snapshot: CodexWorkspaceSnapshot }>;
 	command(token: string, command: CodexWorkspaceCommand): Promise<CodexWorkspaceReply>;
 	onChanged(listener: (notice: { instanceId: string; revision: number }) => void): () => void;
+}
+
+/** Whitelisted display metadata only. Never expose credentials or provider headers here. */
+export interface CodexModelChoice {
+	modelKey: string;
+	label: string;
+	baseUrl?: string;
+	isDefault: boolean;
+	unavailable?: string;
 }

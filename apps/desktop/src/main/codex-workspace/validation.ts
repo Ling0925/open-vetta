@@ -1,3 +1,4 @@
+import { modelKeyParts } from "./model-source.js";
 import { isAbsolute } from "node:path";
 import type { CodexWorkspaceCommand, CodexWorkspaceProfile } from "../../shared/codex-workspace.js";
 
@@ -21,19 +22,24 @@ function path(value: unknown): string {
 }
 export function profile(value: unknown): CodexWorkspaceProfile {
 	const v = record(value);
-	keys(v, ["executable", "expectedVersion", "codexHome", "cwd", "sandbox", "model"]);
+	keys(v, ["executable", "expectedVersion", "codexHome", "cwd", "sandbox", "model", "vettaModelKey"]);
 	if (typeof v.expectedVersion !== "string" || !/^[0-9][0-9A-Za-z.+-]{0,63}$/.test(v.expectedVersion)) throw new CodexWorkspaceError("INPUT");
 	if (v.sandbox !== "read-only" && v.sandbox !== "workspace-write") throw new CodexWorkspaceError("INPUT");
 	if (v.model !== undefined && (typeof v.model !== "string" || v.model.length > 200 || /[\r\n\0]/.test(v.model))) throw new CodexWorkspaceError("INPUT");
+	if (v.vettaModelKey !== undefined) {
+		if (typeof v.vettaModelKey !== "string" || v.model !== undefined) throw new CodexWorkspaceError("INPUT");
+		modelKeyParts(v.vettaModelKey);
+	}
 	return {
 		executable: path(v.executable), expectedVersion: v.expectedVersion, codexHome: path(v.codexHome),
-		cwd: path(v.cwd), sandbox: v.sandbox, ...(v.model ? { model: String(v.model) } : {})
+		cwd: path(v.cwd), sandbox: v.sandbox, ...(v.model ? { model: String(v.model) } : {}),
+		...(typeof v.vettaModelKey === "string" ? { vettaModelKey: v.vettaModelKey } : {})
 	};
 }
 export function command(value: unknown): CodexWorkspaceCommand {
 	const v = record(value);
 	switch (v.type) {
-		case "snapshot": case "detach": case "close": keys(v, ["type"]); return { type: v.type };
+		case "models": case "snapshot": case "detach": case "close": keys(v, ["type"]); return { type: v.type };
 		case "choose":
 			keys(v, ["type", "field"]);
 			if (v.field !== "executable" && v.field !== "codexHome" && v.field !== "cwd") throw new CodexWorkspaceError("INPUT");
