@@ -2,7 +2,7 @@ name: codex-preview-installers
 
 on:
   push:
-    branches: [feat/codex-install-preview, fix/codex-preview-installers]
+    branches: [feat/codex-install-preview, fix/codex-preview-installers, feat/chat-runtime-switch]
   workflow_dispatch:
 
 permissions:
@@ -31,6 +31,7 @@ jobs:
           bun scripts/quality/run-vitest.mjs --run --config apps/desktop/vitest.config.ts
           src/main/codex-workspace src/main/ipc/codex-workspace.test.ts
           src/preload/apis/codex-workspace.test.ts src/renderer/domains/codex-workspace
+          src/main/conversations src/main/agent-runtime src/renderer/domains/conversation src/renderer/root-layout
 
   # Keep full quality results visible. Install-test artifacts are not stable releases;
   # existing full quality and real-binary validation workflows are not removed or weakened.
@@ -120,7 +121,7 @@ jobs:
           JS
       - uses: actions/upload-artifact@v4
         with:
-          name: codex-preview-${{ matrix.target }}-${{ github.sha }}
+          name: codex-chat-${{ matrix.target }}-${{ github.sha }}
           path: |
             apps/desktop/release/*.dmg
             apps/desktop/release/*.zip

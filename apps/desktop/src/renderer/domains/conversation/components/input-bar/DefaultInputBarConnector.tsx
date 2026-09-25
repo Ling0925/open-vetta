@@ -1,7 +1,9 @@
+import { useRuntimeBackendModel } from "../../hooks/useRuntimeBackendModel";
+import type { ExecutionModeSelectorViewProps } from "../execution-mode-selector/types";
 import { useBottomPanelPills } from "@domains/bottom-panel/hooks/useBottomPanelPills";
 import { pathBasename, toVettaFileUrl } from "@shared/lib/utils";
 import type { InputBarContextMenuViewProps } from "@vetta-org/theme-ui/chat";
-import { memo, useMemo } from "react";
+import { memo, useCallback, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { InputBar } from "../InputBar";
 import type { ActiveActionCapsule } from "./ActiveActionCapsules";
@@ -27,23 +29,40 @@ import { usePlanModeModel } from "../../hooks/usePlanModeModel";
 /** 普通 Chat 的默认配方；每项能力由独立 source/model 提供，其他 Connector 可自行取舍。 */
 export const DefaultInputBarConnector = memo(function DefaultInputBarConnector(props: ConnectedInputBarProps): JSX.Element {
 	const { t } = useTranslation("chat");
+	const { t: codexT } = useTranslation("codex");
 	const session = useInputBarSessionSource(props.cwdOverride);
 	const draft = useInputBarDraftSource();
 	const runtimeId = session.activeSession?.runtimeId;
 	const interactions = useInputBarInteractionSource(runtimeId);
 	const firstSuggestion = useInputBarSuggestionSource(runtimeId);
 	const queue = useInputBarQueueSource(runtimeId);
+	const runtimeBackend = useRuntimeBackendModel(runtimeId, session.isStreaming || queue.items.length > 0 || !!props.sendPending);
+	const codex = runtimeBackend.backend === "codex";
 	const todoItems = useInputBarTodoSource(runtimeId);
 	const actionBar = useInputActionBarModel();
 	const speechInput = useSpeechInput(session.hasSession);
-	const executionModeModel = useDefaultExecutionModeSelectorModel();
+	const nativeExecutionMode = useDefaultExecutionModeSelectorModel();
+	const executionModeModel: ExecutionModeSelectorViewProps = codex ? {
+		open: false, disabled: true,
+		selectedOption: { mode: "sandbox", icon: "icon-[solar--shield-linear]", label: codexT("chatBackend.sandbox"),
+			title: codexT("chatBackend.sandboxHelp"), disabled: true, selected: true },
+		options: [], onOpenChange: () => {}, onSelect: () => {},
+	} : nativeExecutionMode;
 	const planMode = usePlanModeModel();
 	const contextUsageModel = useDefaultContextRingModel(true);
 	const canSend =
-		session.hasSession &&
+		!runtimeBackend.blocked && session.hasSession &&
 		!session.isStreaming &&
 		(!session.isBlank || Boolean(draft.appshotAttachment));
 	const dropZone = useSessionDropZoneModel(session.effectiveCwd || undefined);
+	const sendWithBackend = useCallback<ConnectedInputBarProps["onSend"]>(async (text, context) => {
+		if (runtimeBackend.blocked) return;
+		await props.onSend(text, { ...context,
+			...(!runtimeId ? { runtimeBackend: runtimeBackend.backend } : {}),
+			// A Codex turn is self-contained; subsequent messages enter the existing follow-up queue.
+			...(codex ? { streamingBehavior: "followUp" as const } : {}),
+		});
+	}, [codex, props.onSend, runtimeBackend.backend, runtimeBackend.blocked, runtimeId]);
 	const trigger = useInputBarTriggerModel({
 		activeSession: session.activeSession,
 		canSend: canSend,
@@ -54,7 +73,7 @@ export const DefaultInputBarConnector = memo(function DefaultInputBarConnector(p
 		isStreaming: session.isStreaming,
 		onAbort: props.onAbort,
 		onExpandedChange: props.onExpandedChange,
-		onSend: props.onSend,
+		onSend: sendWithBackend,
 	});
 	const imageAttachments = useMemo(
 		() => draft.imagePaths.map((path, index) => ({ path, name: pathBasename(path), url: toVettaFileUrl(path), label: t("inputBar.capsule.imageBadge", { index: index + 1 }) })),
@@ -119,7 +138,8 @@ export const DefaultInputBarConnector = memo(function DefaultInputBarConnector(p
 	const model: InputBarModel = {
 		dropZone,
 		isStreaming: session.isStreaming,
-		sendPending: props.sendPending,
+		sendPending: runtimeBackend.blocked ? { label: runtimeBackend.model.status ?? codexT("chatBackend.loading") } : props.sendPending,
+		runtimeBackend: runtimeBackend.model,
 		pendingQuestion: interactions.pendingQuestion,
 		pendingMcpElicitation: interactions.pendingMcpElicitation,
 		pendingPlanReview: interactions.pendingPlanReview,
@@ -135,7 +155,7 @@ export const DefaultInputBarConnector = memo(function DefaultInputBarConnector(p
 		placeholderTexts: placeholderModel.placeholderTexts,
 		placeholderRotating: placeholderModel.placeholderRotating,
 		isFocused: trigger.isFocused,
-		commands: {
+		commands: codex ? undefined : {
 			slashOpen: trigger.slashOpen,
 			slashVisible: trigger.slashVisible,
 			slashFilter: trigger.slashFilter,
@@ -148,7 +168,7 @@ export const DefaultInputBarConnector = memo(function DefaultInputBarConnector(p
 			onAtClose: trigger.handleAtClose,
 			onAtSelect: trigger.handleAtSelect,
 				onOpen: trigger.handlePlusClick,
-				allowCompaction: Boolean(session.activeSession),
+				allowCompaction: !codex && Boolean(session.activeSession),
 			},
 		drawerItems,
 		drawerActiveTab: trigger.drawerActiveTab,
@@ -167,14 +187,14 @@ export const DefaultInputBarConnector = memo(function DefaultInputBarConnector(p
 		editor: { namespace: "chat-input" },
 		modelSelector: { updateActiveSession: true },
 		leadingTools: [{ kind: "execution-mode", model: executionModeModel }],
-		trailingTools: contextUsageModel ? [{ kind: "context-usage", model: contextUsageModel }] : [],
+		trailingTools: !codex && contextUsageModel ? [{ kind: "context-usage", model: contextUsageModel }] : [],
 		sendBehavior: "queueable",
 		labels,
 		actions: {
 			setFocused: trigger.setIsFocused,
 			setDrawerActiveTab: trigger.setDrawerActiveTab,
 			handleEnter: trigger.handleEnter,
-			handleKeyDown: planMode.handleKeyDown,
+			handleKeyDown: codex ? undefined : planMode.handleKeyDown,
 			handleContextMenu: contextMenuModel.onContextMenu,
 			removeImage: attachments.removeImage,
 			openImagePreview: attachments.openImagePreview,

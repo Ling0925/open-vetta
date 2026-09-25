@@ -1,4 +1,3 @@
-import { registerCodexWorkspaceIpc } from "./codex-workspace.js";
 import type { WebContents } from "electron";
 import type { ActionApprovalBroker } from "../app-actions/approval-broker.js";
 import { registerNotificationIpc } from "../notifications/index.js";
@@ -9,6 +8,7 @@ import { registerAgentTeamsIpc } from "./agent-teams.js";
 import { registerAppMonitorIpc } from "./app-monitor.js";
 import { registerAppshotIpc } from "./appshot.js";
 import { registerClipboardIpc } from "./clipboard.js";
+import { registerCodexWorkspaceIpc } from "./codex-workspace.js";
 import { registerConversationTagsIpc } from "./conversation-tags.js";
 import { registerDebugIpc } from "./debug.js";
 import { registerDiagnosticsIpc } from "./diagnostics.js";
@@ -33,6 +33,7 @@ import { registerRemotePairingIpc } from "./remote-pairing.js";
 import { registerRuntimeConfigurationIpc } from "./runtime-configuration.js";
 import { registerRuntimesIpc } from "./runtimes.js";
 import { registerSessionIpc } from "./session.js";
+import { registerSessionRuntimeBackendIpc } from "./session-runtime-backend.js";
 import { registerSettingsIpc } from "./settings.js";
 import { registerSkillsIpc } from "./skills.js";
 import { registerSpeechInputIpc } from "./speech-input.js";
@@ -44,6 +45,7 @@ import { registerWebAccessIpc } from "./web-access.js";
 import { registerWebhookIpc } from "./webhook.js";
 
 interface IpcTeardown {
+	teardownSessionRuntimeBackend: () => void;
 	teardownCodexWorkspace: () => void;
 	teardownAbilities: () => void;
 	teardownAgentTeams: () => void;
@@ -98,6 +100,7 @@ export function registerAllIpc(
 ): IpcTeardown {
 	return {
 		teardownCodexWorkspace: registerCodexWorkspaceIpc(webContents),
+		teardownSessionRuntimeBackend: registerSessionRuntimeBackendIpc(webContents),
 		teardownAbilities: registerAbilitiesIpc(),
 		teardownModelUsage: registerModelUsageIpc(),
 		teardownAgentTeams: registerAgentTeamsIpc(),
@@ -143,6 +146,7 @@ export function registerAllIpc(
 
 export function teardownAllIpc(teardown: IpcTeardown): void {
 	teardown.teardownCodexWorkspace();
+	teardown.teardownSessionRuntimeBackend();
 	teardown.teardownAbilities();
 	teardown.teardownModelUsage();
 	teardown.teardownAgentTeams();

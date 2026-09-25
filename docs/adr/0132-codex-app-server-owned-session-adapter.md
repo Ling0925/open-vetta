@@ -67,3 +67,11 @@ Codex 仅获得可撤销的本机令牌；这不是针对恶意同用户进程�
 跨存储 exactly-once、真实二进制/网关认证、MCP 副作用及全部桌面验收仍未由此切片解决。
 
 实现、限制与验证范围见 [复用现有网关配置](../runtime/codex-existing-models.md)。
+
+## 修订：现有会话后端切换（产品入口替代独立预览）
+
+项目所有者明确要求在原会话输入框切换后端，而不是单独的 Codex 页面。原独立 backend/catalog 保留兼容旧预览历史，
+新产品路径通过通用 execution composer 选择完整 Codex TurnEngine，原 Kernel/Conversation 继续是唯一应用历史写入者。
+每轮独占 Codex thread 接收文本历史交接，输出进入原会话；不执行 Native AgentCore，也不重放旧工具。
+这是对原“Codex 是整段应用会话历史唯一权威”的修订：Codex 只拥有本轮内部执行，应用的可编辑历史仍归原 Conversation。
+启动成本、上下文交接上限、暂不支持的能力和验收范围见 [原会话切换说明](../runtime/chat-runtime-switch.md)。

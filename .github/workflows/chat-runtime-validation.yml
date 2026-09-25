@@ -51,11 +51,14 @@ jobs:
         run: >-
           bun scripts/quality/run-vitest.mjs --run --config apps/desktop/vitest.config.ts
           src/main/conversations src/main/agent-runtime src/main/codex-workspace
-          src/renderer/domains/conversation src/preload/apis/session
+          src/renderer/domains/conversation src/renderer/root-layout src/preload/apis/session
           --reporter=default --reporter=junit --outputFile=chat-runtime-junit.xml
       - name: Existing quality gates
         if: always() && !cancelled() && steps.dependencies.outcome == 'success'
-        run: bun run check
+        shell: bash
+        run: |
+          set -o pipefail
+          bun run check 2>&1 | tee chat-runtime-check.txt
       - name: Upload test reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -64,5 +67,6 @@ jobs:
           path: |
             apps/desktop/chat-runtime-junit.xml
             chat-runtime-junit.xml
+            chat-runtime-check.txt
           if-no-files-found: ignore
           retention-days: 7

@@ -3,6 +3,7 @@ import type {
 	RuntimeAgentDefinition,
 	RuntimeAgentDefinitionSourceRef,
 	RuntimeAgentRuntime,
+	RuntimeExecutionComposer,
 	RuntimeObservationHubIssue,
 	RuntimeObservationPort,
 	RuntimeObservationPublisher,
@@ -237,6 +238,8 @@ export interface CodingAgentRuntimeObservabilityOptions {
 }
 
 export interface CodingAgentRuntimeHostOptions {
+	/** Host-selected execution strategies reuse the same canonical Conversation and Kernel. */
+	readonly composeExecution?: RuntimeExecutionComposer;
 	/** 可选的 Coding Agent 自动重试设置；由通用 Assembly decorator 承载状态机。 */
 	readonly runtimeHostRetrySettings?: CodingAgentRuntimeHostRetrySettings;
 }

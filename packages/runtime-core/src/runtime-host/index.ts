@@ -48,6 +48,8 @@ export {
 	ComposedRuntimeFactory,
 	type ComposedRuntimeFactoryOptions,
 	type RuntimeAssemblyOperation,
+	type RuntimeExecutionComposer,
+	type RuntimeExecutionComposition,
 	type RuntimeResourceContext,
 	type RuntimeResources,
 	type RuntimeSessionPeripherals,

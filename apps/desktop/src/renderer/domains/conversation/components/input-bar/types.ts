@@ -6,9 +6,11 @@ import type { CodingAgentPlanReviewRequest } from "@vetta/coding-agent/function-
 import type { BottomPanelTabViewModel } from "@vetta-org/theme-ui/bottom-panel";
 import type { InputBarContextMenuViewProps, SessionDropZoneViewProps } from "@vetta-org/theme-ui/chat";
 import type { ComponentProps, MouseEvent, ReactNode } from "react";
+import type { SessionRuntimeBackend } from "../../../../../shared/session-runtime-backend";
 import type { ConnectorGridItem } from "../../hooks/useConnectorGrid";
 import type { ContextRingModel } from "../../hooks/useContextRingModel";
 import type { ModelSelectorScope } from "../../hooks/useModelSelectorModel";
+import type { RuntimeBackendSelectorModel } from "../../hooks/useRuntimeBackendModel";
 import type { AtPanelItem, AtPanelSelection } from "../AtPanel";
 import type { ExecutionModeSelectorViewProps } from "../execution-mode-selector/types";
 import type { McpElicitationPanel } from "../McpElicitationPanel";
@@ -44,6 +46,8 @@ export interface ControlledInputBarProps {
 export type InputBarProps = ControlledInputBarProps;
 
 export interface SendInteractionContext {
+	/** Only a new conversation receives an initial backend choice with its first send. */
+	runtimeBackend?: SessionRuntimeBackend;
 	interactionId?: string;
 	/** 用户发送意图；未指定时沿用普通 followUp。 */
 	streamingBehavior?: "steer" | "followUp";
@@ -145,6 +149,7 @@ export type InputBarTrailingTool = {
 };
 
 export interface InputBarModel {
+	runtimeBackend?: RuntimeBackendSelectorModel;
 	dropZone: Omit<SessionDropZoneViewProps, "children" | "className">;
 	isStreaming: boolean;
 	/** 宿主传入的发送前准备态，原样透给发送按钮。 */

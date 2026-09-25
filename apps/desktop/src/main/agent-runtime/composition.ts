@@ -58,6 +58,7 @@ import {
 	readDesktopConfig,
 } from "../config/desktop-config-store.js";
 import { DEFAULT_SERVER_URL } from "../constants.js";
+import { getConversationRuntimeBackendSelection } from "../conversations/chat-runtime-host.js";
 import { resolveDesktopRuntimeSessionRoots } from "../conversations/session-catalog-roots.js";
 import { resolveSessionListCwd } from "../conversations/session-paths.js";
 import { getKnowledgeRoot } from "../knowledge/knowledge-layout.js";
@@ -150,6 +151,7 @@ export function createDesktopRuntimeComposition(): DesktopRuntimeComposition {
 		new DesktopRuntimeBackendPool({
 			observationPublisher,
 			compositionDefaults: {
+				composeExecution: getConversationRuntimeBackendSelection().composeExecution,
 				tracer: observability.tracer,
 				tracing: { captureContent: false, detail: "standard" },
 				agentRuntime: { runtime: agentRuntime },
@@ -246,20 +248,22 @@ export function createDesktopRuntimeComposition(): DesktopRuntimeComposition {
 				log.warn("[agent-runtime] default conversation MCP prewarm failed", error);
 			});
 			const historicalSessionImportBackend = new DesktopHistoricalSessionImportBackend(runtimeBackendPool);
-			return new CatalogRoutedRuntimeHostSessionBackend({
-				defaultBackend: runtimeBackendPool,
-				defaultRouteId: "runtime",
-				routes: [
-					{
-						id: "historical-session-import",
-						catalog: historicalFormat.sessionCatalog,
-						backend: historicalSessionImportBackend,
-					},
-					{ id: "runtime", catalog: desktopRuntimeCatalog, backend: runtimeBackendPool },
-				],
-				onRoute: logSessionRoute,
-				dispose: () => runtimeBackendPool.dispose(),
-			});
+			return getConversationRuntimeBackendSelection().decorateBackend(
+				new CatalogRoutedRuntimeHostSessionBackend({
+					defaultBackend: runtimeBackendPool,
+					defaultRouteId: "runtime",
+					routes: [
+						{
+							id: "historical-session-import",
+							catalog: historicalFormat.sessionCatalog,
+							backend: historicalSessionImportBackend,
+						},
+						{ id: "runtime", catalog: desktopRuntimeCatalog, backend: runtimeBackendPool },
+					],
+					onRoute: logSessionRoute,
+					dispose: () => runtimeBackendPool.dispose(),
+				}),
+			);
 		},
 		sessionCatalog: new CompositeRuntimeSessionCatalog(
 			[historicalFormat.sessionCatalog, conversationCatalog],

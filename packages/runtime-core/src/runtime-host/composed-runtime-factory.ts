@@ -24,6 +24,7 @@ import {
 	type SessionInputQueueSnapshot,
 	type SessionQueueOperation,
 	SystemClock,
+	type TurnEnginePort,
 	TurnPipeline,
 } from "../kernel/index.js";
 import type { RuntimeObservationPublisher } from "../observation/contracts.js";
@@ -91,9 +92,21 @@ export interface RuntimeResources {
 	dispose?(): Promise<void>;
 }
 
+/** An execution backend owns its engine and snapshot semantics; the Kernel still owns
+ * admission, the canonical Conversation, cancellation and persistence. */
+export interface RuntimeExecutionComposition {
+	readonly turnEngine: TurnEnginePort;
+	readonly snapshotProvider: RuntimeSnapshotProvider;
+}
+export type RuntimeExecutionComposer = (
+	resources: RuntimeResources,
+	native: RuntimeExecutionComposition,
+) => RuntimeExecutionComposition;
+
 export interface ComposedRuntimeFactoryOptions<TCreateOptions> {
 	createResources(options: TCreateOptions, context: RuntimeResourceContext): Promise<RuntimeResources>;
 	readonly streamFn?: StreamFn;
+	readonly composeExecution?: RuntimeExecutionComposer;
 	readonly streamOptions?: Omit<SimpleStreamOptions, "sessionId" | "signal">;
 	readonly tracer?: AgentCoreTurnEngineOptions["tracer"];
 	readonly tracing?: AgentCoreTurnEngineOptions["tracing"];
@@ -191,6 +204,10 @@ export class ComposedRuntimeFactory<TCreateOptions> implements KernelRuntimeFact
 				tracing: this.options.tracing,
 				resolveApiKey: (model) => resources.modelRuntime.resolveApiKey(model),
 			});
+			const execution = this.options.composeExecution?.(resources, {
+				turnEngine,
+				snapshotProvider: resources.snapshotProvider,
+			}) ?? { turnEngine, snapshotProvider: resources.snapshotProvider };
 			const contextCompactionCommitter = new ContextCompactionCommitter({
 				repository: resources.repository,
 				eventSink,
@@ -199,8 +216,8 @@ export class ComposedRuntimeFactory<TCreateOptions> implements KernelRuntimeFact
 			});
 			const pipeline = new TurnPipeline({
 				repository: resources.repository,
-				snapshotProvider: resources.snapshotProvider,
-				turnEngine,
+				snapshotProvider: execution.snapshotProvider,
+				turnEngine: execution.turnEngine,
 				eventSink,
 				clock: this.clock,
 				idGenerator: this.idGenerator,
@@ -263,7 +280,7 @@ export class ComposedRuntimeFactory<TCreateOptions> implements KernelRuntimeFact
 						session,
 						repository: resources.repository,
 						conversationDocumentReader: resources.conversationDocumentStore,
-						snapshotProvider: resources.snapshotProvider,
+						snapshotProvider: execution.snapshotProvider,
 						contextRuntime: resources.contextRuntime,
 						committer: contextCompactionCommitter,
 					})

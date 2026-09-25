@@ -1,3 +1,5 @@
+import { Button } from "@shared/components/ui/button";
+import { RuntimeBackendSelector } from "./RuntimeBackendSelector";
 import { PerfSendProfiler } from "@shared/lib/perf-send";
 import { useThemeComponent } from "@vetta-org/theme-sdk";
 import { useThemeSurface } from "@vetta-org/theme-sdk/appearance";
@@ -242,8 +244,8 @@ export function InputBarView({ model, className, classNames }: InputBarViewProps
 											{commands ? <InputBarToolbarDivider /> : null}
 											{/* 两组控件保持挂载、只切 display，避免展开动画首帧重建复杂 selector。 */}
 											<InputBarAttachmentActions
-												disabled={!model.hasSession}
-												visible={!commands || commands.slashOpen}
+												disabled={!model.hasSession || model.runtimeBackend?.backend === "codex"}
+												visible={model.runtimeBackend?.backend !== "codex" && (!commands || commands.slashOpen)}
 												addImageTitle={model.labels.toolbar.addImage}
 												attachFileTitle={model.labels.toolbar.attachFile}
 												onSelectFiles={() => void model.actions.handleSelectFiles()}
@@ -260,6 +262,7 @@ export function InputBarView({ model, className, classNames }: InputBarViewProps
 										</MessageInput.ToolbarLeading>
 										<MessageInput.ToolbarTrailing>
 											<InputBarModelAction visible={!slashOpen} updateActiveSession={model.modelSelector.updateActiveSession} scope={model.modelSelector.scope} />
+											{!slashOpen && model.runtimeBackend ? <RuntimeBackendSelector model={model.runtimeBackend} /> : null}
 							{model.trailingTools.map((tool) => (
 								<InputBarContextAction key={tool.kind} visible={!slashOpen} model={tool.model} render={tool.render} />
 							))}
@@ -289,6 +292,10 @@ export function InputBarView({ model, className, classNames }: InputBarViewProps
 				 * InputBarFooter 用 CSS 过渡承担。待办只是第一个住户，后续元素加进 items 即可。
 				 */}
 				<InputBarFooter.Root>
+					{model.runtimeBackend?.status ? <InputBarFooter.Item><p role="status" className="text-xs text-[var(--text-2)]">{model.runtimeBackend.status}</p></InputBarFooter.Item> : null}
+					{model.runtimeBackend?.error ? <InputBarFooter.Item><div role="alert" className="flex items-center gap-2 text-xs text-[var(--text-2)]">
+						<span>{model.runtimeBackend.error}</span><Button variant="ghost" size="sm" onClick={model.runtimeBackend.retry}>{model.runtimeBackend.retryLabel}</Button>
+					</div></InputBarFooter.Item> : null}
 					<InputBarFooter.Item>
 						{/* 插件引用排在下沿最上面：它离卡片最近，跟「这一条要发什么」关系最紧。 */}
 						{model.promptAttachmentLabels?.length ? (
