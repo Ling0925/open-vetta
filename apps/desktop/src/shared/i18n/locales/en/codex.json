@@ -81,5 +81,7 @@
 	"reuseHelp": "Reuse the URL, credential, headers and proxy from Vetta model settings. No separate ChatGPT login or copied API key is required.",
 	"responsesOnly": "This preview requires models explicitly configured for OpenAI Responses. Other protocols are not converted automatically.",
 	"dataHomeHelp": "Codex home stores separate runtime history. When using a Vetta gateway, no API key needs to be configured in this directory.",
-	"modelEmpty": "No models are listed yet. Configure your gateway and a Responses model in Vetta model settings, then refresh this list."
+	"modelEmpty": "No models are listed yet. Configure your gateway and a Responses model in Vetta model settings, then refresh this list.",
+	"bundledRuntime": "Codex {{version}} is included. Choose a configured model and workspace, save, then create a session.",
+	"useBundledRuntime": "Use bundled Codex and separate history directory"
 }
