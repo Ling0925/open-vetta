@@ -2,6 +2,8 @@ import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
 
 export default defineConfig({
+	// Keep collection inside this package when launched from the repository root.
+	root: fileURLToPath(new URL(".", import.meta.url)),
 	resolve: {
 		alias: {
 			"@vetta/agent-core": fileURLToPath(new URL("../agent/src/index.ts", import.meta.url)),
@@ -14,6 +16,9 @@ export default defineConfig({
 			"@vetta/runtime-node/mcp": fileURLToPath(new URL("./src/mcp/index.ts", import.meta.url)),
 			"@vetta/runtime-node/conversation": fileURLToPath(
 				new URL("./src/conversation/index.ts", import.meta.url),
+			),
+			"@vetta/runtime-node/codex-app-server": fileURLToPath(
+				new URL("./src/codex-app-server/index.ts", import.meta.url),
 			),
 			"@vetta/runtime-node": fileURLToPath(new URL("./src/index.ts", import.meta.url)),
 			"@vetta/runtime-mcp/auth": fileURLToPath(new URL("../runtime-mcp/src/auth/index.ts", import.meta.url)),
