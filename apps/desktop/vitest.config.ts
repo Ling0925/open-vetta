@@ -10,6 +10,10 @@ export default defineConfig({
 	resolve: {
 		alias: [
 			{
+				find: "@vetta/ssh-transport/project-uri",
+				replacement: resolve(__dirname, "../../packages/ssh-transport/src/project-uri.ts"),
+			},
+			{
 				find: "@vetta/runtime-node/codex-app-server",
 				replacement: resolve(__dirname, "../../packages/runtime-node/src/codex-app-server/index.ts"),
 			},

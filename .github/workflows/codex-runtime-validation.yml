@@ -12,6 +12,7 @@ on:
       - 'packages/agent/**'
       - 'packages/toolkit/**'
       - 'scripts/quality/**'
+      - 'tsconfig*.json'
       - 'package.json'
       - 'bun.lock'
       - '.github/actions/install-bun-dependencies/**'
@@ -28,7 +29,7 @@ concurrency:
 jobs:
   native-contracts:
     if: github.repository == 'Ling0925/open-vetta' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == 'Ling0925/open-vetta')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 35
     steps:
       - uses: actions/checkout@v7
@@ -100,7 +101,7 @@ jobs:
 
   real-codex-contract:
     if: github.repository == 'Ling0925/open-vetta' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == 'Ling0925/open-vetta')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v7
@@ -111,6 +112,23 @@ jobs:
           bun-version-file: package.json
       - name: Install frozen workspace dependencies
         uses: ./.github/actions/install-bun-dependencies
+      - name: Install and verify the supported Linux sandbox prerequisites
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Use the distribution's bwrap and its scoped Ubuntu 24.04 AppArmor profile.
+          # Do not disable AppArmor globally or downgrade Codex to full access to pass this test.
+          # https://developers.openai.com/codex/concepts/sandboxing#prerequisites
+          sudo apt-get update
+          sudo apt-get install -y bubblewrap apparmor-profiles apparmor-utils
+          profile=/etc/apparmor.d/bwrap-userns-restrict
+          if [ ! -f "$profile" ]; then
+            test -f /usr/share/apparmor/extra-profiles/bwrap-userns-restrict
+            sudo install -m 0644 /usr/share/apparmor/extra-profiles/bwrap-userns-restrict "$profile"
+          fi
+          sudo apparmor_parser -r "$profile"
+          bwrap --version
+          bwrap --unshare-user --unshare-net --ro-bind / / --proc /proc --dev /dev /bin/true
       - name: Build only the runtime dependency surface
         run: bunx turbo run build --filter=@vetta/runtime-node... --summarize
       - name: Install the exact test-only Codex release outside the workspace
