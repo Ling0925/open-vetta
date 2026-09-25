@@ -2,7 +2,7 @@ name: codex-preview-installers
 
 on:
   push:
-    branches: [feat/codex-install-preview]
+    branches: [feat/codex-install-preview, fix/codex-preview-installers]
   workflow_dispatch:
 
 permissions:
@@ -25,7 +25,7 @@ jobs:
         with:
           bun-version-file: package.json
       - uses: ./.github/actions/install-bun-dependencies
-      - run: node --test apps/desktop/scripts/stage-codex-runtime.node-test.mjs
+      - run: node --test apps/desktop/scripts/stage-codex-runtime.node-test.mjs apps/desktop/scripts/prepare-codex-preview-ci.node-test.mjs
       - name: Desktop setup, gateway, approval, cancellation and form contracts
         run: >-
           bun scripts/quality/run-vitest.mjs --run --config apps/desktop/vitest.config.ts
@@ -86,6 +86,8 @@ jobs:
           go-version-file: apps/im-gateway/go.mod
           cache-dependency-path: apps/im-gateway/go.sum
       - uses: ./.github/actions/install-bun-dependencies
+      - name: Remove only the unchanged generated environment template
+        run: node apps/desktop/scripts/prepare-codex-preview-ci.mjs
       - name: Build unpublished native-host preview with pinned Codex
         run: node apps/desktop/scripts/build-codex-preview.mjs
       - name: Verify installed Electron entry and bundled binary
