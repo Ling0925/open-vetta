@@ -26,7 +26,7 @@ export interface CodexGatewayProvider {
 export interface CodexProviderBridge {
 	readonly identity: string;
 	readonly provider: CodexGatewayProvider;
-	assertCurrent(): Promise<void>;
+	assertCurrent(signal?: AbortSignal): Promise<void>;
 	close(): Promise<void>;
 }
 export class CodexGatewayError extends Error {
@@ -37,22 +37,60 @@ const errorBody = (code: string) => JSON.stringify({ error: { type: "vetta_gatew
 const BODY_LIMIT = 16 * 1024 * 1024;
 const DEADLINE_MS = 30 * 60 * 1000;
 
+/** Stop waiting for a read without trusting the resolver to observe cancellation. Its late
+ * result is handled but cannot dispatch a request or mutate an already cancelled caller. */
+function abortableRead<T>(read: () => Promise<T>, signals: readonly AbortSignal[]): Promise<T> {
+	return new Promise<T>((resolve, reject) => {
+		let settled = false;
+		const listeners: Array<() => void> = [];
+		const settle = (finish: () => void) => {
+			if (settled) return;
+			settled = true;
+			for (const remove of listeners) remove();
+			finish();
+		};
+		for (const signal of signals) {
+			const abort = () => settle(() => reject(signal.reason));
+			if (signal.aborted) { abort(); return; }
+			signal.addEventListener("abort", abort, { once: true });
+			listeners.push(() => signal.removeEventListener("abort", abort));
+		}
+		void Promise.resolve().then(() => {
+			for (const signal of signals) signal.throwIfAborted();
+			return read();
+		}).then(value => settle(() => resolve(value)), error => settle(() => reject(error)));
+	});
+}
+
 /** Ephemeral, authenticated loopback bridge. Upstream credentials never enter Codex config/env/argv. */
 export async function startCodexProviderBridge(source: CodexGatewaySource): Promise<CodexProviderBridge> {
 	const initial = structuredClone(await source.resolve());
 	const token = randomBytes(32).toString("hex");
 	const authorization = Buffer.from(`Bearer ${token}`);
 	const running = new Set<AbortController>();
+	const lifetime = new AbortController();
 	let invalid = false;
 	let closed = false;
 	let closing: Promise<void> | undefined;
-	const invalidate = () => { invalid = true; for (const controller of running) controller.abort(); };
+	const invalidate = () => {
+		invalid = true;
+		const reason = new CodexGatewayError(closed ? "GATEWAY_CLOSED" : "MODEL_CONFIGURATION_CHANGED");
+		lifetime.abort(reason);
+		for (const controller of running) controller.abort(reason);
+	};
 	const unsubscribe = source.subscribe?.(invalidate);
-	const current = async () => {
+	const current = async (signal?: AbortSignal) => {
+		signal?.throwIfAborted();
 		if (closed) return fail("GATEWAY_CLOSED");
 		if (invalid) return fail("MODEL_CONFIGURATION_CHANGED");
 		let target: CodexGatewayTarget;
-		try { target = await source.resolve(); } catch (error) { invalidate(); throw error; }
+		try {
+			target = await abortableRead(() => source.resolve(), [lifetime.signal, ...(signal ? [signal] : [])]);
+		} catch (error) {
+			// Cancelling one preflight must not revoke a valid bridge needed by the next user turn.
+			if (!signal?.aborted) invalidate();
+			throw error;
+		}
 		if (closed || invalid || initial.identity !== target.identity || initial.revision !== target.revision) {
 			invalidate(); return fail("MODEL_CONFIGURATION_CHANGED");
 		}
@@ -96,7 +134,7 @@ export async function startCodexProviderBridge(source: CodexGatewaySource): Prom
 				if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) fail("GATEWAY_BODY_INVALID");
 				body = parsed as Record<string, unknown>;
 			} catch { return fail("GATEWAY_BODY_INVALID"); }
-			const target = await current();
+			const target = await current(controller.signal);
 			if (body.model !== target.model) fail("GATEWAY_MODEL_MISMATCH");
 			controller.signal.throwIfAborted();
 			// The incoming client cannot select a target URL, headers, credentials or model alias.
@@ -160,7 +198,7 @@ export async function startCodexProviderBridge(source: CodexGatewaySource): Prom
 		identity: initial.identity,
 		provider: { id: `vetta_${randomBytes(12).toString("hex")}`, baseUrl: `http://${expectedHost}/v1`,
 			bearerToken: token, model: initial.model, ...(initial.reasoning ? { reasoning: initial.reasoning } : {}) },
-		assertCurrent: async () => { await current(); },
+		assertCurrent: async signal => { await current(signal); },
 		close: () => {
 			if (closing) return closing;
 			closed = true; invalidate(); unsubscribe?.();
