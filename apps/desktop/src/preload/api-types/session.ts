@@ -30,6 +30,11 @@ import type {
 } from "../../shared/mcp-interaction.js";
 import type { DesktopMcpTask, DesktopMcpTasksChangedEvent } from "../../shared/mcp-task.js";
 import type { DesktopSessionHistoryInfo } from "../../shared/session-access.js";
+import type {
+	SessionRuntimeBackend,
+	SessionRuntimeBackendReply,
+	SessionRuntimeBackendState,
+} from "../../shared/session-runtime-backend.js";
 import type { DesktopSessionSearchEvent, DesktopSessionSearchRequest } from "../../shared/session-search.js";
 
 export type {
@@ -123,6 +128,13 @@ export interface DesktopPlanReviewResolvedEvent {
 }
 
 export interface DesktopSessionApi {
+	getRuntimeBackend(sessionId: string): Promise<SessionRuntimeBackendReply>;
+	setRuntimeBackend(
+		sessionId: string,
+		backend: SessionRuntimeBackend,
+		expectedSelectionId: string,
+	): Promise<SessionRuntimeBackendReply>;
+	onRuntimeBackendChanged(handler: (state: SessionRuntimeBackendState) => void): () => void;
 	create(
 		config: DesktopCodingAgentSessionConfig | undefined,
 		kind: DesktopSessionKind,
@@ -194,6 +206,9 @@ export interface DesktopSessionApi {
 	callMcpAppTool(request: DesktopMcpAppToolCall): Promise<unknown>;
 	readMcpAppResource(request: DesktopMcpAppResourceRead): Promise<unknown>;
 	releaseMcpAppSurface(id: string): Promise<boolean>;
+	onSandboxGrantResolved(
+		handler: (event: import("../../shared/sandbox-grant-events.js").SandboxGrantResolved) => void,
+	): () => void;
 	onSandboxGrantRequest(handler: (request: CodingAgentSandboxAuthorizationFunctionRequest) => void): () => void;
 	respondToSandboxGrant(requestId: string, decision: CodingAgentSandboxAuthorizationDecision): Promise<void>;
 	listSandboxGrants(sessionId: string): Promise<RuntimeSandboxGrantInfo[]>;

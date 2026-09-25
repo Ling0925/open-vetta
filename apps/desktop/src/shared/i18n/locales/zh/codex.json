@@ -83,5 +83,34 @@
 	"dataHomeHelp": "Codex 数据目录用于保存独立的运行历史。复用 Vetta 网关时，不需要在这个目录再配置 API Key。",
 	"modelEmpty": "还没有可选模型。请先在 Vetta 模型设置中配置网关及 Responses 模型，然后刷新此列表。",
 	"bundledRuntime": "安装包已内置 Codex {{version}}。选择已有模型和工作目录，保存后即可新建会话。",
-	"useBundledRuntime": "使用内置 Codex 和独立历史目录"
+	"useBundledRuntime": "使用内置 Codex 和独立历史目录",
+	"chatApprovalTitle": "Codex 请求本次操作许可",
+	"chatApprovalScope": "以下为本次操作的完整请求。仅批准本次；停止任务后请求失效。",
+	"chatBackend": {
+		"label": "运行后端",
+		"help": "只切换后续执行，保留当前会话记录。Codex 使用已有 Responses 模型；目前支持本地文本任务，Native 插件、附件和计划模式暂不可用。",
+		"busy": "当前任务或队列结束后才能切换。",
+		"switching": "正在核对并切换运行后端…",
+		"loading": "正在核对会话运行后端…",
+		"retry": "重新核对",
+		"sandbox": "Codex 工作区沙箱",
+		"sandboxHelp": "只允许工作区写入，额外权限逐项询问；不会继承 Native 的完全访问模式。",
+		"errors": {
+			"DEFAULT": "切换未确认成功。已保留原会话和输入，请重新核对后端状态后再发送。",
+			"CODEX_NOT_INSTALLED": "此安装包未包含可验证的 Codex 程序，请使用带内置 Codex 的测试安装包。",
+			"RESPONSES_REQUIRED": "当前模型不是 Responses 协议。请在原模型选择器中选择已配置的 Responses 模型。",
+			"MODEL_REFERENCE_MISSING": "当前模型已删除或尚未配置，请重新选择模型。",
+			"CREDENTIAL_UNAVAILABLE": "现有网关凭据不可用，请在模型设置中检查。",
+			"SESSION_BUSY": "任务、队列或压缩尚未结束，请停止并等待收尾后再切换。",
+			"RUNTIME_SWITCHING": "后端正在切换，请等待状态确认。",
+			"CODEX_LOCAL_PROJECT_REQUIRED": "当前仅支持本地项目，远程项目不能切换到 Codex。",
+			"CODEX_AGENT_PROFILE_UNSUPPORTED": "当前会话绑定了独立 Agent 权限配置，不能自动转换为 Codex 权限。",
+			"CODEX_PLAN_MODE_UNSUPPORTED": "请先退出 Native 计划模式，再切换运行后端。",
+			"RUNTIME_BACKGROUND_WORK_ACTIVE": "仍有 Native 后台任务或子代理运行，请先结束这些任务。",
+			"CLEANUP_UNCONFIRMED": "上一个执行进程未确认退出，已阻止新任务。请先检查并关闭旧进程。",
+			"CODEX_CAPABILITY_UNSUPPORTED": "这条输入包含尚未接入 Codex 的附件、场景或插件能力。请移除后发送，或切回 Native。",
+			"RUNTIME_SELECTION_CONFLICT": "会话在切换期间发生变化，请重新核对后再切换。",
+			"GATEWAY_TLS_REQUIRED": "网关需要使用 HTTPS；只有本机回环地址允许 HTTP。"
+		}
+	}
 }

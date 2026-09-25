@@ -126,6 +126,8 @@ export type {
 	RuntimeDocumentParticipant,
 	RuntimeDocumentParticipantContext,
 	RuntimeDynamicState,
+	RuntimeExecutionComposer,
+	RuntimeExecutionComposition,
 	RuntimeExecutionModeUpdate,
 	RuntimeHostAgentBackendCandidate,
 	RuntimeHostAgentBackendEntrySnapshot,

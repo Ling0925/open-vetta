@@ -83,5 +83,34 @@
 	"dataHomeHelp": "Codex home stores separate runtime history. When using a Vetta gateway, no API key needs to be configured in this directory.",
 	"modelEmpty": "No models are listed yet. Configure your gateway and a Responses model in Vetta model settings, then refresh this list.",
 	"bundledRuntime": "Codex {{version}} is included. Choose a configured model and workspace, save, then create a session.",
-	"useBundledRuntime": "Use bundled Codex and separate history directory"
+	"useBundledRuntime": "Use bundled Codex and separate history directory",
+	"chatApprovalTitle": "Codex requests permission for this operation",
+	"chatApprovalScope": "The complete operation request is shown below. Approval applies once and expires when the task is stopped.",
+	"chatBackend": {
+		"label": "Runtime backend",
+		"help": "Switch subsequent execution without leaving this conversation. Codex reuses the configured Responses model. Local text tasks are supported; Native plugins, attachments and plan mode are not available.",
+		"busy": "Finish or stop the current task and clear its queue before switching.",
+		"switching": "Validating and switching runtime…",
+		"loading": "Checking this conversation’s runtime…",
+		"retry": "Check again",
+		"sandbox": "Codex workspace sandbox",
+		"sandboxHelp": "Workspace writes are permitted; additional access requires approval. Native full-access mode is not inherited.",
+		"errors": {
+			"DEFAULT": "The switch was not confirmed. Your conversation and input are retained. Check the backend before sending.",
+			"CODEX_NOT_INSTALLED": "No verified bundled Codex executable is available. Use a test build that includes Codex.",
+			"RESPONSES_REQUIRED": "The selected model does not use Responses. Choose a configured Responses model in the existing model selector.",
+			"MODEL_REFERENCE_MISSING": "The selected model is missing or unconfigured. Select an existing model.",
+			"CREDENTIAL_UNAVAILABLE": "The configured gateway credential is unavailable. Check model settings.",
+			"SESSION_BUSY": "A task, queue or compaction is active. Stop and wait for cleanup before switching.",
+			"RUNTIME_SWITCHING": "The runtime switch is still being confirmed.",
+			"CODEX_LOCAL_PROJECT_REQUIRED": "Codex currently supports local workspaces only.",
+			"CODEX_AGENT_PROFILE_UNSUPPORTED": "This conversation has a custom Agent permission profile that cannot be silently converted to Codex.",
+			"CODEX_PLAN_MODE_UNSUPPORTED": "Exit Native plan mode before switching runtimes.",
+			"RUNTIME_BACKGROUND_WORK_ACTIVE": "Native background tasks or subagents are still running. Finish them before switching.",
+			"CLEANUP_UNCONFIRMED": "The previous process has not been confirmed closed. New work is blocked until cleanup is verified.",
+			"CODEX_CAPABILITY_UNSUPPORTED": "This input includes attachments, a scene or plugin capabilities not yet supported by Codex. Remove them or switch back to Native.",
+			"RUNTIME_SELECTION_CONFLICT": "The conversation changed while switching. Check its current state and retry.",
+			"GATEWAY_TLS_REQUIRED": "Use HTTPS for the gateway. HTTP is permitted only for loopback addresses."
+		}
+	}
 }

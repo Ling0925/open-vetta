@@ -2,7 +2,7 @@ name: codex-runtime-validation
 
 on:
   push:
-    branches: [feat/codex-desktop-preview]
+    branches: [feat/codex-desktop-preview, feat/chat-runtime-switch]
   pull_request:
     branches: [main]
     paths:

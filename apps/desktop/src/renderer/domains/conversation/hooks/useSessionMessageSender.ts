@@ -63,6 +63,7 @@ import {
 	toChatErrorDetails,
 } from "../services/chat-service";
 import { planFailedResendRollback } from "../services/failed-resend-rollback";
+import { applyInitialRuntimeBackend } from "../services/initial-runtime-backend";
 import { forgetOptimisticUserMessage, rememberOptimisticUserMessage } from "../services/optimistic-user-message-cache";
 import { applyDraftPlanMode } from "../services/plan-mode-draft";
 import { getSessionRuntimeWhenReady } from "../services/session-runtime-readiness";
@@ -171,6 +172,21 @@ export function useSessionMessageSender({ bumpSuggestionToken }: SessionMessageS
 					!appshot)
 			) {
 				return;
+			}
+			try {
+				await applyInitialRuntimeBackend(window.vetta.session, session.runtimeId, options?.runtimeBackend);
+			} catch (error) {
+				// This is before draft consumption, image persistence and model dispatch. A lost response
+				// may have saved the selection; never fall back to Native or send the task again here.
+				if (stagedInput)
+					restoreStagedPendingSessionSend({ ...stagedInput, draftKey: store.get(activeInputDraftKeyAtom) });
+				store.set(pendingSessionSendAtom, null);
+				const code = error instanceof Error ? error.message : "RUNTIME_SWITCH_FAILED";
+				const message = i18n.t(`codex:chatBackend.errors.${code}`, {
+					defaultValue: i18n.t("codex:chatBackend.errors.DEFAULT"),
+				});
+				setChatMessages((prev) => appendError(prev, message));
+				return { status: "failed", error: { message } };
 			}
 			// 发出新 prompt：清空该会话的输入预测，并作废仍在飞的生成（过期判定）。
 			// 插件静默发送不动用户正在看的预测。

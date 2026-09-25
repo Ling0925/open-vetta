@@ -45,6 +45,7 @@ import { showToast } from "../shared/store/toast-atoms";
 import { shouldShowChatRoutePending } from "./chat-route-pending";
 import { syncPendingInteractions } from "./pending-interaction-sync";
 import type { RootLayoutModel } from "./types";
+import { useSandboxGrantDrawer } from "./useSandboxGrantDrawer";
 
 type SessionRestoreState = "pending" | "restoring" | "complete";
 
@@ -332,53 +333,7 @@ export function useRootLayoutModel(): RootLayoutModel {
 		};
 	}, [setMcpTasks]);
 
-	const grantQueueRef = useRef<Parameters<Parameters<typeof window.vetta.session.onSandboxGrantRequest>[0]>[0][]>([]);
-	const grantActiveRef = useRef(false);
-
-	useEffect(() => {
-		const showGrant = (request: Parameters<Parameters<typeof window.vetta.session.onSandboxGrantRequest>[0]>[0]) => {
-			grantActiveRef.current = true;
-			const showNext = () => {
-				const nextRequest = grantQueueRef.current.shift();
-				if (nextRequest) {
-					showGrant(nextRequest);
-				} else {
-					grantActiveRef.current = false;
-				}
-			};
-			setSandboxPermissionDrawer({
-				requestId: request.requestId,
-				runtimeId: request.sessionId,
-				title: request.title,
-				message: request.message,
-				sensitive: request.sensitive,
-				onConfirm: () => {
-					void window.vetta.session.respondToSandboxGrant(request.requestId, "allow_once");
-					setSandboxPermissionDrawer(null);
-					showNext();
-				},
-				onCancel: () => {
-					void window.vetta.session.respondToSandboxGrant(request.requestId, "deny");
-					setSandboxPermissionDrawer(null);
-					showNext();
-				},
-				onAllowSession: request.sensitive
-					? undefined
-					: () => {
-							void window.vetta.session.respondToSandboxGrant(request.requestId, "allow_session");
-							setSandboxPermissionDrawer(null);
-							showNext();
-						},
-			});
-		};
-		return window.vetta.session.onSandboxGrantRequest((request) => {
-			if (grantActiveRef.current) {
-				grantQueueRef.current.push(request);
-				return;
-			}
-			showGrant(request);
-		});
-	}, [setSandboxPermissionDrawer]);
+	useSandboxGrantDrawer(setSandboxPermissionDrawer);
 
 	// 调度任务（自动化）"立即执行"时，session 在 main 进程已经建好，但 JSONL
 	// 要等 assistant 首个回复才落盘。这里订阅 task.started，乐观地把 session

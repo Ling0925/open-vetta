@@ -65,7 +65,11 @@ export function useNewSessionSend(options: NewSessionSendOptions): {
 						restoreStagedNewSessionSend(stagedInput);
 					},
 					onPromptReady: async () => {
-						await sendMessage(undefined, { interactionId, stagedInput }).catch((error: unknown) => {
+						await sendMessage(undefined, {
+							interactionId,
+							stagedInput,
+							...(context?.runtimeBackend ? { runtimeBackend: context.runtimeBackend } : {}),
+						}).catch((error: unknown) => {
 							console.error("[useNewSessionSend] prompt-ready send failed", error);
 						});
 					},

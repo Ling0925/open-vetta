@@ -166,22 +166,26 @@ function assistantMessageObservations(
 	turnId?: string,
 	failure?: RuntimeFailure,
 ): RuntimeSessionObservationEvent[] {
-	const observations: RuntimeSessionObservationEvent[] = [
-		{
-			type: "usage.update",
-			input: message.usage.input,
-			output: message.usage.output,
-			cacheRead: message.usage.cacheRead,
-			cacheWrite: message.usage.cacheWrite,
-			cacheUsageReporting: message.usage.cacheUsageReporting ?? "unavailable",
-			model: { api: message.api, provider: message.provider, id: message.model },
-			costTotal: message.usage.cost.total,
-			contextPercent: null,
-			contextTokens: message.usage.input + message.usage.output + message.usage.cacheRead + message.usage.cacheWrite,
-			contextWindow: 0,
-			source: "agent",
-		},
-	];
+	const observations: RuntimeSessionObservationEvent[] =
+		message.usage.cacheUsageReporting === "unavailable" && message.usage.totalTokens === 0
+			? []
+			: [
+					{
+						type: "usage.update",
+						input: message.usage.input,
+						output: message.usage.output,
+						cacheRead: message.usage.cacheRead,
+						cacheWrite: message.usage.cacheWrite,
+						cacheUsageReporting: message.usage.cacheUsageReporting ?? "unavailable",
+						model: { api: message.api, provider: message.provider, id: message.model },
+						costTotal: message.usage.cost.total,
+						contextPercent: null,
+						contextTokens:
+							message.usage.input + message.usage.output + message.usage.cacheRead + message.usage.cacheWrite,
+						contextWindow: 0,
+						source: "agent",
+					},
+				];
 
 	if (message.stopReason === "error") {
 		const errorText =

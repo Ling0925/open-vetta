@@ -12,6 +12,7 @@ import type { InputSegment } from "@shared/lib/input-tokens";
 import type { ContextCompactionEligibility, ContextCompositionReport } from "@vetta/runtime-core";
 import { atom } from "jotai";
 import { selectAtom } from "jotai/utils";
+import type { SessionRuntimeBackend } from "../../../shared/session-runtime-backend";
 import { runningSessionPathsAtom } from "./running-sessions-atoms";
 
 export type TeamMemberSummaryEventViewModel = {
@@ -472,6 +473,8 @@ export const openSessionFnRef: {
 
 /** Optional per-send options for {@link sendMessageFnRef} / useSessionManager.sendMessage. */
 export interface SendMessageOptions {
+	/** First-send choice from the new-conversation toolbar; not model-visible metadata. */
+	runtimeBackend?: SessionRuntimeBackend;
 	/** Diagnostic correlation only; never merged into Prompt metadata or model context. */
 	interactionId?: string;
 	/**

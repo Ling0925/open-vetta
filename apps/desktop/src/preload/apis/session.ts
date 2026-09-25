@@ -1,5 +1,7 @@
 import type { HostTransport } from "../../shared/host-transport.js";
+import { SANDBOX_GRANT_RESOLVED_CHANNEL } from "../../shared/sandbox-grant-events.js";
 import { decodeSessionEvent } from "../../shared/session-event-codec.js";
+import { SESSION_RUNTIME_BACKEND_CHANNELS } from "../../shared/session-runtime-backend.js";
 import type { DesktopApi } from "../api.js";
 import { onIpcEvent, subscribeById } from "./helper.js";
 import { subscribeSessionSearch } from "./session-search.js";
@@ -92,6 +94,10 @@ const CHANNELS = {
 export function createSessionApi(ipc: HostTransport): Pick<DesktopApi, "session"> {
 	return {
 		session: {
+			getRuntimeBackend: (sessionId) => ipc.invoke(SESSION_RUNTIME_BACKEND_CHANNELS.READ, sessionId),
+			setRuntimeBackend: (sessionId, backend, expectedSelectionId) =>
+				ipc.invoke(SESSION_RUNTIME_BACKEND_CHANNELS.SELECT, sessionId, backend, expectedSelectionId),
+			onRuntimeBackendChanged: (handler) => onIpcEvent(ipc, SESSION_RUNTIME_BACKEND_CHANNELS.CHANGED, handler),
 			create: (config, kind, traceContext) => ipc.invoke(CHANNELS.CREATE, config, kind, traceContext),
 			listProjects: () => ipc.invoke(CHANNELS.LIST_PROJECTS),
 			listSessions: (cwd) => ipc.invoke(CHANNELS.LIST_SESSIONS, cwd),
@@ -142,6 +148,7 @@ export function createSessionApi(ipc: HostTransport): Pick<DesktopApi, "session"
 			callMcpAppTool: (request) => ipc.invoke(CHANNELS.MCP_APP_CALL_TOOL, request),
 			readMcpAppResource: (request) => ipc.invoke(CHANNELS.MCP_APP_READ_RESOURCE, request),
 			releaseMcpAppSurface: (id) => ipc.invoke(CHANNELS.MCP_APP_RELEASE, id),
+			onSandboxGrantResolved: (handler) => onIpcEvent(ipc, SANDBOX_GRANT_RESOLVED_CHANNEL, handler),
 			onSandboxGrantRequest: (handler) => onIpcEvent(ipc, CHANNELS.SANDBOX_GRANT_REQUEST, handler),
 			respondToSandboxGrant: (requestId, decision) =>
 				ipc.invoke(CHANNELS.SANDBOX_GRANT_RESPONSE, requestId, decision),

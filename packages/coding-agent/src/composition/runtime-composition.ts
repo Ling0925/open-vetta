@@ -246,6 +246,7 @@ async function assembleCodingAgentRuntimeComposition(
 			}),
 		},
 		engine: {
+			composeExecution: options.composeExecution,
 			streamFn: options.streamFn,
 			tracer: options.tracer,
 			tracing: options.tracing,
