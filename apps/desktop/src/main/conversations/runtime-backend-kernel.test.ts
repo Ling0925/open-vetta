@@ -125,7 +125,11 @@ describe("backend changes on a real canonical conversation", () => {
 				return assembly as RuntimeHostSessionAssembly;
 			},
 		});
-		let session = await backend.createAssembly({ cwd: "/fixture/workspace", getSessionId: () => undefined });
+		let session = await backend.createAssembly({
+			cwd: "/fixture/workspace",
+			executionMode: "sandbox",
+			getSessionId: () => undefined,
+		});
 		const path = session.lifecycle.sessionPath;
 		try {
 			assert.equal((await session.corePorts.turnControl.prompt({ text: "first" }))?.status, "completed");
@@ -148,7 +152,11 @@ describe("backend changes on a real canonical conversation", () => {
 			assert.equal(session.lifecycle.sessionId, "original");
 			assert.equal(session.lifecycle.sessionPath, path);
 			await session.lifecycle.dispose();
-			session = await backend.createAssembly({ sessionPath: path, getSessionId: () => undefined });
+			session = await backend.createAssembly({
+				sessionPath: path,
+				executionMode: "sandbox",
+				getSessionId: () => undefined,
+			});
 			assert.equal(selection.read("original").backend, "native");
 			assert.deepEqual(session.historyReader.readHistory(), history);
 			assert.equal((await session.corePorts.turnControl.prompt({ text: "after reopen" }))?.status, "completed");

@@ -83,6 +83,7 @@ export class ConversationRuntimeBackendSelection {
 				const owner: RegisteredConversation = { assembly, closed: false };
 				this.conversations.add(owner);
 				const original = assembly.corePorts.turnControl;
+				const queuePromptIfRunning = original.queuePromptIfRunning;
 				const guard = (prompt?: RuntimeTurnPrompt) => this.guard(owner, prompt);
 				let closing: Promise<void> | undefined;
 				return {
@@ -118,10 +119,14 @@ export class ConversationRuntimeBackendSelection {
 								guard(prompt);
 								return original.promptWhenAvailable(prompt, signal);
 							},
-							queuePromptIfRunning: async (prompt) => {
-								guard(prompt);
-								return original.queuePromptIfRunning(prompt);
-							},
+							...(queuePromptIfRunning
+								? {
+										queuePromptIfRunning: async (prompt: RuntimeTurnPrompt) => {
+											guard(prompt);
+											return queuePromptIfRunning.call(original, prompt);
+										},
+									}
+								: {}),
 							continue: async () => {
 								guard();
 								return original.continue();

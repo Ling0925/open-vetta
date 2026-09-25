@@ -74,7 +74,8 @@ function fixture(validate: () => Promise<void> = async () => {}) {
 		counts: () => ({ dispatched, disposed, released }),
 		compose: () =>
 			selection.composeExecution(
-				{ conversationDocumentStore: { readDocument: async () => document } } as RuntimeResources,
+				// This unit fixture replaces only the document-store boundary read by the composer.
+				{ conversationDocumentStore: { readDocument: async () => document } } as unknown as RuntimeResources,
 				{
 					turnEngine: native,
 					snapshotProvider: {
@@ -94,10 +95,19 @@ function fixture(validate: () => Promise<void> = async () => {}) {
 	};
 }
 async function open(f: ReturnType<typeof fixture>) {
-	return f.backend.createAssembly({ getSessionId: () => undefined });
+	return f.backend.createAssembly({ executionMode: "sandbox", getSessionId: () => undefined });
 }
 
 describe("same-conversation backend ownership", () => {
+	it("preserves an absent optional queue capability instead of installing an unusable method", async () => {
+		const f = fixture();
+		const session = await open(f);
+		try {
+			assert.equal(session.corePorts.turnControl.queuePromptIfRunning, undefined);
+		} finally {
+			await session.lifecycle.dispose();
+		}
+	});
 	it("switches both directions, preserving the original identity and persisting only metadata", async () => {
 		const f = fixture();
 		const session = await open(f);

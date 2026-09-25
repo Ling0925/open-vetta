@@ -46,6 +46,8 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y ripgrep fd-find
       - name: Runtime and storage contracts
         run: bun run test:pkg runtime-node
+      - name: Build the existing Desktop workspace dependency surface
+        run: bun run --cwd apps/desktop prepare:workspace
       - name: Existing chat and session regression tests
         if: always() && !cancelled() && steps.dependencies.outcome == 'success'
         run: >-

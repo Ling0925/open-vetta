@@ -2,8 +2,15 @@ import assert from "node:assert/strict";
 import { access, mkdir, mkdtemp, rm } from "node:fs/promises";
 import { networkInterfaces, tmpdir } from "node:os";
 import { isAbsolute, join } from "node:path";
+import type { Message } from "@vetta/ai";
 import { RuntimeHost } from "@vetta/runtime-core";
-import { CodexRuntimeHostBackend, startCodexProviderBridge } from "@vetta/runtime-node/codex-app-server";
+import type { TurnEngineRequest } from "@vetta/runtime-core/kernel";
+import {
+	CodexConversationTurnEngine,
+	CodexRuntimeHostBackend,
+	openCodexAppServerSession,
+	startCodexProviderBridge,
+} from "@vetta/runtime-node/codex-app-server";
 import { FileConversationOwnershipManager } from "@vetta/runtime-node/conversation";
 import { describe, it, vi } from "vitest";
 import { ANSWER_MARKER, FIXTURE_MODEL, startLocalResponsesFixture, TOOL_MARKER } from "./local-responses-fixture.js";
@@ -134,6 +141,20 @@ describe.skipIf(!executable || !entry)("pinned real Codex with an isolated local
 		}
 	}, 90000);
 	it("runs the original-conversation engine with real Codex tools and canonical context handoff", async () => {
+		assert.equal(
+			process.platform,
+			"linux",
+			"Run this gate in the Linux network namespace from the validation workflow",
+		);
+		assert.ok(
+			Object.values(networkInterfaces())
+				.flat()
+				.every((network) => !network || network.internal),
+			"Refusing a real-binary test with non-loopback network interfaces",
+		);
+		assert.ok(executable && isAbsolute(executable));
+		assert.ok(entry && isAbsolute(entry));
+		await Promise.all([access(executable), access(entry)]);
 		const root = await mkdtemp(join(tmpdir(), "vetta-chat-codex-"));
 		const cwd = join(root, "workspace");
 		const home = join(root, "home");
@@ -155,7 +176,7 @@ describe.skipIf(!executable || !entry)("pinned real Codex with an isolated local
 			const session = await openCodexAppServerSession({
 				executable: executable!,
 				...(entry ? { executableArgs: [entry] } : {}),
-				expectedVersion: CODEX_TEST_VERSION,
+				expectedVersion: VERSION,
 				codexHome: home,
 				cwd,
 				gateway: bridge.provider,
@@ -183,13 +204,26 @@ describe.skipIf(!executable || !entry)("pinned real Codex with an isolated local
 						timestamp: 2,
 					});
 				const input = messages.at(-1)!;
-				const request = {
+				assert.equal(input.role, "user");
+				if (input.role !== "user") throw new Error("Expected the current user request");
+				const request: TurnEngineRequest = {
 					sessionId: "same-chat",
 					turnId: `chat-${index}`,
+					snapshot: {
+						id: "chat-contract",
+						instructions: [],
+						tools: new Map(),
+						contextProviders: [],
+						contextStrategy: { prepare: async (input) => ({ messages: input.messages, estimatedTokens: 1 }) },
+						toolPolicy: { authorize: async () => true },
+						tokenBudget: 8000,
+						reservedOutputTokens: 1000,
+						observers: [],
+					},
 					messages: [...messages],
 					input: { message: input },
 					signal: new AbortController().signal,
-				} as TurnEngineRequest;
+				};
 				let finished = false;
 				for await (const event of engine.execute(request)) {
 					if (event.type === "message") messages.push(event.message);

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import type { Message } from "@vetta/ai";
+import type { Message, UserMessage } from "@vetta/ai";
 import type { TurnEngineEvent, TurnEngineRequest } from "@vetta/runtime-core/kernel";
 import { describe, it } from "vitest";
 import { codexConversationInput } from "../../src/codex-app-server/conversation-context.js";
@@ -11,16 +11,27 @@ import { CodexTurnEventBuffer } from "../../src/codex-app-server/turn-event-buff
 import type { JsonObject } from "../../src/codex-app-server/types.js";
 import { MemoryTransport } from "./helpers.js";
 
-const user = (text: string): Message => ({ role: "user", content: text, timestamp: 1 });
+const user = (text: string): UserMessage => ({ role: "user", content: text, timestamp: 1 });
 function request(signal = new AbortController().signal): TurnEngineRequest {
 	const message = user("Continue without repeating previous commands");
 	return {
 		sessionId: "original-session",
 		turnId: "original-turn",
+		snapshot: {
+			id: "chat-contract",
+			instructions: [],
+			tools: new Map(),
+			contextProviders: [],
+			contextStrategy: { prepare: async (input) => ({ messages: input.messages, estimatedTokens: 1 }) },
+			toolPolicy: { authorize: async () => true },
+			tokenBudget: 8000,
+			reservedOutputTokens: 1000,
+			observers: [],
+		},
 		messages: [user("Earlier context"), message],
 		input: { message },
 		signal,
-	} as TurnEngineRequest;
+	};
 }
 async function collect(engine: CodexConversationTurnEngine, value = request()) {
 	const events: TurnEngineEvent[] = [];
