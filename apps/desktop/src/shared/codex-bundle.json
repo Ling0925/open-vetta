@@ -17,5 +17,6 @@
 			"triple": "x86_64-pc-windows-msvc",
 			"binary": "codex.exe"
 		}
-	}
+	},
+	"binaryDirectories": ["bin", "codex"]
 }

@@ -5,7 +5,13 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createOpenSourceBuildEnvironment } from "./desktop-build-environment.mjs";
 import { resolvePackagedE2eBinaryPath } from "./packaged-e2e-binary.mjs";
-import { CODEX_BUNDLE, codexBundleTarget, stageCodexRuntime, verifyPackagedCodex } from "./stage-codex-runtime.mjs";
+import {
+	CODEX_BUNDLE,
+	codexBundleTarget,
+	resolveCodexDistribution,
+	stageCodexRuntime,
+	verifyPackagedCodex,
+} from "./stage-codex-runtime.mjs";
 
 // Test artifacts only: no tag, publishing, installation or modification of the developer's global Codex.
 const desktopRoot = fileURLToPath(new URL("..", import.meta.url));
@@ -38,6 +44,8 @@ try {
 		env: environment,
 		stdio: "inherit",
 	});
+	// Fail before the expensive desktop build if the official native payload is unavailable.
+	resolveCodexDistribution(temporary, target);
 	execFileSync(bun, ["run", "prepare:desktop-pack"], { cwd: desktopRoot, env: environment, stdio: "inherit" });
 	stageCodexRuntime({ installRoot: temporary, stageRoot: staging, target });
 	const platform = process.platform === "darwin" ? "mac" : "win";

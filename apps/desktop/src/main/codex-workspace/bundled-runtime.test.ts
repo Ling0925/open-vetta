@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { access, chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { access, chmod, mkdir, mkdtemp, readFile, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, it } from "vitest";
@@ -170,5 +170,21 @@ describe("installed Codex first-use configuration", () => {
 		} finally {
 			await controller.dispose();
 		}
+	});
+});
+
+describe("packaged native distribution layouts", () => {
+	it("finds the supported codex directory without moving adjacent resources", async () => {
+		const f = await fixture();
+		const triple = join(f.resources, "codex-runtime", "aarch64-apple-darwin");
+		await rename(join(triple, "bin"), join(triple, "codex"));
+		assert.equal((await f.read())?.executable, join(triple, "codex", "codex"));
+	});
+	it("rejects two possible installed executables", async () => {
+		const f = await fixture();
+		const other = join(f.resources, "codex-runtime", "aarch64-apple-darwin", "codex");
+		await mkdir(other);
+		await writeFile(join(other, "codex"), "synthetic ambiguity");
+		await assert.rejects(f.read(), { code: "CODEX_BUNDLE_INVALID" });
 	});
 });
