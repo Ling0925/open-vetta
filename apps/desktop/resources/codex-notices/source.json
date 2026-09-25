@@ -1,0 +1,8 @@
+{
+	"version": "0.157.0",
+	"source": "https://github.com/openai/codex/tree/rust-v0.157.0",
+	"gitBlobs": {
+		"LICENSE": "4606e72e042564097e8780d66c1d4dcb611869bd",
+		"NOTICE": "2805899d56d0332d175cfc613c67d45d6f006db7"
+	}
+}

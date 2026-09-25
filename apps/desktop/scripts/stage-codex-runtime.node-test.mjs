@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, test } from "node:test";
-import { CODEX_BUNDLE, codexBundleTarget, stageCodexRuntime } from "./stage-codex-runtime.mjs";
+import { CODEX_BUNDLE, codexBundleTarget, readPinnedCodexNotices, stageCodexRuntime } from "./stage-codex-runtime.mjs";
 
 const cleanups = [];
 afterEach(() => {
@@ -79,7 +79,7 @@ test("refuses a different package version before modifying the existing builder 
 	assert.throws(() => stageCodexRuntime(f), /version mismatch/);
 	assert.equal(readFileSync(path, "utf8"), before);
 });
-test("refuses a failed executable probe and missing license", () => {
+test("refuses a failed executable probe and includes pinned notices when npm omits them", () => {
 	const f = fixture();
 	assert.throws(
 		() =>
@@ -92,7 +92,10 @@ test("refuses a failed executable probe and missing license", () => {
 		/probe failed/,
 	);
 	rmSync(join(f.packageRoot, "LICENSE"));
-	assert.throws(() => stageCodexRuntime(f), /license/);
+	stageCodexRuntime(f);
+	for (const [name, content] of Object.entries(readPinnedCodexNotices())) {
+		assert.equal(readFileSync(join(f.stageRoot, "codex-runtime", name), "utf8"), content);
+	}
 });
 test("does not overwrite an existing runtime bundle", () => {
 	const f = fixture();
@@ -146,4 +149,30 @@ test("refuses multiple executable layouts rather than picking an unintended bina
 	mkdirSync(join(f.vendor, "codex"));
 	writeFileSync(join(f.vendor, "codex", "codex"), "other binary");
 	assert.throws(() => stageCodexRuntime(f), /ambiguous/);
+});
+
+test("rejects altered release notices or a notice version different from the runtime pin", () => {
+	const f = fixture();
+	const root = join(f.root, "notices");
+	mkdirSync(root);
+	const pinned = readPinnedCodexNotices();
+	const source = JSON.parse(pinned["SOURCE.json"]);
+	writeFileSync(join(root, "source.json"), JSON.stringify(source));
+	writeFileSync(join(root, "LICENSE"), "tampered");
+	writeFileSync(join(root, "NOTICE"), pinned.NOTICE);
+	assert.throws(() => readPinnedCodexNotices(root), /checksum/);
+	writeFileSync(join(root, "LICENSE"), pinned.LICENSE.replaceAll("\n", "\r\n"));
+	assert.deepEqual(readPinnedCodexNotices(root), pinned);
+	writeFileSync(join(root, "source.json"), JSON.stringify({ ...source, version: "other" }));
+	assert.throws(() => readPinnedCodexNotices(root), /version/);
+});
+test("retains npm-supplied notices as well as the upstream release attribution", () => {
+	const f = fixture();
+	writeFileSync(join(f.packageRoot, "NOTICE"), "Synthetic package attribution");
+	stageCodexRuntime(f);
+	assert.equal(
+		readFileSync(join(f.stageRoot, "codex-runtime", "npm-NOTICE"), "utf8"),
+		"Synthetic package attribution",
+	);
+	assert.equal(readFileSync(join(f.stageRoot, "codex-runtime", "NOTICE"), "utf8"), readPinnedCodexNotices().NOTICE);
 });

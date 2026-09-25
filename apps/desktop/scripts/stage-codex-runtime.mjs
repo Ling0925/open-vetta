@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
 	cpSync,
 	existsSync,
@@ -60,16 +61,41 @@ export function resolveCodexDistribution(installRoot, target, probe = verifyCode
 	const binary = distributionExecutable(vendor, definition);
 	validateDistribution(vendor);
 	probe(binary);
-	const license = [
-		join(packageRoot, "LICENSE"),
-		join(packageRoot, "LICENSE.txt"),
-		join(nativeRoot, "LICENSE"),
-		join(nativeRoot, "LICENSE.txt"),
-	].find(existsSync);
-	if (!license) throw new Error("Official Codex distribution is missing its license");
-	if (!inside(installRoot, license) || !lstatSync(license).isFile() || lstatSync(license).isSymbolicLink())
-		throw new Error("Invalid Codex license file");
-	return { vendor, binary, packageRoot, license };
+	const notices = readPinnedCodexNotices();
+	const additionalNotices = [];
+	for (const [prefix, root] of [
+		["npm", packageRoot],
+		["native", nativeRoot],
+	]) {
+		for (const name of ["LICENSE", "LICENSE.txt", "NOTICE"]) {
+			const path = join(root, name);
+			if (!existsSync(path)) continue;
+			if (!inside(installRoot, path) || lstatSync(path).isSymbolicLink()) throw new Error("Invalid Codex notice file");
+			additionalNotices.push({ name: `${prefix}-${name}`, content: readNoticeFile(path) });
+		}
+	}
+	return { vendor, binary, notices, additionalNotices };
+}
+
+function readNoticeFile(path) {
+	const stat = lstatSync(path);
+	if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 262144) throw new Error("Invalid Codex notice file");
+	return readFileSync(path, "utf8").replaceAll("\r\n", "\n");
+}
+
+/** npm's native payload need not include root notices. Ship the exact upstream release texts,
+ * checked against its Git blobs; never omit attribution to make packaging succeed. */
+export function readPinnedCodexNotices(root = fileURLToPath(new URL("../resources/codex-notices", import.meta.url))) {
+	const source = JSON.parse(readNoticeFile(join(root, "source.json")));
+	if (source.version !== CODEX_BUNDLE.version) throw new Error("Codex notice version mismatch");
+	const notices = {};
+	for (const name of ["LICENSE", "NOTICE"]) {
+		const content = readNoticeFile(join(root, name));
+		const blob = createHash("sha1").update(`blob ${Buffer.byteLength(content)}\0`).update(content).digest("hex");
+		if (blob !== source.gitBlobs?.[name]) throw new Error("Codex upstream notice checksum mismatch");
+		notices[name] = content;
+	}
+	return { ...notices, "SOURCE.json": `${JSON.stringify(source, null, 2)}\n` };
 }
 
 function distributionExecutable(vendor, definition) {
@@ -86,7 +112,7 @@ function distributionExecutable(vendor, definition) {
 /** Stage the entire native distribution, including adjacent sandbox tools, outside app.asar. */
 export function stageCodexRuntime({ installRoot, stageRoot, target, probe = verifyCodexExecutable }) {
 	const definition = codexBundleTarget(target);
-	const { vendor, binary, packageRoot, license } = resolveCodexDistribution(installRoot, target, probe);
+	const { vendor, binary, notices, additionalNotices } = resolveCodexDistribution(installRoot, target, probe);
 	const destination = join(stageRoot, "codex-runtime");
 	if (existsSync(destination)) throw new Error("Codex staging destination already exists");
 	const configPath = join(stageRoot, "electron-builder.json");
@@ -100,12 +126,8 @@ export function stageCodexRuntime({ installRoot, stageRoot, target, probe = veri
 	try {
 		mkdirSync(destination);
 		cpSync(vendor, join(destination, definition.triple), { recursive: true, dereference: true });
-		cpSync(license, join(destination, "LICENSE"));
-		if (existsSync(join(packageRoot, "NOTICE"))) {
-			if (!inside(installRoot, join(packageRoot, "NOTICE")) || !lstatSync(join(packageRoot, "NOTICE")).isFile())
-				throw new Error("Invalid Codex notice file");
-			cpSync(join(packageRoot, "NOTICE"), join(destination, "NOTICE"));
-		}
+		for (const [name, content] of Object.entries(notices)) writeFileSync(join(destination, name), content);
+		for (const notice of additionalNotices) writeFileSync(join(destination, notice.name), notice.content);
 		writeFileSync(
 			join(destination, "manifest.json"),
 			`${JSON.stringify({ schemaVersion: CODEX_BUNDLE.schemaVersion, version: CODEX_BUNDLE.version, target }, null, 2)}\n`,
@@ -148,7 +170,9 @@ export function verifyPackagedCodex(resourcesPath, target) {
 		manifest.target !== target
 	)
 		throw new Error("Packaged Codex manifest mismatch");
-	if (!existsSync(join(root, "LICENSE"))) throw new Error("Packaged Codex license missing");
+	for (const [name, expected] of Object.entries(readPinnedCodexNotices())) {
+		if (readNoticeFile(join(root, name)) !== expected) throw new Error("Packaged Codex notices mismatch");
+	}
 	verifyCodexExecutable(distributionExecutable(join(root, definition.triple), definition));
 }
 
