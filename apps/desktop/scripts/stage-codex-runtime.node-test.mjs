@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, test } from "node:test";
@@ -110,4 +110,40 @@ test("does not copy a vendor directory linked outside its temporary installation
 	rmSync(f.vendor, { recursive: true });
 	symlinkSync(outside, f.vendor, process.platform === "win32" ? "junction" : "dir");
 	assert.throws(() => stageCodexRuntime(f), /outside/);
+});
+
+test("preserves the codex-directory distribution and its adjacent tools", () => {
+	const f = fixture();
+	renameSync(join(f.vendor, "bin"), join(f.vendor, "codex"));
+	const executable = stageCodexRuntime(f);
+	assert.equal(executable, join(f.stageRoot, "codex-runtime", codexBundleTarget(f.target).triple, "codex", "codex"));
+	assert.equal(
+		readFileSync(
+			join(f.stageRoot, "codex-runtime", codexBundleTarget(f.target).triple, "codex", "sandbox-helper"),
+			"utf8",
+		),
+		"synthetic companion",
+	);
+});
+test("resolves an optional dependency beside the real package behind an isolated-store symlink", () => {
+	const f = fixture();
+	const store = join(f.installRoot, "node_modules", ".store", "codex", "node_modules", "@openai");
+	mkdirSync(store, { recursive: true });
+	const canonical = join(store, "codex");
+	renameSync(f.packageRoot, canonical);
+	symlinkSync(canonical, f.packageRoot, process.platform === "win32" ? "junction" : "dir");
+	const dependency = join(store, "codex-darwin-arm64");
+	mkdirSync(dependency);
+	writeFileSync(
+		join(dependency, "package.json"),
+		JSON.stringify({ name: "@openai/codex", version: "0.157.0-darwin-arm64" }),
+	);
+	renameSync(join(canonical, "vendor"), join(dependency, "vendor"));
+	assert.equal(readFileSync(stageCodexRuntime(f), "utf8"), "synthetic binary");
+});
+test("refuses multiple executable layouts rather than picking an unintended binary", () => {
+	const f = fixture();
+	mkdirSync(join(f.vendor, "codex"));
+	writeFileSync(join(f.vendor, "codex", "codex"), "other binary");
+	assert.throws(() => stageCodexRuntime(f), /ambiguous/);
 });

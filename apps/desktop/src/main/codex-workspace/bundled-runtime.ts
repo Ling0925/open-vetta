@@ -44,7 +44,21 @@ export async function readBundledCodexDefaults(
 		)
 			throw new Error("identity");
 		// The executable path comes from compiled application policy, never from the manifest or project.
-		const executable = join(root, definition.triple, "bin", definition.binary);
+		const candidates = await Promise.all(
+			bundle.binaryDirectories.map(async (directory) => {
+				const path = join(root, definition.triple, directory, definition.binary);
+				try {
+					await lstat(path);
+					return path;
+				} catch (error) {
+					if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") return undefined;
+					throw error;
+				}
+			}),
+		);
+		const available = candidates.filter((path): path is string => path !== undefined);
+		if (available.length !== 1) throw new Error("missing or ambiguous executable");
+		const executable = available[0];
 		const file = await lstat(executable);
 		if (!file.isFile() || file.isSymbolicLink()) throw new Error("executable");
 		const rootStat = await lstat(root);
