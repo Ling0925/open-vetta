@@ -114,6 +114,7 @@ export class RuntimeHostSessionOperations {
 			if (failure && isTurnPersistenceError(error)) {
 				return {
 					status: "failed",
+					...(request.inputId ? { inputId: request.inputId } : {}),
 					turnId: error.turnId,
 					error: { ...failure, retryable: false },
 				};
@@ -171,6 +172,7 @@ export class RuntimeHostSessionOperations {
 			if (failure && isTurnPersistenceError(error)) {
 				return {
 					status: "failed",
+					...(request.inputId ? { inputId: request.inputId } : {}),
 					turnId: error.turnId,
 					error: { ...failure, retryable: false },
 				};

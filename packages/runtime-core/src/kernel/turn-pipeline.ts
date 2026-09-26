@@ -42,12 +42,14 @@ import type {
 } from "./contracts.js";
 import { type ConversationRecoveryPolicy, FailInterruptedTurnRecoveryPolicy } from "./conversation-recovery.js";
 import {
+	inputAlreadyAdmittedError,
 	KERNEL_ERROR_CODES,
 	KernelError,
 	TurnExecutionError,
 	turnPersistenceError,
 	turnProtocolError,
 } from "./errors.js";
+import { lookupRuntimeInputAdmission } from "./input-admission.js";
 import { composeModelCallSystemPrompt, resolveModelCallFrame } from "./model-call-frame.js";
 import {
 	projectRuntimeMessageEnvelope,
@@ -239,6 +241,15 @@ export class TurnPipeline {
 		try {
 			await this.enterStage(state.sessionId, turnId, "admission");
 			signal.throwIfAborted();
+			if (inputId) {
+				const previous = lookupRuntimeInputAdmission(await this.repository.load(state.sessionId), inputId);
+				if (previous.state === "ambiguous") {
+					throw inputAlreadyAdmittedError();
+				}
+				if (previous.state === "admitted") {
+					throw inputAlreadyAdmittedError({ turnId: previous.turnId, terminal: previous.terminal });
+				}
+			}
 
 			await this.enterStage(state.sessionId, turnId, "snapshot_binding");
 			snapshotLease = await this.snapshotProvider.acquire({

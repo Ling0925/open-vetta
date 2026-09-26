@@ -1,4 +1,5 @@
 import { createRuntimeId } from "../id-generator.js";
+import { inputAlreadyAdmittedError } from "./errors.js";
 import type {
 	QueuedSessionInput,
 	QueuedSessionInputReservation,
@@ -115,6 +116,7 @@ export class SessionInputQueue implements TurnInputQueue {
 		behavior: SessionStreamingBehavior,
 		request: SessionInputRequest,
 	): { id: string; pendingCount: number } {
+		this.assertRequestInputIdAvailable(request);
 		const id = this.enqueueEntry(behavior, { request });
 		return { id, pendingCount: this.pendingCount };
 	}
@@ -206,6 +208,7 @@ export class SessionInputQueue implements TurnInputQueue {
 
 	/** 从持久化快照恢复（会话 resume 时）。整体替换现有内容。 */
 	restore(snapshot: SessionInputQueueSnapshot): void {
+		assertUniqueRequestInputIds(snapshot.entries);
 		this.steeringQueue.length = 0;
 		this.followUpQueue.length = 0;
 		for (const entry of snapshot.entries) {
@@ -369,6 +372,15 @@ export class SessionInputQueue implements TurnInputQueue {
 		};
 	}
 
+	private assertRequestInputIdAvailable(request: SessionInputRequest): void {
+		const inputId = request.inputId;
+		if (!inputId) return;
+		const duplicate = [...this.steeringQueue, ...this.followUpQueue].some(
+			(slot) => slot.input.request?.inputId === inputId,
+		);
+		if (duplicate) throw inputAlreadyAdmittedError();
+	}
+
 	private enqueueEntry(behavior: SessionStreamingBehavior, input: QueuedSessionInput): string {
 		const slot: QueueSlot = { id: createRuntimeId(), input };
 		if (behavior === "steer") this.steeringQueue.push(slot);
@@ -396,6 +408,16 @@ export class SessionInputQueue implements TurnInputQueue {
 
 	private notifyChange(): void {
 		this.onChange?.(this.list());
+	}
+}
+
+function assertUniqueRequestInputIds(entries: readonly SessionInputQueueEntry[]): void {
+	const seen = new Set<string>();
+	for (const entry of entries) {
+		const inputId = entry.input.request?.inputId;
+		if (!inputId) continue;
+		if (seen.has(inputId)) throw inputAlreadyAdmittedError();
+		seen.add(inputId);
 	}
 }
 

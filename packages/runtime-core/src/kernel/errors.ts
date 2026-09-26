@@ -3,6 +3,7 @@ import type { RuntimeFailure } from "../failure-contract.js";
 export const KERNEL_ERROR_CODES = {
 	SESSION_BUSY: "session_busy",
 	SESSION_CLOSED: "session_closed",
+	INPUT_ALREADY_ADMITTED: "input_already_admitted",
 	TURN_PROTOCOL: "turn_protocol",
 	TURN_FAILED: "turn_failed",
 	TURN_INTERRUPTED: "turn_interrupted",
@@ -57,6 +58,23 @@ export function sessionBusyError(): KernelError {
 
 export function sessionClosedError(): KernelError {
 	return new KernelError(KERNEL_ERROR_CODES.SESSION_CLOSED, "Session is closing or closed");
+}
+
+export function inputAlreadyAdmittedError(context?: {
+	readonly turnId?: string;
+	readonly terminal?: string;
+}): KernelError {
+	const detail = context?.turnId
+		? ` Existing turn: ${context.turnId}${context.terminal ? ` (${context.terminal})` : ""}.`
+		: "";
+	return new KernelError(
+		KERNEL_ERROR_CODES.INPUT_ALREADY_ADMITTED,
+		`This input was already admitted. Reconcile its durable state before retrying.${detail}`,
+	);
+}
+
+export function isInputAlreadyAdmittedError(value: unknown): value is KernelError {
+	return value instanceof KernelError && value.code === KERNEL_ERROR_CODES.INPUT_ALREADY_ADMITTED;
 }
 
 export function turnProtocolError(message: string): KernelError {

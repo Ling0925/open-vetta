@@ -79,4 +79,21 @@ describe("SessionInputQueue", () => {
 		]);
 		expect(queue.pendingCount).toBe(0);
 	});
+
+	it("refuses the same request inputId twice while it is still queued", () => {
+		const queue = new SessionInputQueue();
+		queue.enqueueRequestWithId("followUp", {
+			payload: { text: "first" },
+			displayText: "first",
+			inputId: "input-1",
+		});
+		expect(() =>
+			queue.enqueueRequestWithId("followUp", {
+				payload: { text: "different payload must not share identity" },
+				displayText: "different",
+				inputId: "input-1",
+			}),
+		).toThrow(/already admitted/i);
+		expect(queue.pendingCount).toBe(1);
+	});
 });

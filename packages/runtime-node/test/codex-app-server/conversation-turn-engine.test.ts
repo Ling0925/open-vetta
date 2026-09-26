@@ -17,6 +17,7 @@ function request(signal = new AbortController().signal): TurnEngineRequest {
 	return {
 		sessionId: "original-session",
 		turnId: "original-turn",
+		inputId: "input-stable-1",
 		snapshot: {
 			id: "chat-contract",
 			instructions: [],
@@ -113,6 +114,10 @@ describe("Codex in the original conversation pipeline", () => {
 			assert.equal(context.conversation.length, 2);
 			assert.equal(context.currentRequestIndex, 1);
 			assert.equal(f.transport.requests("turn/start").length, 1);
+			assert.equal(
+				(f.transport.requests("turn/start")[0].params as { clientUserMessageId?: string }).clientUserMessageId,
+				"input-stable-1",
+			);
 		} finally {
 			await f.connection.session.close();
 		}

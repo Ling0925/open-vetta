@@ -171,6 +171,8 @@ export {
 export {
 	featureConfigurationError,
 	featureConflictError,
+	inputAlreadyAdmittedError,
+	isInputAlreadyAdmittedError,
 	isTurnPersistenceError,
 	KERNEL_ERROR_CODES,
 	KernelError,
@@ -184,6 +186,12 @@ export {
 	turnProtocolError,
 } from "./errors.js";
 export { FeatureCompiler, type FeatureCompilerOptions } from "./feature-compiler.js";
+export {
+	lookupRuntimeInputAdmission,
+	RUNTIME_INPUT_IDENTITY_CONTEXT_TYPE,
+	type RuntimeInputAdmissionLookup,
+	type RuntimeInputTerminalState,
+} from "./input-admission.js";
 export { composeModelCallSystemPrompt, resolveModelCallFrame } from "./model-call-frame.js";
 export {
 	type CompiledPromptCacheLayout,

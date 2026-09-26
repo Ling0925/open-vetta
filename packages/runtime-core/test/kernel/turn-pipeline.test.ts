@@ -268,6 +268,7 @@ async function createHarness(options?: {
 	return {
 		contextStrategy,
 		eventSink,
+		pipeline,
 		repository,
 		session,
 		turnEngine,
@@ -315,6 +316,49 @@ describe("greenfield runtime kernel", () => {
 			"message.appended",
 			"turn.completed",
 		]);
+	});
+
+	it("binds inputId to one durable turn and refuses a replay before engine execution", async () => {
+		const engine = new CompletingTurnEngine(assistantMessage("done"));
+		const harness = await createHarness({ turnEngine: engine });
+		const request = { payload: { text: "hello" }, displayText: "hello", inputId: "input-123" };
+		const preparer = {
+			async prepare() {
+				return { action: "continue" as const, input: { message: userMessage("hello") } };
+			},
+		};
+
+		const first = await harness.pipeline.runRequest(
+			"session-1",
+			request,
+			new AbortController().signal,
+			undefined,
+			preparer,
+		);
+		expect(first.status).toBe("completed");
+		expect(engine.requests[0].inputId).toBe("input-123");
+		expect(engine.requests[0].messages.map((message) => message.content)).toEqual(["hello"]);
+
+		const conversation = await harness.repository.load("session-1");
+		expect(
+			conversation.events.find(
+				(event) => event.type === "context.appended" && event.record.type === "runtime.input.identity",
+			),
+		).toMatchObject({
+			type: "context.appended",
+			turnId: "turn-1",
+			record: { modelVisible: false, display: false, metadata: { inputId: "input-123" } },
+		});
+		await expect(
+			harness.pipeline.runRequest(
+				"session-1",
+				request,
+				new AbortController().signal,
+				undefined,
+				preparer,
+			),
+		).rejects.toMatchObject({ code: KERNEL_ERROR_CODES.INPUT_ALREADY_ADMITTED });
+		expect(engine.requests).toHaveLength(1);
 	});
 
 	it("assembles provider context before the current input and binds one snapshot", async () => {

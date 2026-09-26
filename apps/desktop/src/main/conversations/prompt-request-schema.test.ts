@@ -21,4 +21,11 @@ describe("提示请求里的附件路径", () => {
 			/must be absolute/,
 		);
 	});
+
+	it("保留有界的稳定 inputId，并拒绝空值、控制字符和过长身份", () => {
+		expect(parsePromptRequest({ text: "x", inputId: "user-123" }).inputId).toBe("user-123");
+		expect(() => parsePromptRequest({ text: "x", inputId: "   " })).toThrow(/inputId/i);
+		expect(() => parsePromptRequest({ text: "x", inputId: "bad\nidentity" })).toThrow(/control/i);
+		expect(() => parsePromptRequest({ text: "x", inputId: "x".repeat(257) })).toThrow(/inputId/i);
+	});
 });

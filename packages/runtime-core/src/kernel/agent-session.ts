@@ -16,6 +16,7 @@ import type {
 	TurnSessionIdentity,
 } from "./contracts.js";
 import {
+	inputAlreadyAdmittedError,
 	KERNEL_ERROR_CODES,
 	KernelError,
 	sessionBusyError,
@@ -48,6 +49,7 @@ export class AgentSession {
 	private currentState: AgentSessionState = "idle";
 	private activeController: AbortController | undefined;
 	private activeTurn: Promise<SessionSendResult> | undefined;
+	private activeInputId: string | undefined;
 	private immediateSendPending = false;
 	private cancellationVersion = 0;
 	private activeQueueOperation: { readonly id: string; readonly operation: SessionQueueOperation } | undefined;
@@ -150,6 +152,7 @@ export class AgentSession {
 		if (this.currentState === "recovery_required") throw turnPersistenceError();
 		if (this.currentState !== "idle") {
 			if (!options.streamingBehavior) throw sessionBusyError();
+			this.assertInputIdNotActive(request.inputId);
 			const behavior = this.queueBehaviorAfterOperations(options.streamingBehavior);
 			const { id, pendingCount } = this.inputQueue.enqueueRequestWithId(behavior, request);
 			return { status: "queued", behavior, pendingCount, id };
@@ -179,6 +182,7 @@ export class AgentSession {
 			if (this.currentState === "idle") {
 				return this.startRequest(request, preparer ?? this.inputRequestPreparer, signal);
 			}
+			this.assertInputIdNotActive(request.inputId);
 			const activeTurn = this.activeTurn;
 			if (!activeTurn) {
 				await Promise.resolve();
@@ -202,6 +206,7 @@ export class AgentSession {
 		if (this.currentState === "closed" || this.currentState === "closing") throw sessionClosedError();
 		if (this.currentState === "recovery_required") throw turnPersistenceError();
 		if (this.currentState === "idle") return { status: "idle" };
+		this.assertInputIdNotActive(request.inputId);
 		const queuedBehavior = this.queueBehaviorAfterOperations(behavior);
 		const { id, pendingCount } = this.inputQueue.enqueueRequestWithId(queuedBehavior, request);
 		return { status: "queued", behavior: queuedBehavior, pendingCount, id };
@@ -453,6 +458,7 @@ export class AgentSession {
 			await this.contextWrite;
 		} finally {
 			this.inputQueue.clear();
+			this.activeInputId = undefined;
 			this.nextTurnContext.length = 0;
 			this.currentState = "closed";
 		}
@@ -514,6 +520,7 @@ export class AgentSession {
 		signal?.throwIfAborted();
 		this.assertIdleForAdmission();
 		this.currentState = "running";
+		this.activeInputId = request.inputId;
 		const controller = new AbortController();
 		this.activeController = controller;
 		const abort = () => {
@@ -542,8 +549,13 @@ export class AgentSession {
 			throw error;
 		} finally {
 			signal?.removeEventListener("abort", abort);
+			if (this.activeInputId === request.inputId) this.activeInputId = undefined;
 			this.finishActiveTurn(controller);
 		}
+	}
+
+	private assertInputIdNotActive(inputId: string | undefined): void {
+		if (inputId && inputId === this.activeInputId) throw inputAlreadyAdmittedError();
 	}
 
 	private startQueuedInput(input: QueuedSessionInput): Promise<SessionSendResult> {

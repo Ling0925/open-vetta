@@ -26,7 +26,7 @@ import type {
 	StoredSessionEvent,
 	TurnResult,
 } from "../kernel/contracts.js";
-import { sessionBusyError, sessionClosedError } from "../kernel/errors.js";
+import { isInputAlreadyAdmittedError, sessionBusyError, sessionClosedError } from "../kernel/errors.js";
 import type { SessionInputQueueEntry, SessionInputQueueSnapshot } from "../kernel/session-input-queue.js";
 import type { SessionContextState } from "../session-context-state.js";
 import type { SessionExtensionEndpointToken } from "../session-extensions/contracts.js";
@@ -258,7 +258,7 @@ export class RuntimeSession {
 			// prompt 在进入 turn 之前失败（模型选择或扩展预处理等）时，
 			// 用户消息不会经 TurnPipeline 落盘。补一条 custom entry 保住事实，
 			// 历史可查（ADR-0060）。仅空闲态写入，避免与进行中 turn 的追加冲突。
-			if (this.session.state === "idle") {
+			if (this.session.state === "idle" && !isInputAlreadyAdmittedError(error)) {
 				try {
 					await this.appendEntry("prompt_rejected", {
 						text: request.text,
@@ -280,7 +280,7 @@ export class RuntimeSession {
 			this.assertOpen();
 			return await this.session.sendRequestWhenAvailable(inputRequest, this.promptAdapter, signal);
 		} catch (error) {
-			if (this.session.state === "idle") {
+			if (this.session.state === "idle" && !isInputAlreadyAdmittedError(error)) {
 				try {
 					await this.appendEntry("prompt_rejected", {
 						text: request.text,

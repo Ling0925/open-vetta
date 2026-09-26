@@ -29,6 +29,25 @@ Codex 执行完整的模型/工具循环，Native AgentCore 不再执行该轮�
 切换记录以 custom metadata `desktop.runtime-backend` 保存，不改变原会话文件格式或 session ID。
 校验请求中的 expectedSelectionId，损坏或新版本记录不能自动回退 Native。
 
+## 稳定输入身份与重复准入
+
+每次显式提交现在携带稳定 `inputId`：Desktop 在已有乐观用户气泡时复用其 identity，
+否则生成独立 identity。该值经过 PromptRequest、RuntimeHost、Kernel admission 到 TurnEngine，
+Codex 再将同一个值作为 `clientUserMessageId`。
+
+Kernel 在真正执行前把 `inputId` 以 model-invisible、display=false 的
+`runtime.input.identity` context fact 与持久化 `turnId` 绑定；不修改 Conversation 文件 schema。
+内存中正在执行的相同 inputId、队列中的重复 inputId，以及已经在 journal 中出现过的 inputId
+都会 fail-closed，不能再次启动模型或工具。恢复出的队列若包含重复 identity 也会拒绝加载。
+
+当前策略是 **at-most-once admission，不是自动重放**：发现重复提交时要求调用方根据原会话的
+durable turn 状态进行核对，不会因为网络回执丢失而重新执行命令。后续可在这个事实源上增加
+“读取既有 terminal receipt”的显式 reconciliation API，再考虑 exactly-once 风格的用户体验。
+
+目前形成的身份链为：
+`inputId → turnId → toolCallId → approval requestId`。其中 approval requestId 已绑定
+session/RPC/thread/turn/item，旧批准不能落到新的 Turn。
+
 ## Codex 工具可观察性
 
 原会话现在把 Codex `commandExecution` 映射到普通命令卡片：折叠行直接显示实际命令，
