@@ -11,6 +11,8 @@ export interface WorkflowSwitcherItem {
 	statusClassName: string;
 	objective: string;
 	usageLabel: string;
+	durationLabel?: string;
+	summary?: string;
 	errorLabel?: string;
 	errorDetail?: string;
 	selected: boolean;
@@ -27,6 +29,8 @@ export interface WorkflowTabPanelViewProps {
 	hasTranscript: boolean;
 	/** Read-only 1:1 MessageList for the selected workflow (host-supplied). */
 	messageList: ReactNode;
+	overallLabel?: string;
+	selectedActions?: ReactNode;
 	onSelect: (id: string) => void;
 	onStop: (id: string) => void;
 }
@@ -42,6 +46,8 @@ export function WorkflowTabPanelView({
 	noTranscriptLabel,
 	hasTranscript,
 	messageList,
+	overallLabel,
+	selectedActions,
 	onSelect,
 	onStop,
 }: WorkflowTabPanelViewProps): JSX.Element {
@@ -56,8 +62,9 @@ export function WorkflowTabPanelView({
 	const selectedItem = items.find(({ selected }) => selected);
 	return (
 		<div className="flex min-h-0 flex-1 flex-col">
-			<div className="flex shrink-0 items-center gap-1.5 overflow-x-auto bg-muted/20 px-3 py-2">
-				{items.map((item) => (
+			<div className="flex shrink-0 items-center gap-2 bg-muted/20 px-3 py-2">
+				<div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto">
+					{items.map((item) => (
 					<div
 						key={item.id}
 						className={`flex shrink-0 items-center rounded-full border transition-colors duration-200 ${
@@ -91,7 +98,13 @@ export function WorkflowTabPanelView({
 							</Button>
 						)}
 					</div>
-				))}
+					))}
+				</div>
+				{overallLabel ? (
+					<span className="shrink-0 whitespace-nowrap font-mono text-[10px] tabular-nums text-muted-foreground/70">
+						{overallLabel}
+					</span>
+				) : null}
 			</div>
 			{selectedItem && (
 				<div key={selectedItem.id} className="shrink-0 bg-background/60 px-3 py-2.5 animate-in fade-in duration-200">
@@ -105,6 +118,7 @@ export function WorkflowTabPanelView({
 								<span className={selectedItem.statusClassName}>{selectedItem.statusLabel}</span>
 								{selectedItem.progressLabel && <span>{selectedItem.progressLabel}</span>}
 								{selectedItem.usageLabel && <span>{selectedItem.usageLabel}</span>}
+								{selectedItem.durationLabel && <span>{selectedItem.durationLabel}</span>}
 							</div>
 						</div>
 					</div>
@@ -114,6 +128,12 @@ export function WorkflowTabPanelView({
 							{selectedItem.errorDetail && <div className="mt-0.5 max-h-16 overflow-auto break-words">{selectedItem.errorDetail}</div>}
 						</div>
 					)}
+					{selectedItem.summary ? (
+						<div className="mt-2 max-h-24 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-border/40 bg-muted/30 px-2.5 py-2 text-[10px] leading-relaxed text-muted-foreground">
+							{selectedItem.summary}
+						</div>
+					) : null}
+					{selectedActions ? <div className="mt-2">{selectedActions}</div> : null}
 				</div>
 			)}
 			{hasTranscript ? (

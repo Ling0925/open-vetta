@@ -1,6 +1,6 @@
 import { Button } from "@vetta-org/ui";
 import type { JSX, ReactNode } from "react";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 export type BackgroundTaskStatus = "running" | "completed" | "failed" | "killed";
 
@@ -26,9 +26,11 @@ export interface SubagentWorkViewItem {
 	kind: "subagent";
 	id: string;
 	agentType: string;
+	agentLabel?: string;
 	taskName: string;
 	path: string;
 	status: SubagentWorkStatus;
+	sessionFile?: string;
 	taskPreview: string;
 	finalText?: string;
 	errorLabel?: string;
@@ -67,6 +69,13 @@ export interface BackgroundTasksTabPanelViewProps {
 	stopLabel: string;
 	/** Bash: task id; Subagent: child id / path. */
 	onStop: (id: string, kind: "bash" | "subagent" | "mcp") => void;
+	openLabel?: string;
+	followUpLabel?: string;
+	followUpPlaceholder?: string;
+	followUpSendLabel?: string;
+	followUpFailedLabel?: string;
+	onOpenSubagent?: (id: string) => void;
+	onFollowUpSubagent?: (id: string, message: string) => Promise<boolean>;
 }
 
 /**
@@ -241,13 +250,54 @@ function BashTaskCard({
 function SubagentCard({
 	item,
 	stopLabel,
+	openLabel,
+	followUpLabel,
+	followUpPlaceholder,
+	followUpSendLabel,
+	followUpFailedLabel,
 	onStop,
+	onOpen,
+	onFollowUp,
 }: {
 	item: SubagentWorkViewItem;
 	stopLabel: string;
+	openLabel?: string;
+	followUpLabel?: string;
+	followUpPlaceholder?: string;
+	followUpSendLabel?: string;
+	followUpFailedLabel?: string;
 	onStop: (id: string) => void;
+	onOpen?: (id: string) => void;
+	onFollowUp?: (id: string, message: string) => Promise<boolean>;
 }): JSX.Element {
 	const active = item.status === "queued" || item.status === "pending" || item.status === "running";
+	const [composerOpen, setComposerOpen] = useState(false);
+	const [draft, setDraft] = useState("");
+	const [sending, setSending] = useState(false);
+	const [failed, setFailed] = useState(false);
+	const canOpen = Boolean(item.sessionFile && onOpen);
+	const canFollowUp = Boolean(onFollowUp);
+
+	const submitFollowUp = async (): Promise<void> => {
+		const message = draft.trim();
+		if (!message || !onFollowUp || sending) return;
+		setSending(true);
+		setFailed(false);
+		try {
+			const accepted = await onFollowUp(item.id, message);
+			if (accepted) {
+				setDraft("");
+				setComposerOpen(false);
+			} else {
+				setFailed(true);
+			}
+		} catch {
+			setFailed(true);
+		} finally {
+			setSending(false);
+		}
+	};
+
 	return (
 		<WorkCard active={active}>
 			<WorkCardHeader
@@ -255,13 +305,46 @@ function SubagentCard({
 				statusClassName={item.statusClassName}
 				statusLabel={item.statusLabel}
 				durationLabel={item.durationLabel}
-				badge={<KindBadge tone="primary">{item.agentType}</KindBadge>}
+				badge={<KindBadge tone="primary">{item.agentLabel ?? item.agentType}</KindBadge>}
 				identity={
 					<span className="block truncate font-mono text-[10px] text-muted-foreground/70" title={item.taskName}>
 						{item.taskName}
 					</span>
 				}
-				action={active ? <StopButton label={stopLabel} iconOnly onClick={() => onStop(item.id)} /> : undefined}
+				action={
+					<div className="flex items-center gap-0.5">
+						{canFollowUp && followUpLabel ? (
+							<Button
+								type="button"
+								variant="ghost"
+								size="icon-xs"
+								title={followUpLabel}
+								aria-label={followUpLabel}
+								onClick={() => {
+									setFailed(false);
+									setComposerOpen((value) => !value);
+								}}
+								className="h-6 w-6 rounded-lg text-muted-foreground hover:bg-primary/10 hover:text-primary"
+							>
+								<span className="icon-[solar--chat-round-dots-linear] h-3.5 w-3.5" />
+							</Button>
+						) : null}
+						{canOpen && openLabel ? (
+							<Button
+								type="button"
+								variant="ghost"
+								size="icon-xs"
+								title={openLabel}
+								aria-label={openLabel}
+								onClick={() => onOpen?.(item.id)}
+								className="h-6 w-6 rounded-lg text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+							>
+								<span className="icon-[solar--arrow-right-up-linear] h-3.5 w-3.5" />
+							</Button>
+						) : null}
+						{active ? <StopButton label={stopLabel} iconOnly onClick={() => onStop(item.id)} /> : null}
+					</div>
+				}
 			/>
 			<div className="mt-2 min-w-0 line-clamp-2 text-[11px] leading-relaxed text-foreground" title={item.taskPreview}>
 				{item.taskPreview}
@@ -273,13 +356,43 @@ function SubagentCard({
 					{item.usageLabel && <span>{item.usageLabel}</span>}
 				</div>
 			)}
+			{composerOpen && canFollowUp ? (
+				<div className="mt-2 rounded-lg border border-border/50 bg-background/45 p-2">
+					<textarea
+						value={draft}
+						onChange={(event) => setDraft(event.target.value)}
+						placeholder={followUpPlaceholder}
+						rows={2}
+						className="w-full resize-none bg-transparent text-[11px] leading-relaxed text-foreground outline-none placeholder:text-muted-foreground/60"
+						onKeyDown={(event) => {
+							if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+								event.preventDefault();
+								void submitFollowUp();
+							}
+						}}
+					/>
+					<div className="mt-1.5 flex items-center justify-between gap-2">
+						<span className="text-[10px] text-destructive">{failed ? followUpFailedLabel : null}</span>
+						<Button
+							type="button"
+							variant="secondary"
+							size="xs"
+							disabled={!draft.trim() || sending}
+							onClick={() => void submitFollowUp()}
+							className="h-6 rounded-lg px-2 text-[10px]"
+						>
+							{followUpSendLabel ?? followUpLabel}
+						</Button>
+					</div>
+				</div>
+			) : null}
 			{item.errorLabel && (
 				<div className="mt-2 min-w-0 rounded-lg border border-destructive/20 bg-destructive/10 px-2.5 py-2 text-[10px] text-destructive">
 					<div className="font-medium">{item.errorLabel}</div>
 					{item.errorDetail && <div className="mt-0.5 max-h-16 overflow-auto break-words">{item.errorDetail}</div>}
 				</div>
 			)}
-			{item.finalText && <OutputBlock>{item.finalText}</OutputBlock>}
+			{item.finalText && <OutputBlock mono={false}>{item.finalText}</OutputBlock>}
 		</WorkCard>
 	);
 }
@@ -324,7 +437,14 @@ export function BackgroundTasksTabPanelView({
 	clearFinishedLabel,
 	onClearFinished,
 	stopLabel,
+	openLabel,
+	followUpLabel,
+	followUpPlaceholder,
+	followUpSendLabel,
+	followUpFailedLabel,
 	onStop,
+	onOpenSubagent,
+	onFollowUpSubagent,
 }: BackgroundTasksTabPanelViewProps): JSX.Element {
 	if (items.length === 0) {
 		return (
@@ -358,7 +478,14 @@ export function BackgroundTasksTabPanelView({
 							key={`subagent:${item.id}`}
 							item={item}
 							stopLabel={stopLabel}
+							openLabel={openLabel}
+							followUpLabel={followUpLabel}
+							followUpPlaceholder={followUpPlaceholder}
+							followUpSendLabel={followUpSendLabel}
+							followUpFailedLabel={followUpFailedLabel}
 							onStop={(id) => onStop(id, "subagent")}
+							onOpen={onOpenSubagent}
+							onFollowUp={onFollowUpSubagent}
 						/>
 					) : item.kind === "mcp" ? (
 						<McpTaskCard

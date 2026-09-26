@@ -32,6 +32,17 @@
 		},
 		"subagents": {
 			"usage": "{{tokens}} tokens · {{cost}}",
+			"open": "查看完整消息",
+			"followUp": "继续沟通",
+			"followUpPlaceholder": "给这个子代理补充一条要求…",
+			"followUpSend": "发送",
+			"followUpFailed": "发送失败，请重试",
+			"types": {
+				"advisor": "顾问",
+				"explorer": "探索",
+				"general": "子代理",
+				"workflow": "工作流"
+			},
 			"errorPermission": "权限受限",
 			"errorContext": "上下文超限",
 			"errorConnection": "连接中断",
@@ -151,6 +162,11 @@
 			"empty": "暂无工作流",
 			"noTranscript": "工作流尚未产生消息",
 			"stop": "停止",
+			"overall": "{{done}}/{{total}} 已结束 · {{active}} 运行中",
+			"followUp": "继续这个工作流",
+			"followUpPlaceholder": "补充要求、纠偏，或让它继续检查…",
+			"followUpSend": "发送给工作流",
+			"followUpFailed": "发送失败，请重试",
 			"statusQueued": "排队中",
 			"statusPending": "启动中",
 			"statusRunning": "运行中",
@@ -949,6 +965,7 @@
 	"subagentCard": {
 		"back": "返回父会话",
 		"open": "查看子代理 {{name}} 的消息",
+		"stop": "停止 {{name}}",
 		"viewerSubtitle": "子代理消息（只读）",
 		"waitingForSession": "子代理会话准备中",
 		"status": {

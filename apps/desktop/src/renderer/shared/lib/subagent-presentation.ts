@@ -49,3 +49,40 @@ function compactNumber(value: number): string {
 function clipText(value: string, limit: number): string {
 	return value.length <= limit ? value : `${value.slice(0, limit - 1)}…`;
 }
+
+
+export function subagentTypeLabel(agentType: string, t: TFunction<"chat">): string {
+	switch (agentType) {
+		case "advisor":
+			return t("activityPanel.subagents.types.advisor");
+		case "explorer":
+			return t("activityPanel.subagents.types.explorer");
+		case "general":
+			return t("activityPanel.subagents.types.general");
+		case "workflow":
+			return t("activityPanel.subagents.types.workflow");
+		default:
+			return agentType;
+	}
+}
+
+export function subagentDurationLabel(
+	startedAt: number,
+	endedAt: number | undefined,
+	now: number,
+	t: TFunction<"chat">,
+): string {
+	const ms = Math.max(0, (endedAt ?? now) - startedAt);
+	const sec = Math.floor(ms / 1000);
+	if (sec < 60) return t("activityPanel.backgroundTasks.durationSec", { sec });
+	const min = Math.floor(sec / 60);
+	if (min < 60) return t("activityPanel.backgroundTasks.durationMin", { min, sec: sec % 60 });
+	const hr = Math.floor(min / 60);
+	return t("activityPanel.backgroundTasks.durationHour", { hr, min: min % 60 });
+}
+
+export function subagentResultPreview(value: string | undefined, limit = 640): string | undefined {
+	if (!value?.trim()) return undefined;
+	const normalized = value.trim();
+	return normalized.length <= limit ? normalized : `${normalized.slice(0, limit - 1)}…`;
+}

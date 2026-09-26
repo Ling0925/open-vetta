@@ -77,6 +77,53 @@ describe("Subagent activity views", () => {
 		expect(html).toContain("icon-[solar--stop-circle-linear]");
 	});
 
+	it("lets a user follow up with and open a visible subagent", async () => {
+		const onOpen = vi.fn();
+		const onFollowUp = vi.fn(async () => true);
+		render(
+			<BackgroundTasksTabPanelView
+				items={[
+					{
+						kind: "subagent",
+						id: "advisor-1",
+						agentType: "advisor",
+						agentLabel: "Advisor",
+						taskName: "advisor_1",
+						path: "/root/advisor_1",
+						status: "completed",
+						sessionFile: "/tmp/advisor.jsonl",
+						taskPreview: "Review the migration approach.",
+						finalText: "Prefer the compatibility layer.",
+						usageLabel: "900 tokens",
+						statusIcon: "icon-[solar--check-circle-linear]",
+						statusLabel: "Completed",
+						statusClassName: "text-emerald-400",
+						durationLabel: "8s",
+					},
+				]}
+				emptyLabel="No tasks"
+				clearFinishedLabel={null}
+				onClearFinished={vi.fn()}
+				stopLabel="Stop"
+				openLabel="Open"
+				followUpLabel="Continue"
+				followUpPlaceholder="Add follow-up"
+				followUpSendLabel="Send"
+				followUpFailedLabel="Failed"
+				onStop={vi.fn()}
+				onOpenSubagent={onOpen}
+				onFollowUpSubagent={onFollowUp}
+			/>,
+		);
+
+		fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+		fireEvent.change(screen.getByPlaceholderText("Add follow-up"), { target: { value: "Check rollback risk" } });
+		fireEvent.click(screen.getByRole("button", { name: "Send" }));
+		await vi.waitFor(() => expect(onFollowUp).toHaveBeenCalledWith("advisor-1", "Check rollback risk"));
+		fireEvent.click(screen.getByRole("button", { name: "Open" }));
+		expect(onOpen).toHaveBeenCalledWith("advisor-1");
+	});
+
 	it("renders and cancels an active MCP protocol Task without presenting it as bash work", () => {
 		const onStop = vi.fn();
 		render(

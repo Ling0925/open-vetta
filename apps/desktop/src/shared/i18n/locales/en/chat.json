@@ -32,6 +32,17 @@
 		},
 		"subagents": {
 			"usage": "{{tokens}} tokens · {{cost}}",
+			"open": "Open full transcript",
+			"followUp": "Continue conversation",
+			"followUpPlaceholder": "Add a follow-up for this subagent…",
+			"followUpSend": "Send",
+			"followUpFailed": "Could not send. Try again.",
+			"types": {
+				"advisor": "Advisor",
+				"explorer": "Explorer",
+				"general": "Subagent",
+				"workflow": "Workflow"
+			},
 			"errorPermission": "Permission blocked",
 			"errorContext": "Context limit reached",
 			"errorConnection": "Connection interrupted",
@@ -151,6 +162,11 @@
 			"empty": "No workflows",
 			"noTranscript": "No messages from this workflow yet",
 			"stop": "Stop",
+			"overall": "{{done}}/{{total}} finished · {{active}} running",
+			"followUp": "Continue this workflow",
+			"followUpPlaceholder": "Add a requirement, correct direction, or ask it to verify more…",
+			"followUpSend": "Send to workflow",
+			"followUpFailed": "Could not send. Try again.",
 			"statusQueued": "Queued",
 			"statusPending": "Starting",
 			"statusRunning": "Running",
@@ -949,6 +965,7 @@
 	"subagentCard": {
 		"back": "Back to parent session",
 		"open": "View messages from subagent {{name}}",
+		"stop": "Stop {{name}}",
 		"viewerSubtitle": "Subagent messages (read only)",
 		"waitingForSession": "Subagent session is preparing",
 		"status": {

@@ -1,5 +1,11 @@
 import type { DesktopMcpTask } from "@preload/api";
-import { subagentErrorPresentation, subagentObjective, subagentUsageLabel } from "@shared/lib/subagent-presentation";
+import {
+	subagentDurationLabel,
+	subagentErrorPresentation,
+	subagentObjective,
+	subagentTypeLabel,
+	subagentUsageLabel,
+} from "@shared/lib/subagent-presentation";
 import {
 	type BackgroundTask,
 	backgroundTasksBySessionAtom,
@@ -14,6 +20,7 @@ import {
 } from "@shared/store/atoms";
 import type { BackgroundWorkViewItem } from "@vetta-org/theme-ui/activity";
 import type { TFunction } from "i18next";
+import { useNavigate } from "@tanstack/react-router";
 import { useAtomValue } from "jotai";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -162,9 +169,11 @@ function toSubagentItem(agent: SubagentTask, now: number, t: TFunction<"chat">):
 		kind: "subagent",
 		id: agent.id,
 		agentType: agent.agentType,
+		agentLabel: subagentTypeLabel(agent.agentType, t),
 		taskName: agent.taskName,
 		path: agent.path,
 		status: agent.status,
+		sessionFile: agent.sessionFile,
 		taskPreview: subagentObjective(agent.task),
 		finalText: agent.finalText,
 		errorLabel: error?.label,
@@ -177,7 +186,7 @@ function toSubagentItem(agent: SubagentTask, now: number, t: TFunction<"chat">):
 		statusIcon: meta.icon,
 		statusLabel: meta.label,
 		statusClassName: meta.className,
-		durationLabel: formatDuration(agent.startedAt, agent.endedAt, now, t),
+		durationLabel: subagentDurationLabel(agent.startedAt, agent.endedAt, now, t),
 	};
 }
 
@@ -209,11 +218,19 @@ export interface BackgroundTasksTabPanelModel {
 	clearFinishedLabel: string | null;
 	onClearFinished: () => void;
 	stopLabel: string;
+	openLabel: string;
+	followUpLabel: string;
+	followUpPlaceholder: string;
+	followUpSendLabel: string;
+	followUpFailedLabel: string;
 	onStop: (id: string, kind: "bash" | "subagent" | "mcp") => void;
+	onOpenSubagent: (id: string) => void;
+	onFollowUpSubagent: (id: string, message: string) => Promise<boolean>;
 }
 
 export function useBackgroundTasksTabPanelModel(): BackgroundTasksTabPanelModel {
 	const { t } = useTranslation("chat");
+	const navigate = useNavigate();
 	const tasksMap = useAtomValue(backgroundTasksBySessionAtom);
 	const subagentsMap = useAtomValue(subagentsBySessionAtom);
 	const mcpTasksMap = useAtomValue(mcpTasksBySessionAtom);
@@ -246,6 +263,15 @@ export function useBackgroundTasksTabPanelModel(): BackgroundTasksTabPanelModel 
 		for (const row of scopedSubagents) map.set(`subagent:${row.item.id}`, row.runtimeId);
 		return map;
 	}, [scopedBashTasks, scopedSubagents]);
+	const sessionFileBySubagentId = useMemo(
+		() =>
+			new Map(
+				scopedSubagents.flatMap((row) =>
+					row.item.sessionFile ? [[row.item.id, row.item.sessionFile] as const] : [],
+				),
+			),
+		[scopedSubagents],
+	);
 
 	const hasRunning =
 		bashTasks.some((task) => task.status === "running") ||
@@ -292,6 +318,33 @@ export function useBackgroundTasksTabPanelModel(): BackgroundTasksTabPanelModel 
 		[runtimeIdByItemId],
 	);
 
+	const handleOpenSubagent = useCallback(
+		(id: string) => {
+			const sessionFile = sessionFileBySubagentId.get(id);
+			if (!sessionFile) return;
+			void navigate({
+				to: "/viewer/$path",
+				params: { path: encodeURIComponent(sessionFile) },
+				search: { origin: "subagent" },
+			});
+		},
+		[navigate, sessionFileBySubagentId],
+	);
+
+	const handleFollowUpSubagent = useCallback(
+		async (id: string, message: string): Promise<boolean> => {
+			const runtimeId = runtimeIdByItemId.get(`subagent:${id}`);
+			if (!runtimeId) return false;
+			try {
+				return await window.vetta.session.followUpSubagent(runtimeId, id, message);
+			} catch (error) {
+				console.error("[BackgroundTasksTabPanel] subagent follow-up failed", error);
+				return false;
+			}
+		},
+		[runtimeIdByItemId],
+	);
+
 	const items = useMemo(() => {
 		const bashItems = bashTasks.map((task) => ({
 			sortAt: task.startedAt,
@@ -315,6 +368,13 @@ export function useBackgroundTasksTabPanelModel(): BackgroundTasksTabPanelModel 
 			allFinishedCount > 0 ? t("activityPanel.backgroundTasks.clearFinished", { count: allFinishedCount }) : null,
 		onClearFinished: handleClearFinished,
 		stopLabel: t("activityPanel.backgroundTasks.stop"),
+		openLabel: t("activityPanel.subagents.open"),
+		followUpLabel: t("activityPanel.subagents.followUp"),
+		followUpPlaceholder: t("activityPanel.subagents.followUpPlaceholder"),
+		followUpSendLabel: t("activityPanel.subagents.followUpSend"),
+		followUpFailedLabel: t("activityPanel.subagents.followUpFailed"),
 		onStop: handleStop,
+		onOpenSubagent: handleOpenSubagent,
+		onFollowUpSubagent: handleFollowUpSubagent,
 	};
 }

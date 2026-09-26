@@ -11,7 +11,14 @@ export function BackgroundTasksTabPanel(): JSX.Element {
 			clearFinishedLabel={model.clearFinishedLabel}
 			onClearFinished={model.onClearFinished}
 			stopLabel={model.stopLabel}
+			openLabel={model.openLabel}
+			followUpLabel={model.followUpLabel}
+			followUpPlaceholder={model.followUpPlaceholder}
+			followUpSendLabel={model.followUpSendLabel}
+			followUpFailedLabel={model.followUpFailedLabel}
 			onStop={model.onStop}
+			onOpenSubagent={model.onOpenSubagent}
+			onFollowUpSubagent={model.onFollowUpSubagent}
 		/>
 	);
 }

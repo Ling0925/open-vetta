@@ -1,4 +1,10 @@
-import { subagentErrorPresentation, subagentObjective, subagentUsageLabel } from "@shared/lib/subagent-presentation";
+import {
+	subagentDurationLabel,
+	subagentErrorPresentation,
+	subagentObjective,
+	subagentResultPreview,
+	subagentUsageLabel,
+} from "@shared/lib/subagent-presentation";
 import { workflowProgressLabel, workflowStatusMeta } from "@shared/lib/workflow-status";
 import {
 	type ChatConversationItem,
@@ -25,8 +31,14 @@ export interface WorkflowTabPanelModel {
 	emptyLabel: string;
 	stopLabel: string;
 	noTranscriptLabel: string;
+	overallLabel: string;
+	followUpLabel: string;
+	followUpPlaceholder: string;
+	followUpSendLabel: string;
+	followUpFailedLabel: string;
 	onSelect: (id: string) => void;
 	onStop: (id: string) => void;
+	onFollowUp: (id: string, message: string) => Promise<boolean>;
 }
 
 export function useWorkflowTabPanelModel(): WorkflowTabPanelModel {
@@ -56,6 +68,14 @@ export function useWorkflowTabPanelModel(): WorkflowTabPanelModel {
 		return workflows.find((w) => isSubagentActive(w.status)) ?? workflows[0] ?? null;
 	}, [workflows, selectedId]);
 
+	const hasActiveWorkflow = workflows.some((workflow) => isSubagentActive(workflow.status));
+	const [now, setNow] = useState(() => Date.now());
+	useEffect(() => {
+		if (!hasActiveWorkflow) return;
+		const timer = window.setInterval(() => setNow(Date.now()), 1000);
+		return () => window.clearInterval(timer);
+	}, [hasActiveWorkflow]);
+
 	const items = useMemo(
 		() =>
 			workflows.map((task) => {
@@ -70,13 +90,15 @@ export function useWorkflowTabPanelModel(): WorkflowTabPanelModel {
 					statusClassName: meta.className,
 					objective: subagentObjective(task.task),
 					usageLabel: subagentUsageLabel(task.usage, t),
+					durationLabel: subagentDurationLabel(task.startedAt, task.endedAt, now, t),
+					summary: subagentResultPreview(task.finalText),
 					errorLabel: error?.label,
 					errorDetail: error?.detail,
 					selected: task.id === selected?.id,
 					active: isSubagentActive(task.status),
 				};
 			}),
-		[workflows, selected?.id, t],
+		[workflows, selected?.id, now, t],
 	);
 
 	// Read-only live transcript: reuse the no-lock session viewer channel on the
@@ -109,6 +131,20 @@ export function useWorkflowTabPanelModel(): WorkflowTabPanelModel {
 	}, [sessionFile]);
 
 	const onSelect = useCallback((id: string) => setSelectedId(id), [setSelectedId]);
+	const onFollowUp = useCallback(
+		async (id: string, message: string): Promise<boolean> => {
+			const runtimeId = runtimeIdByWorkflowId.get(id);
+			if (!runtimeId) return false;
+			try {
+				return await window.vetta.session.followUpSubagent(runtimeId, id, message);
+			} catch (error) {
+				console.error("[WorkflowTabPanel] workflow follow-up failed", error);
+				return false;
+			}
+		},
+		[runtimeIdByWorkflowId],
+	);
+
 	const onStop = useCallback(
 		(id: string) => {
 			const runtimeId = runtimeIdByWorkflowId.get(id);
@@ -125,7 +161,17 @@ export function useWorkflowTabPanelModel(): WorkflowTabPanelModel {
 		emptyLabel: t("activityPanel.workflow.empty"),
 		stopLabel: t("activityPanel.workflow.stop"),
 		noTranscriptLabel: t("activityPanel.workflow.noTranscript"),
+		overallLabel: t("activityPanel.workflow.overall", {
+			done: workflows.filter((workflow) => !isSubagentActive(workflow.status)).length,
+			total: workflows.length,
+			active: workflows.filter((workflow) => isSubagentActive(workflow.status)).length,
+		}),
+		followUpLabel: t("activityPanel.workflow.followUp"),
+		followUpPlaceholder: t("activityPanel.workflow.followUpPlaceholder"),
+		followUpSendLabel: t("activityPanel.workflow.followUpSend"),
+		followUpFailedLabel: t("activityPanel.workflow.followUpFailed"),
 		onSelect,
 		onStop,
+		onFollowUp,
 	};
 }
