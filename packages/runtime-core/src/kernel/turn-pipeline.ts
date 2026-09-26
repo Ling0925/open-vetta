@@ -225,6 +225,7 @@ export class TurnPipeline {
 		fallbackPreparer?: RuntimeInputRequestPreparer,
 	): Promise<TurnResult | HandledSessionInputResult> {
 		const identity = normalizeSessionIdentity(sessionIdentity);
+		const inputId = normalizeInputId(request?.inputId);
 		const turnId = this.idGenerator.next("turn");
 		const state: MutableTurnState = {
 			sessionId: identity.sessionId,
@@ -295,6 +296,21 @@ export class TurnPipeline {
 					timestamp: startedAt,
 				},
 			];
+			if (inputId) {
+				startEvents.push({
+					type: "context.appended",
+					sessionId: state.sessionId,
+					turnId,
+					record: {
+						type: "runtime.input.identity",
+						content: "",
+						modelVisible: false,
+						display: false,
+						metadata: { inputId },
+					},
+					timestamp: startedAt,
+				});
+			}
 			const turnContext = input?.context ?? continuationContext;
 			const trailingContext = input?.trailingContext ?? [];
 			const turnMessageEnvelopes: RuntimeMessageEnvelope[] = [
@@ -499,6 +515,7 @@ export class TurnPipeline {
 					return state.sessionId;
 				},
 				turnId,
+				...(inputId ? { inputId } : {}),
 				snapshot,
 				modelBinding,
 				messages: executionMessages,
@@ -1162,6 +1179,15 @@ function extractAssistantText(content: Message["content"]): string {
 		.filter((part): part is Extract<Message["content"][number], { type: "text" }> => part.type === "text")
 		.map((part) => part.text)
 		.join("");
+}
+
+function normalizeInputId(value: string | undefined): string | undefined {
+	if (value === undefined) return undefined;
+	const normalized = value.trim();
+	if (!normalized || normalized.length > 256 || /[\x00-\x1f\x7f]/.test(normalized)) {
+		throw turnProtocolError("Invalid input identity");
+	}
+	return normalized;
 }
 
 function normalizeSessionIdentity(identity: string | TurnSessionIdentity): TurnSessionIdentity {

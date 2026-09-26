@@ -44,6 +44,13 @@ const promptImageSchema = z
 export const promptRequestSchema: z.ZodType<PromptRequest> = z
 	.object({
 		text: z.string().min(1),
+		inputId: z
+			.string()
+			.trim()
+			.min(1)
+			.max(256)
+			.refine((value) => !/[\x00-\x1f\x7f]/.test(value), "Input identity contains control characters")
+			.optional(),
 		promptRef: promptResourceRefSchema.optional(),
 		attachments: z.array(promptAttachmentRefSchema).optional(),
 		images: z.array(promptImageSchema).optional(),

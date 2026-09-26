@@ -277,6 +277,8 @@ export interface RuntimeTurnPromptOutcome {
 	/** Structured failure for a terminal failed turn. Kept on the prompt receipt so
 	 * retry adapters cannot mistake a failed turn for a successful one. */
 	readonly error?: SessionError;
+	/** Stable caller input identity echoed when the prompt supplied one. */
+	readonly inputId?: string;
 	/** The durable turn identity when this receipt represents a completed turn. */
 	readonly turnId?: string;
 	readonly pendingCount?: number;
@@ -397,6 +399,11 @@ export interface SessionConfig {
 
 export interface PromptRequest {
 	text: string;
+	/**
+	 * Stable caller-generated identity for one user submission. It correlates
+	 * optimistic UI, queue admission, durable Turn facts and prompt receipts.
+	 */
+	inputId?: string;
 	/**
 	 * Product-authored context committed in the same Turn as this prompt. Keeping it
 	 * on the request prevents a separate context write from racing with admission.

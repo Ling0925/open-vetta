@@ -33,6 +33,7 @@ export class CodingAgentPromptRequestAdapter implements RuntimePromptAdapter, Ru
 		return Object.freeze({
 			payload: structuredClone(request),
 			displayText: request.text,
+			...(request.inputId ? { inputId: request.inputId } : {}),
 			...(request.modelKey || request.reasoning
 				? { model: { key: request.modelKey, reasoning: request.reasoning } }
 				: {}),

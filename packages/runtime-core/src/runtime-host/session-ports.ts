@@ -31,6 +31,8 @@ export interface RuntimeSessionIdentityLifecycle {
 /** RuntimeHost 完成宿主预处理后交给 Turn 执行边界的输入。 */
 export interface RuntimeTurnPrompt {
 	readonly text: string;
+	/** Stable caller-generated identity for this submission. */
+	readonly inputId?: string;
 	readonly context?: PromptRequest["context"];
 	readonly promptRef?: PromptRequest["promptRef"];
 	readonly attachments?: PromptRequest["attachments"];

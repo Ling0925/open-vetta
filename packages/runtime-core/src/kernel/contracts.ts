@@ -49,6 +49,8 @@ export interface SessionInput {
 export interface SessionInputRequest {
 	readonly payload: unknown;
 	readonly displayText: string;
+	/** Stable host input identity retained while the request is queued and admitted. */
+	readonly inputId?: string;
 	/** 可选的本 Turn 模型覆盖；由模型绑定 Provider 在同一次 snapshot acquire 中解释。 */
 	readonly model?: {
 		readonly key?: string;
@@ -940,6 +942,8 @@ export interface TurnObserver {
 export interface TurnEngineRequest {
 	readonly sessionId: string;
 	readonly turnId: string;
+	/** Stable caller input identity when this Turn originated from an explicit submission. */
+	readonly inputId?: string;
 	readonly snapshot: RuntimeSnapshot;
 	readonly modelBinding?: RuntimeTurnModelBinding;
 	readonly messages: readonly Message[];

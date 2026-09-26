@@ -96,6 +96,7 @@ export class RuntimeHostSessionOperations {
 			}
 			const outcome = await handle.turnControl.prompt({
 				text: request.text,
+				inputId: request.inputId,
 				context: request.context,
 				images: request.images,
 				streamingBehavior: request.streamingBehavior,
@@ -105,7 +106,8 @@ export class RuntimeHostSessionOperations {
 				reasoning: request.reasoning,
 				metadata: request.metadata,
 			});
-			return outcome ?? { status: "completed" };
+			const normalized = outcome ?? { status: "completed" as const };
+			return request.inputId ? { ...normalized, inputId: request.inputId } : normalized;
 		} catch (error) {
 			const message = isSessionError(error) ? error.message : error instanceof Error ? error.message : String(error);
 			const failure = isTurnPersistenceError(error) ? error.failure : undefined;
@@ -150,6 +152,7 @@ export class RuntimeHostSessionOperations {
 		try {
 			const prompt = {
 				text: request.text,
+				inputId: request.inputId,
 				context: request.context,
 				images: request.images,
 				streamingBehavior: request.streamingBehavior,
@@ -160,7 +163,8 @@ export class RuntimeHostSessionOperations {
 				metadata: request.metadata,
 			};
 			const outcome = await handle.turnControl.promptWhenAvailable(prompt, signal);
-			return outcome ?? { status: "completed" };
+			const normalized = outcome ?? { status: "completed" as const };
+			return request.inputId ? { ...normalized, inputId: request.inputId } : normalized;
 		} catch (error) {
 			const message = isSessionError(error) ? error.message : error instanceof Error ? error.message : String(error);
 			const failure = isTurnPersistenceError(error) ? error.failure : undefined;

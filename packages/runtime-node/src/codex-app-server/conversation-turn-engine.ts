@@ -111,7 +111,7 @@ export class CodexConversationTurnEngine implements TurnEnginePort {
 			});
 			signal.addEventListener("abort", cancel, { once: true });
 			signal.throwIfAborted();
-			const turn = await session.startTurn({ text, inputId: request.turnId });
+			const turn = await session.startTurn({ text, inputId: request.inputId ?? request.turnId });
 			if (signal.aborted) cancel();
 			const terminal = await turn.completed;
 			if (stop) await stop;

@@ -472,8 +472,10 @@ export function useSessionMessageSender({ bumpSuggestionToken }: SessionMessageS
 				return;
 			}
 
+			const clientInputId = optimisticUserMsgId ?? stagedInput?.optimisticMessage.id ?? nextId("input");
 			const promptReq: PromptRequest = {
 				text: text || "(see attached content)",
+				inputId: clientInputId,
 				promptRef,
 			};
 			if (attachments.length > 0 || pendingEdit) {
