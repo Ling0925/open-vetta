@@ -101,6 +101,10 @@
 		"retry": "Check again",
 		"sandbox": "Codex workspace sandbox",
 		"sandboxHelp": "Workspace writes are permitted; additional access requires approval. Native full-access mode is not inherited.",
+		"reconciliation": {
+			"ambiguous": "This submission has conflicting durable Turn records. It was not replayed; reopen the conversation and inspect its history.",
+			"cancelled": "This submission was already cancelled and was not replayed."
+		},
 		"errors": {
 			"DEFAULT": "The switch was not confirmed. Your conversation and input are retained. Check the backend before sending.",
 			"CODEX_NOT_INSTALLED": "No verified bundled Codex executable is available. Use a test build that includes Codex.",

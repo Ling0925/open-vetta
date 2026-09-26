@@ -63,6 +63,7 @@ import {
 	toChatErrorDetails,
 } from "../services/chat-service";
 import { planFailedResendRollback } from "../services/failed-resend-rollback";
+import { classifyPromptDeliveryReconciliation } from "../services/prompt-delivery-reconciliation";
 import { applyInitialRuntimeBackend } from "../services/initial-runtime-backend";
 import { forgetOptimisticUserMessage, rememberOptimisticUserMessage } from "../services/optimistic-user-message-cache";
 import { applyDraftPlanMode } from "../services/plan-mode-draft";
@@ -588,6 +589,9 @@ export function useSessionMessageSender({ bumpSuggestionToken }: SessionMessageS
 				perfSendComplete("prompt-dispatched", interactionId);
 				const outcome = await promptPromise;
 				perfSendMark("prompt-ipc-end", interactionId);
+				if (outcome?.inputId && outcome.inputId !== clientInputId) {
+					throw new Error("PROMPT_RECEIPT_IDENTITY_MISMATCH");
+				}
 				if (outcome?.status === "queued") {
 					if (optimisticUserMsgId) {
 						// 以为空闲实则已在跑：消息已入 kernel 队列，撤掉抢先的乐观气泡，
@@ -615,6 +619,48 @@ export function useSessionMessageSender({ bumpSuggestionToken }: SessionMessageS
 					sendResult = { status: "sent" };
 				}
 			} catch (err) {
+				// The IPC response may be lost after the Runtime has durably admitted the
+				// input. Reconcile the stable inputId before showing a retryable failure;
+				// never resend the command merely because this request transport failed.
+				try {
+					const receipt = await window.vetta.session.reconcileInput(session.runtimeId, clientInputId);
+					const reconciliation = classifyPromptDeliveryReconciliation(receipt);
+					if (reconciliation.kind !== "missing") {
+						if (optimisticUserMsgId) forgetOptimisticUserMessage(session.runtimeId, optimisticUserMsgId);
+						if (reconciliation.kind === "ambiguous") {
+							const message = i18n.t("codex:chatBackend.reconciliation.ambiguous", {
+								defaultValue:
+									"This submission has conflicting durable Turn records. It was not replayed; reopen the conversation and inspect its history.",
+							});
+							setChatMessages((prev) => appendError(prev, message));
+							setActiveSessionStreaming(false);
+							setRetryProgress(null);
+							return { status: "failed", error: { message } };
+						}
+						const history = await window.vetta.session.getFullHistory(session.runtimeId).catch(() => null);
+						if (history) setChatMessages(fullHistoryToChat(history));
+						const state = await window.vetta.session.getState(session.runtimeId).catch(() => null);
+						setActiveSessionStreaming(state?.isStreaming ?? reconciliation.kind === "running");
+						if (reconciliation.kind === "failed") {
+							setRetryProgress(null);
+							return { status: "failed", error: { message: reconciliation.message } };
+						}
+						if (reconciliation.kind === "cancelled") {
+							setRetryProgress(null);
+							const message = i18n.t("codex:chatBackend.reconciliation.cancelled", {
+								defaultValue: "This submission was already cancelled and was not replayed.",
+							});
+							if (!history) setChatMessages((prev) => appendError(prev, message));
+							return { status: "failed", error: { message } };
+						}
+						// active/completed/transferred are accepted durable work. Returning
+						// sent preserves the original user intent without starting another Turn.
+						return { status: "sent" };
+					}
+				} catch (reconcileError) {
+					console.warn("[useSessionManager.sendMessage] input reconciliation failed", reconcileError);
+				}
+
 				// RuntimeHost.prompt 现在会先把 prompt 期同步抛错（"No model
 				// selected" / "No API key found" / "Agent is already processing"
 				// 等）转换成 error 事件广播给所有订阅者，再把异常向上抛——所以

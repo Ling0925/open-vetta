@@ -41,8 +41,11 @@ Kernel 在真正执行前把 `inputId` 以 model-invisible、display=false 的
 都会 fail-closed，不能再次启动模型或工具。恢复出的队列若包含重复 identity 也会拒绝加载。
 
 当前策略是 **at-most-once admission，不是自动重放**：发现重复提交时要求调用方根据原会话的
-durable turn 状态进行核对，不会因为网络回执丢失而重新执行命令。后续可在这个事实源上增加
-“读取既有 terminal receipt”的显式 reconciliation API，再考虑 exactly-once 风格的用户体验。
+durable turn 状态进行核对，不会因为网络回执丢失而重新执行命令。RuntimeHost 与 Desktop 现在
+提供只读 `reconcileInput(inputId)`：返回 missing / active / completed / cancelled / failed /
+transferred / ambiguous。renderer 在 prompt IPC 抛错后先调用它；若原请求已被持久化接收，则恢复
+原历史/运行态并把这次发送视为既有工作，而不是生成第二个 Turn。只有返回 missing 才沿用原传输错误。
+ambiguous 一律 fail-closed，要求人工检查历史。
 
 目前形成的身份链为：
 `inputId → turnId → toolCallId → approval requestId`。其中 approval requestId 已绑定

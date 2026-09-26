@@ -101,6 +101,10 @@
 		"retry": "重新核对",
 		"sandbox": "Codex 工作区沙箱",
 		"sandboxHelp": "只允许工作区写入，额外权限逐项询问；不会继承 Native 的完全访问模式。",
+		"reconciliation": {
+			"ambiguous": "这条消息存在冲突的持久化回合记录。系统没有重复执行，请重新打开会话并检查历史。",
+			"cancelled": "这条消息已经被取消，系统没有重复执行。"
+		},
 		"errors": {
 			"DEFAULT": "切换未确认成功。已保留原会话和输入，请重新核对后端状态后再发送。",
 			"CODEX_NOT_INSTALLED": "此安装包未包含可验证的 Codex 程序，请使用带内置 Codex 的测试安装包。",
