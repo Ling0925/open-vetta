@@ -14,6 +14,7 @@ import type { ConversationDocument } from "../conversation/document.js";
 import type { ConversationMessageRecord } from "../conversation/message-contract.js";
 import { isSessionError, runtimeError } from "../errors.js";
 import type { RuntimeToolDefinition, SessionContextRecord } from "../kernel/contracts.js";
+import type { RuntimeInputReconciliation } from "../kernel/input-admission.js";
 import { isTurnPersistenceError } from "../kernel/errors.js";
 import type { SessionExtensionEndpointToken } from "../session-extensions/contracts.js";
 import type { RuntimeHostSessionDirectory } from "./runtime-host-session-directory.js";
@@ -362,6 +363,12 @@ export class RuntimeHostSessionOperations {
 	readRuntimeSessionState(sessionId: string): RuntimeSessionState {
 		const state = this.requireSession(sessionId).stateReader.readState();
 		return { ...state, activeToolNames: [...state.activeToolNames] };
+	}
+
+	reconcileInput(sessionId: string, inputId: string): Promise<RuntimeInputReconciliation> {
+		const view = this.requireSession(sessionId).inputReconciliationView;
+		if (!view) throw new Error("Session input reconciliation is unavailable");
+		return view.reconcileInput(inputId);
 	}
 
 	readSessionDocument(sessionId: string): ConversationDocument {

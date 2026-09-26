@@ -11,6 +11,7 @@ import {
 	isConversationDocumentEntryEvent,
 } from "../conversation/index.js";
 import { createRuntimeId } from "../id-generator.js";
+import { reconcileRuntimeInput, type RuntimeInputReconciliation } from "../kernel/input-admission.js";
 import type { AgentSession } from "../kernel/agent-session.js";
 import type {
 	AgentSessionState,
@@ -58,6 +59,7 @@ import type {
 	RuntimeSessionExecutionObservation,
 	RuntimeSessionExecutionObservationStream,
 	RuntimeSessionExtensionHost,
+	RuntimeSessionInputReconciliationView,
 	RuntimeSessionMetadataController,
 	RuntimeSessionQueueController,
 	RuntimeSessionQueueView,
@@ -120,6 +122,7 @@ export type RuntimeSessionCoreAssembly = Pick<
 	readonly queueView: RuntimeSessionQueueView;
 	readonly queueController: RuntimeSessionQueueController;
 	readonly contextUsageView: RuntimeSessionContextUsageView;
+	readonly inputReconciliationView: RuntimeSessionInputReconciliationView;
 	readonly executionObservationStream: RuntimeSessionExecutionObservationStream;
 	readonly extensionHost?: RuntimeSessionExtensionHost;
 	readonly contextController?: RuntimeSessionContextController;
@@ -140,6 +143,7 @@ export class RuntimeSession {
 	private readonly promptAdapter: RuntimePromptAdapter;
 	private readonly eventSink: RuntimeSessionEventSink;
 	private readonly modelRuntime: RuntimeModelRuntime;
+	private readonly repository: ConversationRepository;
 	private readonly stateSource: RuntimeStateSource;
 	private readonly conversationDocumentStore: ConversationDocumentStore;
 	private readonly projection: RuntimeSessionProjection;
@@ -165,6 +169,7 @@ export class RuntimeSession {
 		this.promptAdapter = assembly.promptAdapter;
 		this.eventSink = eventSink;
 		this.modelRuntime = assembly.modelRuntime;
+		this.repository = assembly.repository;
 		this.stateSource = assembly.stateSource;
 		this.conversationDocumentStore = assembly.conversationDocumentStore;
 		this.projection = projection;
@@ -383,6 +388,16 @@ export class RuntimeSession {
 		return this.projection.readHistory();
 	}
 
+	async reconcileInput(inputId: string): Promise<RuntimeInputReconciliation> {
+		this.assertOpen();
+		const normalized = inputId.trim();
+		if (!normalized || normalized.length > 256 || /[\x00-\x1f\x7f]/.test(normalized)) {
+			throw new Error("Invalid input identity");
+		}
+		const conversation = await this.repository.load(this.session.id);
+		return reconcileRuntimeInput(conversation, normalized, this.projection.readDocument());
+	}
+
 	async navigateForEdit(entryId: string): Promise<{ text: string; cancelled: boolean }> {
 		return this.withHistoryMutation("Cannot edit message while the session is streaming", async () => {
 			const entry = conversationDocumentEntry(this.projection.readDocument(), entryId);
@@ -591,6 +606,9 @@ export class RuntimeSession {
 			},
 			conversationController: {
 				appendMessage: (record) => this.appendConversationMessage(record),
+			},
+			inputReconciliationView: {
+				reconcileInput: (inputId) => this.reconcileInput(inputId),
 			},
 			queueView: queueController,
 			queueController,

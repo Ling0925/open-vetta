@@ -11,6 +11,7 @@ import type {
 import type { ConversationDocument } from "../conversation/document.js";
 import type { ConversationMessageRecord } from "../conversation/message-contract.js";
 import type { RuntimeToolDefinition, SessionContextRecord } from "../kernel/contracts.js";
+import type { RuntimeInputReconciliation } from "../kernel/input-admission.js";
 import type { SessionExtensionEndpointToken } from "../session-extensions/contracts.js";
 import type { RuntimeActiveSession } from "./active-session-host-contracts.js";
 import type { RuntimeHost } from "./runtime-host.js";
@@ -172,6 +173,10 @@ export class RuntimeHostSession implements RuntimeActiveSession {
 
 	replaceLastUserMessage(entryId: string): Promise<{ leafId: string | null }> {
 		return this.host.replaceLastUserMessage(this.sessionId, entryId);
+	}
+
+	reconcileInput(inputId: string): Promise<RuntimeInputReconciliation> {
+		return this.host.reconcileInput(this.sessionId, inputId);
 	}
 
 	readDocument(): ConversationDocument {

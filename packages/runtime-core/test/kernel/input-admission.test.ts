@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { StoredConversation } from "../../src/kernel/contracts.js";
-import { lookupRuntimeInputAdmission } from "../../src/kernel/input-admission.js";
+import { lookupRuntimeInputAdmission, reconcileRuntimeInput } from "../../src/kernel/input-admission.js";
 
 function conversation(events: StoredConversation["events"]): StoredConversation {
 	return { sessionId: "session", createdAt: 1, version: events.length, messages: [], events };
@@ -50,5 +50,56 @@ describe("runtime input admission lookup", () => {
 				"input-1",
 			),
 		).toEqual({ state: "ambiguous", inputId: "input-1", turnIds: ["turn-1", "turn-2"] });
+	});
+
+	it("reconciles a continued turn from a carried document identity and current terminal event", () => {
+		const current = conversation([
+			{
+				type: "turn.completed",
+				sessionId: "session",
+				turnId: "turn-1",
+				stopReason: "stop",
+				timestamp: 5,
+			},
+		]);
+		const receipt = reconcileRuntimeInput(current, "input-1", {
+			entries: [
+				{
+					id: "carried",
+					parentId: null,
+					timestamp: new Date(1).toISOString(),
+					type: "custom_message",
+					customType: "runtime.input.identity",
+					content: "",
+					details: { inputId: "input-1", turnId: "turn-1" },
+					display: false,
+					modelVisible: false,
+				},
+			],
+		});
+		expect(receipt).toEqual({
+			status: "completed",
+			inputId: "input-1",
+			turnId: "turn-1",
+			stopReason: "stop",
+			timestamp: 5,
+		});
+	});
+
+	it("fails closed on conflicting terminal records", () => {
+		const receipt = reconcileRuntimeInput(
+			conversation([
+				identity("turn-1", "input-1"),
+				{ type: "turn.completed", sessionId: "session", turnId: "turn-1", stopReason: "stop", timestamp: 2 },
+				{ type: "turn.cancelled", sessionId: "session", turnId: "turn-1", reason: "late", timestamp: 3 },
+			]),
+			"input-1",
+		);
+		expect(receipt).toEqual({
+			status: "ambiguous",
+			inputId: "input-1",
+			turnIds: ["turn-1"],
+			reason: "multiple_terminal_records",
+		});
 	});
 });

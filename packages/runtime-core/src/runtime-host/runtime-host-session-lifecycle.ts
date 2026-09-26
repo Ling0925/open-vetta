@@ -155,6 +155,7 @@ export class RuntimeHostSessionLifecycle {
 			contextUsageView: assembly.contextUsageView,
 			conversationView: assembly.conversationView,
 			conversationController: assembly.conversationController,
+			inputReconciliationView: assembly.inputReconciliationView,
 			executionObservationStream: assembly.executionObservationStream,
 			toolController: assembly.toolController,
 			...assembly.corePorts,

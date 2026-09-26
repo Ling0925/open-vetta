@@ -14,6 +14,7 @@ import type {
 import type { ConversationDocument } from "../conversation/document.js";
 import type { ConversationMessageRecord } from "../conversation/message-contract.js";
 import type { RuntimeToolDefinition, SessionContextRecord } from "../kernel/contracts.js";
+import type { RuntimeInputReconciliation } from "../kernel/input-admission.js";
 import type { RuntimeExecutionObservationEvent } from "../runtime-execution-observation.js";
 import type { SessionExtensionEndpointHost } from "../session-extensions/contracts.js";
 import type { RuntimeSessionObservationEvent } from "../session-observation.js";
@@ -164,6 +165,11 @@ export interface RuntimeSessionConversationView {
 /** Append-only writer for externally authored, ordinary Conversation messages. */
 export interface RuntimeSessionConversationController {
 	appendMessage(record: ConversationMessageRecord): Promise<{ readonly entryId: string }>;
+}
+
+/** Durable input admission/terminal reconciliation for retry-safe clients. */
+export interface RuntimeSessionInputReconciliationView {
+	reconcileInput(inputId: string): Promise<RuntimeInputReconciliation>;
 }
 
 /** 尚未消费的用户输入数量；与具体队列实现解耦。 */

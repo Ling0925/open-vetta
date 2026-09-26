@@ -70,6 +70,7 @@ export {
 	type RuntimeContextUsage,
 	RuntimeContextUsageTracker,
 	type RuntimeContextUsageTrackerOptions,
+	type RuntimeInputReconciliation,
 } from "./kernel/index.js";
 export * from "./observation/index.js";
 export * from "./retry/index.js";
@@ -199,6 +200,7 @@ export type {
 	RuntimeSessionIdentity,
 	RuntimeSessionIdentityLifecycle,
 	RuntimeSessionInputQueueMode,
+	RuntimeSessionInputReconciliationView,
 	RuntimeSessionMarkerIndex,
 	RuntimeSessionMetadataController,
 	RuntimeSessionModelController,

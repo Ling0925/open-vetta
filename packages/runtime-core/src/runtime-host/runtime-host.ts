@@ -20,6 +20,7 @@ import type { ConversationDocument } from "../conversation/document.js";
 import type { ConversationMessageRecord } from "../conversation/message-contract.js";
 import { runtimeError } from "../errors.js";
 import type { RuntimeToolDefinition, SessionContextRecord } from "../kernel/contracts.js";
+import type { RuntimeInputReconciliation } from "../kernel/input-admission.js";
 import {
 	createRuntimeObservationPublisher,
 	type RuntimeObservationContext,
@@ -453,6 +454,10 @@ export class RuntimeHost implements SessionFacade {
 
 	readRuntimeSessionState(sessionId: string): RuntimeSessionState {
 		return this.sessionOperations.readRuntimeSessionState(sessionId);
+	}
+
+	reconcileInput(sessionId: string, inputId: string): Promise<RuntimeInputReconciliation> {
+		return this.sessionOperations.reconcileInput(sessionId, inputId);
 	}
 
 	readSessionDocument(sessionId: string): ConversationDocument {

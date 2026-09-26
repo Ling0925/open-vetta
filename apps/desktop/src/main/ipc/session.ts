@@ -160,6 +160,7 @@ const CHANNELS = {
 	LIST_SESSIONS: "vetta:session:list-sessions",
 	SESSIONS_CHANGED: "vetta:session:sessions-changed",
 	PROMPT: "vetta:session:prompt",
+	RECONCILE_INPUT: "vetta:session:reconcile-input",
 	CONTINUE: "vetta:session:continue",
 	ABORT: "vetta:session:abort",
 	QUEUE_STATE: "vetta:session:queue-state",
@@ -1012,6 +1013,13 @@ export function registerSessionIpc(webContents: WebContents): () => void {
 			...summarizeAgentPluginRuntimeConfig(pluginAgentContributionService.buildRuntimeConfig()),
 		});
 		return conversationService.promptInteractiveSession(sessionId, req, sessionCwdMap.get(sessionId));
+	});
+
+	ipcMain.handle(CHANNELS.RECONCILE_INPUT, async (_event, sessionId: unknown, inputId: unknown) => {
+		assertNonEmptyString(sessionId, "sessionId");
+		assertNonEmptyString(inputId, "inputId");
+		if (inputId.length > 256 || /[\x00-\x1f\x7f]/.test(inputId)) throw new Error("Invalid inputId");
+		return runtime.reconcileInput(sessionId, inputId);
 	});
 
 	ipcMain.handle(CHANNELS.CONTINUE, async (_event, sessionId: unknown) => {

@@ -182,6 +182,7 @@ export type {
 	RuntimeSessionHistoryReader,
 	RuntimeSessionIdentityLifecycle,
 	RuntimeSessionInputQueueMode,
+	RuntimeSessionInputReconciliationView,
 	RuntimeSessionMetadataController,
 	RuntimeSessionModelController,
 	RuntimeSessionModelView,

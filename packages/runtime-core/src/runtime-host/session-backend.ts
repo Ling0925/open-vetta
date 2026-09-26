@@ -13,6 +13,7 @@ import type {
 	RuntimeSessionHistoryController,
 	RuntimeSessionHistoryReader,
 	RuntimeSessionIdentityLifecycle,
+	RuntimeSessionInputReconciliationView,
 	RuntimeSessionMetadataController,
 	RuntimeSessionModelController,
 	RuntimeSessionModelView,
@@ -65,6 +66,7 @@ export interface RuntimeHostSessionAssembly {
 	readonly contextUsageView?: RuntimeSessionContextUsageView;
 	readonly conversationView?: RuntimeSessionConversationView;
 	readonly conversationController?: RuntimeSessionConversationController;
+	readonly inputReconciliationView?: RuntimeSessionInputReconciliationView;
 	readonly executionObservationStream?: RuntimeSessionExecutionObservationStream;
 	readonly toolController?: RuntimeSessionToolController;
 	/** 可选能力（ADR-0060）：缺失时 RuntimeHost 相应功能静默降级，不做 no-op 伪造。 */

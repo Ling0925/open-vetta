@@ -242,7 +242,11 @@ export class TurnPipeline {
 			await this.enterStage(state.sessionId, turnId, "admission");
 			signal.throwIfAborted();
 			if (inputId) {
-				const previous = lookupRuntimeInputAdmission(await this.repository.load(state.sessionId), inputId);
+				const previous = lookupRuntimeInputAdmission(
+					await this.repository.load(state.sessionId),
+					inputId,
+					await this.conversationDocumentReader?.readDocument(state.sessionId),
+				);
 				if (previous.state === "ambiguous") {
 					throw inputAlreadyAdmittedError();
 				}
@@ -317,7 +321,7 @@ export class TurnPipeline {
 						content: "",
 						modelVisible: false,
 						display: false,
-						metadata: { inputId },
+						metadata: { inputId, turnId },
 					},
 					timestamp: startedAt,
 				});

@@ -22,6 +22,7 @@ import type {
 	RuntimeSessionHistoryController,
 	RuntimeSessionHistoryReader,
 	RuntimeSessionIdentityLifecycle,
+	RuntimeSessionInputReconciliationView,
 	RuntimeSessionMetadataController,
 	RuntimeSessionModelController,
 	RuntimeSessionModelView,
@@ -55,6 +56,7 @@ export interface RuntimeHostSessionRecord {
 	contextUsageView: RuntimeSessionContextUsageView | undefined;
 	conversationView: RuntimeSessionConversationView | undefined;
 	conversationController: RuntimeSessionConversationController | undefined;
+	inputReconciliationView: RuntimeSessionInputReconciliationView | undefined;
 	executionObservationStream: RuntimeSessionExecutionObservationStream | undefined;
 	toolController: RuntimeSessionToolController | undefined;
 	modelController: RuntimeSessionModelController;
