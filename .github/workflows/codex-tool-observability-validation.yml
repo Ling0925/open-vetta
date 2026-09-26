@@ -33,6 +33,7 @@ jobs:
           src/renderer/domains/conversation/components/blocks/tool-views/shared/parse-tool.row.test.ts
           src/renderer/domains/conversation/components/blocks/tool-views/BashTerminalCard.partial-output.test.tsx
           src/renderer/domains/conversation/components/blocks/ToolCallBlock.label.test.tsx
+          src/main/conversations/codex-approval-presentation.test.ts
           --reporter=default --reporter=junit --outputFile=codex-tool-observability-junit.xml
       - uses: actions/upload-artifact@v4
         if: always()

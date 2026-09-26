@@ -22,6 +22,7 @@ import { isSshProjectUri } from "@vetta/ssh-transport/project-uri";
 import { prepareManagedCodexHome, readBundledCodexDefaults } from "../codex-workspace/bundled-runtime.js";
 import { createDesktopCodexModelSource } from "../codex-workspace/model-source-host.js";
 import { mainT } from "../i18n/index.js";
+import { codexApprovalPresentation } from "./codex-approval-presentation.js";
 import { assertOrdinaryConversationPath } from "./conversation-ownership-guard.js";
 import { RuntimeBackendError } from "./runtime-backend-choice.js";
 import { ConversationRuntimeBackendSelection } from "./runtime-backend-selection.js";
@@ -80,19 +81,49 @@ async function validateConversation(assembly: RuntimeHostSessionAssembly) {
 	return { cwd: canonical, root, defaults };
 }
 
+function approvalSummary(cwd: string, request: ServerRequest, details: string): {
+	message: string;
+	toolName: string;
+	target: string;
+} {
+	const presentation = codexApprovalPresentation(request, cwd);
+	const lines = [mainT("codex:chatApprovalScope")];
+	if (presentation.kind === "command") {
+		lines.push("", `${mainT("codex:chatApprovalCommand")}: ${presentation.command ?? mainT("codex:chatApprovalUnknown")}`);
+		if (presentation.cwd) lines.push(`${mainT("codex:chatApprovalWorkspace")}: ${presentation.cwd}`);
+	} else if (presentation.kind === "file-change") {
+		lines.push("", `${mainT("codex:chatApprovalFiles")}:`);
+		if (presentation.paths.length === 0) lines.push(mainT("codex:chatApprovalUnknown"));
+		else {
+			for (const path of presentation.paths.slice(0, 8)) lines.push(`• ${path}`);
+			if (presentation.paths.length > 8) {
+				lines.push(mainT("codex:chatApprovalMoreFiles", { count: presentation.paths.length - 8 }));
+			}
+		}
+		if (presentation.cwd) lines.push(`${mainT("codex:chatApprovalWorkspace")}: ${presentation.cwd}`);
+	}
+	lines.push("", mainT("codex:chatApprovalRaw"), details);
+	return {
+		message: lines.join("\n"),
+		toolName: presentation.toolName,
+		target: presentation.paths[0] ?? presentation.cwd ?? cwd,
+	};
+}
+
 async function approve(sessionId: string, cwd: string, request: ServerRequest) {
 	const details = JSON.stringify(request.params, null, 2);
 	if (request.signal.aborted || Buffer.byteLength(details) > 65536) return "decline" as const;
+	const summary = approvalSummary(cwd, request, details);
 	const decision = await getDesktopSandboxAuthorizationBroker().handle(
 		{
 			requestId: randomUUID(),
 			sessionId,
 			title: mainT("codex:chatApprovalTitle"),
-			message: `${mainT("codex:chatApprovalScope")}\n\n${details}`,
-			toolName: `codex.${request.method}`,
+			message: summary.message,
+			toolName: summary.toolName,
 			capability: "file.write",
-			target: cwd,
-			resolvedTarget: cwd,
+			target: summary.target,
+			resolvedTarget: summary.target,
 			// The existing permission drawer intentionally omits a session-wide grant for sensitive requests.
 			sensitive: true,
 		},

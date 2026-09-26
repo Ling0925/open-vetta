@@ -86,6 +86,12 @@
 	"useBundledRuntime": "使用内置 Codex 和独立历史目录",
 	"chatApprovalTitle": "Codex 请求本次操作许可",
 	"chatApprovalScope": "以下为本次操作的完整请求。仅批准本次；停止任务后请求失效。",
+	"chatApprovalCommand": "命令",
+	"chatApprovalWorkspace": "工作目录",
+	"chatApprovalFiles": "文件",
+	"chatApprovalRaw": "完整请求",
+	"chatApprovalUnknown": "未提供",
+	"chatApprovalMoreFiles": "另有 {{count}} 个文件",
 	"chatBackend": {
 		"label": "运行后端",
 		"help": "只切换后续执行，保留当前会话记录。Codex 使用已有 Responses 模型；目前支持本地文本任务，Native 插件、附件和计划模式暂不可用。",

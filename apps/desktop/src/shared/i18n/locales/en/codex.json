@@ -86,6 +86,12 @@
 	"useBundledRuntime": "Use bundled Codex and separate history directory",
 	"chatApprovalTitle": "Codex requests permission for this operation",
 	"chatApprovalScope": "The complete operation request is shown below. Approval applies once and expires when the task is stopped.",
+	"chatApprovalCommand": "Command",
+	"chatApprovalWorkspace": "Working directory",
+	"chatApprovalFiles": "Files",
+	"chatApprovalRaw": "Full request",
+	"chatApprovalUnknown": "Not provided",
+	"chatApprovalMoreFiles": "{{count}} more file(s)",
 	"chatBackend": {
 		"label": "Runtime backend",
 		"help": "Switch subsequent execution without leaving this conversation. Codex reuses the configured Responses model. Local text tasks are supported; Native plugins, attachments and plan mode are not available.",
