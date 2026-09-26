@@ -121,7 +121,12 @@ export class RuntimeHostSession implements RuntimeActiveSession {
 		return this.host.retry(this.sessionId);
 	}
 
-	abort(expectedTurnId?: string): Promise<RuntimeTurnAbortOutcome> {
+	abort(_reason?: string): Promise<void> {
+		return this.host.abort(this.sessionId).then(() => undefined);
+	}
+
+	/** Identity-bound stop for callers that need stale-turn protection. */
+	abortExpectedTurn(expectedTurnId?: string): Promise<RuntimeTurnAbortOutcome> {
 		return this.host.abort(this.sessionId, expectedTurnId);
 	}
 

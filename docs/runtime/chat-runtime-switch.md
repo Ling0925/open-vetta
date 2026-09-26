@@ -76,7 +76,8 @@ Codex 固定使用工作区写入沙箱，额外访问通过现有权限抽屉�
 Runtime state 现在同时暴露 `currentTurnId`。Desktop 的 Stop 会先读取该身份，再以
 `expectedTurnId` 提交 abort；若用户点击与主进程处理之间已经开始了新的 Turn，返回 stale 并且
 **不会**中止新 Turn，也不会清理新 Turn 的后台任务。旧调用方不提供 expectedTurnId 时仍保留兼容的
-无条件 stop 语义。Turn 尚在 admission、还未持久化 turn.started 的极短窗口可能拿不到 identity，
+无条件 stop 语义；scoped RuntimeHostSession 也继续保留原来的 `abort(reason?)` 合同，另提供
+`abortExpectedTurn(expectedTurnId)` 给需要身份保护的调用方。Turn 尚在 admission、还未持久化 turn.started 的极短窗口可能拿不到 identity，
 此时 renderer 不猜测一个 Turn ID。
 停止不回滚已完成的外部操作，不保证远端计算立即终止。
 

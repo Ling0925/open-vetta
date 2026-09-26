@@ -534,7 +534,7 @@ export interface SessionFacade {
 	): Promise<RuntimeTurnPromptOutcome>;
 	queuePromptIfRunning(sessionId: string, request: PromptRequest): Promise<RuntimeQueuePromptIfRunningOutcome>;
 	continue(sessionId: string): Promise<void>;
-	abort(sessionId: string, expectedTurnId?: string): Promise<RuntimeTurnAbortOutcome>;
+	abort(sessionId: string, expectedTurnId?: string): Promise<void | RuntimeTurnAbortOutcome>;
 	invokeSessionExtension<Input, Output>(
 		sessionId: string,
 		token: SessionExtensionEndpointToken<Input, Output>,
