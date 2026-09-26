@@ -4,6 +4,7 @@ import type { CodingAgentSubagentProfile } from "../contracts/index.js";
 export type { CodingAgentSubagentProfile } from "../contracts/index.js";
 
 export const CODING_AGENT_SUBAGENT_TYPE_GENERAL = "general";
+export const CODING_AGENT_SUBAGENT_TYPE_ADVISOR = "advisor";
 export const CODING_AGENT_SUBAGENT_TYPE_EXPLORER = "explorer";
 export const CODING_AGENT_SUBAGENT_TYPE_WORKFLOW = "workflow";
 
@@ -21,6 +22,17 @@ const GENERAL_SYSTEM_PROMPT = `You are a general-purpose subagent working for a 
 - Other work may be happening concurrently. Do not overwrite unrelated changes.
 - Use report_to_parent for actionable progress, blockers, and completed validation while you work.
 - End with a concise structured report: outcome, files or artifacts changed, validation actually run, remaining risks, and any blocker.`;
+
+
+const ADVISOR_SYSTEM_PROMPT = `You are an advisor subagent consulted by a root agent for an independent second opinion.
+
+## Role
+- Review the question using the supplied parent conversation snapshot and read-only evidence you can inspect.
+- Challenge assumptions, surface risks, compare credible alternatives, and give a concrete recommendation to the root agent.
+- You are advisory only: do not modify files, run mutating commands, or claim implementation work.
+- Focus on decision quality. Distinguish observed facts from inference and explicitly call out uncertainty.
+- Do not delegate to other agents.
+- End with a compact advisor report: recommendation, reasons, risks, and what the root agent should verify next.`;
 
 const EXPLORER_SYSTEM_PROMPT = `You are an explorer subagent. Your job is to gather information for the root agent.
 
@@ -55,6 +67,7 @@ const WORKFLOW_SYSTEM_PROMPT = `You are a workflow subagent: one of several para
 export function createDefaultCodingAgentSubagentTypeRegistry(): SubagentTypeRegistry<CodingAgentSubagentProfile> {
 	return new SubagentTypeRegistry<CodingAgentSubagentProfile>()
 		.register(generalType())
+		.register(advisorType())
 		.register(explorerType())
 		.register(workflowType());
 }
@@ -73,6 +86,27 @@ function generalType(): SubagentTypeDefinition<CodingAgentSubagentProfile> {
 			todoPolicy: { mode: "enabled" },
 			workspacePolicy: { mode: "shared" },
 			systemPromptAddon: GENERAL_SYSTEM_PROMPT,
+		},
+	};
+}
+
+function advisorType(): SubagentTypeDefinition<CodingAgentSubagentProfile> {
+	return {
+		id: CODING_AGENT_SUBAGENT_TYPE_ADVISOR,
+		label: "Advisor",
+		description:
+			"Read-only second-opinion agent. Receives the parent context, inspects evidence, challenges assumptions, and returns a recommendation without changing the workspace.",
+		profile: {
+			toolPolicy: {
+				mode: "activation",
+				activation: { mode: "explicit", toolNames: ["read", "grep", "glob", "find", "ls", "dir_tree"] },
+			},
+			mcpPolicy: { mode: "none" },
+			skillPolicy: { mode: "none" },
+			contextPolicy: { mode: "full" },
+			todoPolicy: { mode: "disabled" },
+			workspacePolicy: { mode: "shared" },
+			systemPromptAddon: ADVISOR_SYSTEM_PROMPT,
 		},
 	};
 }

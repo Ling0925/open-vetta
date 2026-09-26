@@ -5,6 +5,7 @@ import {
 	CODING_AGENT_SUBAGENT_MODEL_TOOL_ORDER_STEP,
 } from "../../tool-policy/model-tool-order.js";
 import {
+	createAskAdvisorToolRegistration,
 	createDispatchWorkflowsToolRegistration,
 	createFollowupTaskToolRegistration,
 	createInterruptAgentToolRegistration,
@@ -24,6 +25,11 @@ export function createCodingAgentSubagentRuntimeToolRegistrations(
 		CODING_AGENT_MODEL_TOOL_ORDER.subagentStart + index * CODING_AGENT_SUBAGENT_MODEL_TOOL_ORDER_STEP;
 	return [
 		createSpawnAgentToolRegistration({ getCoordinator, modelOrder: order(0) }),
+		createAskAdvisorToolRegistration({
+			getCoordinator,
+			advisorTypeId: "advisor",
+			modelOrder: CODING_AGENT_MODEL_TOOL_ORDER.subagentStart + 50,
+		}),
 		createDispatchWorkflowsToolRegistration({ getWorkflowDispatcher, workflowTypeId, modelOrder: order(1) }),
 		createWaitAgentToolRegistration({ getCoordinator, workflowTypeId, modelOrder: order(2) }),
 		createListAgentsToolRegistration({ getCoordinator, modelOrder: order(3) }),

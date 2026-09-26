@@ -7,6 +7,7 @@ import type {
 } from "@vetta/runtime-subagents";
 import { describe, expect, it, vi } from "vitest";
 import {
+	createAskAdvisorToolRegistration,
 	createDispatchWorkflowsToolRegistration,
 	createFollowupTaskToolRegistration,
 	createInterruptAgentToolRegistration,
@@ -24,12 +25,13 @@ import type {
 } from "../../src/runtime-contracts/index.js";
 
 describe("subagent control runtime tools", () => {
-	it("preserves the seven tool names, scopes, categories, schemas and stable order", () => {
+	it("preserves the control tool names, scopes, categories, schemas and stable order", () => {
 		const fixture = createCoordinatorFixture();
 		const registrations = createRegistrations(fixture.port, fixture.dispatchWorkflows);
 
 		expect(registrations.map(({ tool }) => tool.name)).toEqual([
 			"spawn_agent",
+			"ask_advisor",
 			"dispatch_workflows",
 			"wait_agent",
 			"list_agents",
@@ -38,7 +40,7 @@ describe("subagent control runtime tools", () => {
 			"followup_task",
 		]);
 		expect(registrations.map(({ tool }) => tool.label)).toEqual(registrations.map(({ tool }) => tool.name));
-		expect(registrations.map(({ modelOrder }) => modelOrder)).toEqual([2500, 2600, 2700, 2800, 2900, 3000, 3100]);
+		expect(registrations.map(({ modelOrder }) => modelOrder)).toEqual([2500, 2550, 2600, 2700, 2800, 2900, 3000, 3100]);
 		for (const registration of registrations) {
 			expect(registration.scopeUse).toEqual(["conversation", "project", "cli"]);
 			expect(registration.category).toBe("agent-control");
@@ -46,10 +48,13 @@ describe("subagent control runtime tools", () => {
 			expect(registration.tool.inputSchema).toMatchObject({ type: "object" });
 			expect(registration.tool.modelOrder).toBe(registration.modelOrder);
 		}
-		expect(registrations[1].tool.inputSchema).toMatchObject({
+		expect(registrations[2].tool.inputSchema).toMatchObject({
 			properties: {
 				workflows: { minItems: 1, maxItems: DISPATCH_WORKFLOWS_MAX_BATCH },
 			},
+		});
+		expect(registrations[1].tool.inputSchema).toMatchObject({
+			properties: { question: { type: "string" } },
 		});
 		expect(registrations[0].tool.inputSchema).toMatchObject({
 			properties: { task: { type: "object" }, message: { type: "string" } },
@@ -72,7 +77,9 @@ describe("subagent control runtime tools", () => {
 
 	it("spawns and dispatches through the coordinator port without changing results", async () => {
 		const fixture = createCoordinatorFixture();
-		const [spawn, dispatch] = createRegistrations(fixture.port, fixture.dispatchWorkflows);
+		const registrations = createRegistrations(fixture.port, fixture.dispatchWorkflows);
+		const spawn = registrations[0];
+		const dispatch = registrations[2];
 		const task = detailedTask("Inspect the runtime contracts.");
 
 		const spawnResult = await execute(spawn.tool, {
@@ -134,33 +141,61 @@ describe("subagent control runtime tools", () => {
 		]);
 	});
 
+	it("uses one read-only advisor child and joins its terminal recommendation in the same tool call", async () => {
+		const fixture = createCoordinatorFixture();
+		const advisor = createRegistrations(fixture.port, fixture.dispatchWorkflows)[1];
+		fixture.waitResult = {
+			timedOut: false,
+			agents: [{ ...snapshot("advisor_1", "advisor", "completed"), finalText: "Prefer option B; it preserves the public contract." }],
+		};
+
+		const result = await execute(advisor.tool, {
+			question: "Should we keep the compatibility layer?",
+			focus: "risk and migration cost",
+		});
+
+		expect(fixture.spawn).toHaveBeenCalledWith(
+			expect.objectContaining({
+				taskName: "advisor_1",
+				agentType: "advisor",
+				originToolCallId: "tool-call-1",
+				deliveryMode: "terminal",
+			}),
+		);
+		expect(fixture.wait).toHaveBeenCalledWith({ targets: ["child-1"], timeoutMs: 90_000 });
+		expect(result.content[0]).toMatchObject({
+			type: "text",
+			text: expect.stringContaining("Prefer option B"),
+		});
+	});
+
 	it("lists, interrupts, messages and follows up through the coordinator port", async () => {
 		const fixture = createCoordinatorFixture();
 		const registrations = createRegistrations(fixture.port, fixture.dispatchWorkflows);
 		fixture.listed = [snapshot("inspect", "explorer", "running")];
 
-		const listResult = await execute(registrations[3].tool, {});
+		const listResult = await execute(registrations[4].tool, {});
 		expect(listResult.content).toEqual([
 			{
 				type: "text",
-				text: 'Registered types: explorer, workflow\nAgents:\n- /root/inspect id=child-1 type=explorer status=running task="task inspect"',
+				text: 'Registered types: advisor, explorer, workflow\nAgents:\n- /root/inspect id=child-1 type=explorer status=running task="task inspect"',
 			},
 		]);
 
-		const interruptResult = await execute(registrations[4].tool, { target: "inspect" });
+		const interruptResult = await execute(registrations[5].tool, { target: "inspect" });
 		expect(fixture.interrupt).toHaveBeenCalledWith("inspect");
 		expect(interruptResult.content).toEqual([
 			{ type: "text", text: "Subagent child-1 (/root/inspect) status=interrupted" },
 		]);
 
-		const messageResult = await execute(registrations[5].tool, {
+		const messageResult = await execute(registrations[6].tool, {
 			target: "inspect",
 			message: "focus on contracts",
 		});
 		expect(fixture.sendMessage).toHaveBeenCalledWith("inspect", "focus on contracts");
 		expect(messageResult.content).toEqual([{ type: "text", text: "Message queued for child-1 (/root/inspect)." }]);
 
-		const followupResult = await execute(registrations[6].tool, {
+		const followupResult = await execute(registrations[7].tool, {
 			target: "inspect",
 			message: "continue",
 		});
@@ -172,7 +207,7 @@ describe("subagent control runtime tools", () => {
 
 	it("caps workflow-only waits and preserves terminal result formatting", async () => {
 		const fixture = createCoordinatorFixture();
-		const wait = createRegistrations(fixture.port, fixture.dispatchWorkflows)[2];
+		const wait = createRegistrations(fixture.port, fixture.dispatchWorkflows)[3];
 		fixture.listed = [snapshot("flow", "workflow", "running")];
 		fixture.waitResult = { timedOut: true, agents: [] };
 
@@ -208,6 +243,7 @@ function createRegistrations(
 	const getCoordinator = () => port;
 	return [
 		createSpawnAgentToolRegistration({ getCoordinator, modelOrder: 2500 }),
+		createAskAdvisorToolRegistration({ getCoordinator, advisorTypeId: "advisor", modelOrder: 2550 }),
 		createDispatchWorkflowsToolRegistration({
 			getWorkflowDispatcher: () => ({ dispatchWorkflows }),
 			workflowTypeId: "workflow",
@@ -267,7 +303,7 @@ function createCoordinatorFixture() {
 			list: () => fixture.listed,
 			get: (target) => fixture.listed.find((entry) => entry.id === target || entry.taskName === target),
 			clearFinished: () => 0,
-			registeredTypeIds: () => ["explorer", "workflow"],
+			registeredTypeIds: () => ["advisor", "explorer", "workflow"],
 			spawn,
 			spawnMany,
 			sendMessage,

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { resolveCodingAgentSubagentProfile } from "../../src/composition/subagent/profile-policy.js";
 import {
+	CODING_AGENT_SUBAGENT_TYPE_ADVISOR,
 	CODING_AGENT_SUBAGENT_TYPE_EXPLORER,
 	CODING_AGENT_SUBAGENT_TYPE_GENERAL,
 	CODING_AGENT_SUBAGENT_TYPE_WORKFLOW,
@@ -13,10 +14,23 @@ describe("Coding Agent Subagent profile policy", () => {
 
 		expect(registry.list().map(({ id }) => id)).toEqual([
 			CODING_AGENT_SUBAGENT_TYPE_GENERAL,
+			CODING_AGENT_SUBAGENT_TYPE_ADVISOR,
 			CODING_AGENT_SUBAGENT_TYPE_EXPLORER,
 			CODING_AGENT_SUBAGENT_TYPE_WORKFLOW,
 		]);
 		const general = registry.get(CODING_AGENT_SUBAGENT_TYPE_GENERAL);
+		const advisor = registry.get(CODING_AGENT_SUBAGENT_TYPE_ADVISOR);
+		expect(advisor?.profile).toMatchObject({
+			toolPolicy: {
+				mode: "activation",
+				activation: { mode: "explicit", toolNames: ["read", "grep", "glob", "find", "ls", "dir_tree"] },
+			},
+			mcpPolicy: { mode: "none" },
+			skillPolicy: { mode: "none" },
+			contextPolicy: { mode: "full" },
+			todoPolicy: { mode: "disabled" },
+		});
+		expect(advisor?.profile.systemPromptAddon).toContain("independent second opinion");
 		expect(general?.profile).toMatchObject({
 			toolPolicy: { mode: "inherit" },
 			mcpPolicy: { mode: "inherit" },

@@ -35,6 +35,7 @@ import { createCodingAgentSubagentRuntimeToolRegistrations } from "./tool-regist
 
 export type { CodingAgentSubagentProfile } from "../contracts/index.js";
 export {
+	CODING_AGENT_SUBAGENT_TYPE_ADVISOR,
 	CODING_AGENT_SUBAGENT_TYPE_EXPLORER,
 	CODING_AGENT_SUBAGENT_TYPE_GENERAL,
 	CODING_AGENT_SUBAGENT_TYPE_WORKFLOW,

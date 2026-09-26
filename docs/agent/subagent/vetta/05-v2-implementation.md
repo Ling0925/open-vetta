@@ -38,6 +38,16 @@ packages/coding-agent/src/composition/subagent/
 
 `subagent_state_v1` 的快照 Schema 同步接受可选 `deliveryMode`/`batchId`。字段保持可选，因此旧记录继续可读；新记录在进程重启后能够恢复批次身份并回放到 Desktop。
 
+## A2A Advisor
+
+内置 `advisor` 是基于同一 SubagentCoordinator 的只读顾问类型，不引入第二套 Agent runtime。
+根 Agent 通过 `ask_advisor` 发起一次咨询：Advisor 继承当前父会话上下文，只开放 read/grep/glob/find/ls/dir_tree，
+禁用 MCP、Skill、Todo 与二次委派；它可以核对代码事实，但不能修改工作区。
+
+`ask_advisor` 默认同步等待 90 秒并通过现有 delivery claim 取得唯一终态结果，因此正常完成不会再额外产生一份
+重复的 subagent notification。超时不会杀掉 Advisor，也不会自动再派一个；原 child 转入后台，后续仍走现有通知与
+Subagent UI。这个设计把“第二意见”做成一种明确的 A2A 交互，而不是伪装成普通 workflow。
+
 ## UI 合同
 
 活动面板展示 Solar 状态图标与主题语义色、结构化 objective、Todo `done/total`、聚合 token/cost，以及权限、上下文、连接、执行四类错误。选择和状态变化使用 200ms 过渡；长内容使用换行、截断或限定高度滚动。旧事件不含 usage 时安全省略该指标。
