@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { ServerRequest } from "@vetta/runtime-node/codex-app-server";
 
 export interface CodexApprovalPresentation {
@@ -31,6 +32,18 @@ function readPaths(params: Readonly<Record<string, unknown>>): string[] {
 		if (paths.length > 0) return [...new Set(paths)];
 	}
 	return [];
+}
+
+export function codexApprovalRequestId(sessionId: string, request: Pick<ServerRequest, "id" | "method" | "params">): string {
+	const identity = {
+		sessionId,
+		rpcId: String(request.id),
+		method: request.method,
+		threadId: readString(request.params, ["threadId"]) ?? "",
+		turnId: readString(request.params, ["turnId"]) ?? "",
+		itemId: readString(request.params, ["itemId"]) ?? "",
+	};
+	return `codex:${createHash("sha256").update(JSON.stringify(identity)).digest("hex").slice(0, 32)}`;
 }
 
 /** Display-only projection for the existing permission drawer. The exact request

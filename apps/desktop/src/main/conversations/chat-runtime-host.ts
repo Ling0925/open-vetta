@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { realpath } from "node:fs/promises";
 import { isAbsolute, join, relative, sep } from "node:path";
 import { getVettaHomePath } from "@vetta/action-rpc";
@@ -22,7 +21,7 @@ import { isSshProjectUri } from "@vetta/ssh-transport/project-uri";
 import { prepareManagedCodexHome, readBundledCodexDefaults } from "../codex-workspace/bundled-runtime.js";
 import { createDesktopCodexModelSource } from "../codex-workspace/model-source-host.js";
 import { mainT } from "../i18n/index.js";
-import { codexApprovalPresentation } from "./codex-approval-presentation.js";
+import { codexApprovalPresentation, codexApprovalRequestId } from "./codex-approval-presentation.js";
 import { assertOrdinaryConversationPath } from "./conversation-ownership-guard.js";
 import { RuntimeBackendError } from "./runtime-backend-choice.js";
 import { ConversationRuntimeBackendSelection } from "./runtime-backend-selection.js";
@@ -85,6 +84,7 @@ function approvalSummary(cwd: string, request: ServerRequest, details: string): 
 	message: string;
 	toolName: string;
 	target: string;
+	command?: string;
 } {
 	const presentation = codexApprovalPresentation(request, cwd);
 	const lines = [mainT("codex:chatApprovalScope")];
@@ -107,6 +107,7 @@ function approvalSummary(cwd: string, request: ServerRequest, details: string): 
 		message: lines.join("\n"),
 		toolName: presentation.toolName,
 		target: presentation.paths[0] ?? presentation.cwd ?? cwd,
+		...(presentation.command ? { command: presentation.command } : {}),
 	};
 }
 
@@ -116,7 +117,7 @@ async function approve(sessionId: string, cwd: string, request: ServerRequest) {
 	const summary = approvalSummary(cwd, request, details);
 	const decision = await getDesktopSandboxAuthorizationBroker().handle(
 		{
-			requestId: randomUUID(),
+			requestId: codexApprovalRequestId(sessionId, request),
 			sessionId,
 			title: mainT("codex:chatApprovalTitle"),
 			message: summary.message,
@@ -124,6 +125,7 @@ async function approve(sessionId: string, cwd: string, request: ServerRequest) {
 			capability: "file.write",
 			target: summary.target,
 			resolvedTarget: summary.target,
+			...(summary.command ? { command: summary.command } : {}),
 			// The existing permission drawer intentionally omits a session-wide grant for sensitive requests.
 			sensitive: true,
 		},
