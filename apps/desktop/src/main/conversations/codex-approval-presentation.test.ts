@@ -30,6 +30,7 @@ describe("Codex approval presentation", () => {
 					params: {
 						changes: [{ path: "/repo/a.ts" }, { file_path: "/repo/b.ts" }, { path: "/repo/a.ts" }],
 					},
+				},
 				"/repo",
 			),
 			{
