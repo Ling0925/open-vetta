@@ -2,7 +2,7 @@ name: codex-preview-installers
 
 on:
   push:
-    branches: [feat/codex-install-preview, fix/codex-preview-installers, feat/chat-runtime-switch]
+    branches: [feat/codex-install-preview, fix/codex-preview-installers, feat/chat-runtime-switch, build/chat-runtime-install-310d93c]
   workflow_dispatch:
 
 permissions:
@@ -28,15 +28,19 @@ jobs:
       - run: node --test apps/desktop/scripts/stage-codex-runtime.node-test.mjs apps/desktop/scripts/prepare-codex-preview-ci.node-test.mjs
       - name: Build the existing Desktop workspace dependency surface
         run: bun run --cwd apps/desktop prepare:workspace
-      - name: Desktop setup, gateway, approval, cancellation and form contracts
+      - name: Targeted chat-runtime contracts for install-test builds
         run: >-
           bun scripts/quality/run-vitest.mjs --run --config apps/desktop/vitest.config.ts
-          src/main/codex-workspace src/main/ipc/codex-workspace.test.ts
-          src/preload/apis/codex-workspace.test.ts src/renderer/domains/codex-workspace
-          src/main/conversations src/main/agent-runtime src/renderer/domains/conversation src/renderer/root-layout
+          src/main/codex-workspace
+          src/main/ipc/codex-workspace.test.ts
+          src/preload/apis/codex-workspace.test.ts
+          src/main/conversations/runtime-backend-kernel.test.ts
+          src/main/conversations/runtime-backend-selection.test.ts
+          src/main/conversations/sandbox-authorization-broker.test.ts
+          src/renderer/domains/conversation/components/input-bar/RuntimeBackendSelector.test.tsx
+          src/renderer/domains/conversation/services/initial-runtime-backend.test.ts
 
-  # Keep full quality results visible. Install-test artifacts are not stable releases;
-  # existing full quality and real-binary validation workflows are not removed or weakened.
+  # Full quality stays visible but does not block install-test artifacts.
   quality:
     if: github.repository == 'Ling0925/open-vetta'
     runs-on: ubuntu-24.04
