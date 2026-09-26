@@ -29,6 +29,17 @@ Codex 执行完整的模型/工具循环，Native AgentCore 不再执行该轮�
 切换记录以 custom metadata `desktop.runtime-backend` 保存，不改变原会话文件格式或 session ID。
 校验请求中的 expectedSelectionId，损坏或新版本记录不能自动回退 Native。
 
+## Codex 工具可观察性
+
+原会话现在把 Codex `commandExecution` 映射到普通命令卡片：折叠行直接显示实际命令，
+展开后复用终端卡显示完整命令、流式/最终输出、工作目录、耗时以及可取得的 exit code。
+协议技术名不再作为主要标题。`fileChange` 会显示首个文件路径和文件数量，`mcpToolCall`
+会显示 MCP server 与 tool 名称。原始工具 item 仍保留在会话记录中，展示层只做投影，
+不改变 Codex 的执行、审批或历史事实源。
+
+这一切片同时推进 R2 的可观察性边界：稳定 toolCallId 继续作为合并键，终态不会被晚到 delta
+改回 running；展示增强不另建第二份工具状态，也不会因为 UI 识别失败重放命令。
+
 ## 审批、停止与限制
 
 Codex 固定使用工作区写入沙箱，额外访问通过现有权限抽屉逐项确认；不给会话级永久批准。
