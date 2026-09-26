@@ -178,6 +178,11 @@ export class CodingAgentSubagentRuntime
 		return this.todoProjection.project(this.coordinator.interrupt(target));
 	}
 
+	async followUp(target: string, message: string): Promise<CodingAgentSubagentSnapshot | undefined> {
+		if (!this.coordinator.get(target)) return undefined;
+		return this.todoProjection.project(await this.coordinator.followUp(target, message));
+	}
+
 	interruptAll(): readonly CodingAgentSubagentSnapshot[] {
 		return this.todoProjection.projectAll(this.coordinator.interruptAll());
 	}

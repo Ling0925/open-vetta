@@ -38,6 +38,13 @@ packages/coding-agent/src/composition/subagent/
 
 `subagent_state_v1` 的快照 Schema 同步接受可选 `deliveryMode`/`batchId`。字段保持可选，因此旧记录继续可读；新记录在进程重启后能够恢复批次身份并回放到 Desktop。
 
+## 用户直接跟进 Child
+
+Desktop 通过现有 Session Extension 新增 `subagents.follow-up` 控制面。用户可以从 Workflow/Subagent UI
+直接给指定 child 追加指令：运行中的 child 在自然停点接收 follow-up，已经终态的 child 则复用原 transcript
+原地恢复，不会重新创建一个“同名但没上下文”的任务。IPC 对文本做非空与 16 KiB 上限校验，仍由 child 自己的
+权限/工具策略执行，renderer 不能扩大能力。
+
 ## A2A Advisor
 
 内置 `advisor` 是基于同一 SubagentCoordinator 的只读顾问类型，不引入第二套 Agent runtime。

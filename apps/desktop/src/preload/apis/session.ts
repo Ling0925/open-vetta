@@ -68,6 +68,7 @@ const CHANNELS = {
 	BACKGROUND_TASKS_CLEAR_FINISHED: "vetta:session:background-tasks-clear-finished",
 	BACKGROUND_TASKS_KILL: "vetta:session:background-tasks-kill",
 	SUBAGENT_INTERRUPT: "vetta:session:subagent-interrupt",
+	SUBAGENT_FOLLOW_UP: "vetta:session:subagent-follow-up",
 	SET_GLOBAL_THINKING: "vetta:session:set-global-thinking-level",
 	GET_GLOBAL_THINKING: "vetta:session:get-global-thinking-level",
 	GET_PERSONAS: "vetta:session:get-personas",
@@ -160,6 +161,8 @@ export function createSessionApi(ipc: HostTransport): Pick<DesktopApi, "session"
 			clearFinishedBackgroundTasks: (sessionId) => ipc.invoke(CHANNELS.BACKGROUND_TASKS_CLEAR_FINISHED, sessionId),
 			killBackgroundTask: (sessionId, taskId) => ipc.invoke(CHANNELS.BACKGROUND_TASKS_KILL, sessionId, taskId),
 			interruptSubagent: (sessionId, target) => ipc.invoke(CHANNELS.SUBAGENT_INTERRUPT, sessionId, target),
+			followUpSubagent: (sessionId, target, message) =>
+				ipc.invoke(CHANNELS.SUBAGENT_FOLLOW_UP, sessionId, target, message),
 			getSessionPath: (sessionId) => ipc.invoke("vetta:session:get-session-path", sessionId),
 			updateSettings: (sessionId, partialSettings) =>
 				ipc.invoke(CHANNELS.UPDATE_SETTINGS, sessionId, partialSettings),

@@ -8,6 +8,7 @@ import {
 	CODING_AGENT_BACKGROUND_TASK_KILL,
 	CODING_AGENT_BACKGROUND_TASKS_CLEAR_FINISHED,
 	CODING_AGENT_BACKGROUND_TASKS_READ,
+	CODING_AGENT_SUBAGENT_FOLLOW_UP,
 	CODING_AGENT_SUBAGENT_INTERRUPT,
 	CODING_AGENT_SUBAGENTS_CLEAR_FINISHED,
 	CODING_AGENT_SUBAGENTS_READ,
@@ -54,6 +55,8 @@ describe("Coding Agent background work Session Extension", () => {
 			readTasks: () => [task],
 			readSubagents: () => [subagent],
 			interruptSubagent: (target) => (target === subagent.id ? subagent : undefined),
+			followUpSubagent: async (target, message) =>
+				target === subagent.id && message === "check edge cases" ? { ...subagent, generation: 2 } : undefined,
 			stopAllWork: () => 4,
 		};
 
@@ -70,6 +73,12 @@ describe("Coding Agent background work Session Extension", () => {
 		await expect(composition.invoke(CODING_AGENT_SUBAGENT_INTERRUPT, { target: subagent.id })).resolves.toEqual(
 			subagent,
 		);
+		await expect(
+			composition.invoke(CODING_AGENT_SUBAGENT_FOLLOW_UP, {
+				target: subagent.id,
+				message: "check edge cases",
+			}),
+		).resolves.toEqual({ ...subagent, generation: 2 });
 		await expect(composition.invoke(CODING_AGENT_WORK_STOP_ALL, undefined)).resolves.toBe(4);
 	});
 

@@ -27,6 +27,7 @@ import {
 	CODING_AGENT_PLAN_MODE_STATE_READ,
 	CODING_AGENT_SESSION_PROFILE_STATE_READ,
 	CODING_AGENT_SESSION_TITLE_GENERATE,
+	CODING_AGENT_SUBAGENT_FOLLOW_UP,
 	CODING_AGENT_SUBAGENT_INTERRUPT,
 	CODING_AGENT_SUBAGENTS_OBSERVATION,
 	CODING_AGENT_SUBAGENTS_READ,
@@ -233,6 +234,7 @@ const CHANNELS = {
 	BACKGROUND_TASKS_CLEAR_FINISHED: "vetta:session:background-tasks-clear-finished",
 	BACKGROUND_TASKS_KILL: "vetta:session:background-tasks-kill",
 	SUBAGENT_INTERRUPT: "vetta:session:subagent-interrupt",
+	SUBAGENT_FOLLOW_UP: "vetta:session:subagent-follow-up",
 	LIST_RUNNING: "vetta:session:list-running",
 	/** 有会话在跑的项目 cwd 列表；会话路径无法反推项目，见处理器上的说明。 */
 	LIST_RUNNING_CWDS: "vetta:session:list-running-cwds",
@@ -1578,6 +1580,21 @@ export function registerSessionIpc(webContents: WebContents): () => void {
 		const snap = await runtime.invokeSessionExtension(sessionId, CODING_AGENT_SUBAGENT_INTERRUPT, { target });
 		return snap != null;
 	});
+
+	ipcMain.handle(
+		CHANNELS.SUBAGENT_FOLLOW_UP,
+		async (_event, sessionId: unknown, target: unknown, message: unknown) => {
+			assertNonEmptyString(sessionId, "sessionId");
+			assertNonEmptyString(target, "target");
+			assertNonEmptyString(message, "message");
+			if (message.length > 16_384) throw new Error("Subagent follow-up is too long");
+			const snap = await runtime.invokeSessionExtension(sessionId, CODING_AGENT_SUBAGENT_FOLLOW_UP, {
+				target,
+				message,
+			});
+			return snap != null;
+		},
+	);
 
 	ipcMain.handle(CHANNELS.SUBSCRIBE, async (_event, sessionId: unknown) => {
 		assertNonEmptyString(sessionId, "sessionId");

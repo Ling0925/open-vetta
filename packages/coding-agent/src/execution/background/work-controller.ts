@@ -5,6 +5,7 @@ export interface CodingAgentSubagentWorkRuntime {
 	clearFinished(): number;
 	list(): readonly CodingAgentSubagentSnapshot[];
 	interrupt(target: string): CodingAgentSubagentSnapshot | undefined;
+	followUp(target: string, message: string): Promise<CodingAgentSubagentSnapshot | undefined>;
 	interruptAll(): readonly CodingAgentSubagentSnapshot[];
 }
 
@@ -16,6 +17,7 @@ export interface CodingAgentBackgroundWorkRuntime {
 	readTasks(): readonly BackgroundCommandSnapshot[];
 	readSubagents(): readonly CodingAgentSubagentSnapshot[];
 	interruptSubagent(target: string): CodingAgentSubagentSnapshot | undefined;
+	followUpSubagent(target: string, message: string): Promise<CodingAgentSubagentSnapshot | undefined>;
 	/** Unconditional stop: every live subagent and every running background command. */
 	stopAllWork(): number;
 }
@@ -53,6 +55,10 @@ export class CodingAgentBackgroundWorkController implements CodingAgentBackgroun
 
 	interruptSubagent(target: string): CodingAgentSubagentSnapshot | undefined {
 		return this.subagents?.interrupt(target);
+	}
+
+	followUpSubagent(target: string, message: string): Promise<CodingAgentSubagentSnapshot | undefined> {
+		return this.subagents?.followUp(target, message) ?? Promise.resolve(undefined);
 	}
 
 	stopAllWork(): number {

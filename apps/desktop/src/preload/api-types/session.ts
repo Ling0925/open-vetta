@@ -224,6 +224,8 @@ export interface DesktopSessionApi {
 	killBackgroundTask(sessionId: string, taskId: string): Promise<boolean>;
 	/** 中断运行中的子代理（explorer 等）。 */
 	interruptSubagent(sessionId: string, target: string): Promise<boolean>;
+	/** Send a follow-up directly to a child transcript; terminal children are resumed in place. */
+	followUpSubagent(sessionId: string, target: string, message: string): Promise<boolean>;
 	getSessionPath(sessionId: string): Promise<string | undefined>;
 	updateSettings(sessionId: string, partialSettings: SettingsPatch): Promise<void>;
 	setExecutionMode(sessionId: string, mode: SessionExecutionMode): Promise<void>;

@@ -9,6 +9,7 @@ import {
 	CODING_AGENT_BACKGROUND_TASKS_OBSERVATION,
 	CODING_AGENT_BACKGROUND_TASKS_READ,
 	CODING_AGENT_BACKGROUND_WORK_EXTENSION_ID,
+	CODING_AGENT_SUBAGENT_FOLLOW_UP,
 	CODING_AGENT_SUBAGENT_INTERRUPT,
 	CODING_AGENT_SUBAGENTS_CLEAR_FINISHED,
 	CODING_AGENT_SUBAGENTS_READ,
@@ -88,6 +89,11 @@ export function createCodingAgentBackgroundWorkSessionExtension(): SessionExtens
 						kind: "endpoint",
 						token: CODING_AGENT_SUBAGENT_INTERRUPT,
 						handle: ({ target }) => requireRuntime(runtime).interruptSubagent(target),
+					},
+					{
+						kind: "endpoint",
+						token: CODING_AGENT_SUBAGENT_FOLLOW_UP,
+						handle: ({ target, message }) => requireRuntime(runtime).followUpSubagent(target, message),
 					},
 					{
 						kind: "endpoint",

@@ -46,6 +46,21 @@ describe("createSessionApi trace propagation", () => {
 		expect(invoke).toHaveBeenNthCalledWith(3, "vetta:session:mcp-tasks-clear-finished", "session-1");
 	});
 
+	it("exposes direct subagent follow-up without routing through the root prompt", async () => {
+		const invoke = vi.fn(async () => true);
+		const ipc = transport(invoke);
+		const session = createSessionApi(ipc).session;
+
+		await session.followUpSubagent("session-1", "child-1", "Check the migration edge cases.");
+
+		expect(invoke).toHaveBeenCalledWith(
+			"vetta:session:subagent-follow-up",
+			"session-1",
+			"child-1",
+			"Check the migration edge cases.",
+		);
+	});
+
 	it("exposes queued context compaction without using the interrupting prompt path", async () => {
 		const invoke = vi.fn(async () => ({ status: "queued", id: "compact-1", pendingCount: 1 }));
 		const ipc = transport(invoke);

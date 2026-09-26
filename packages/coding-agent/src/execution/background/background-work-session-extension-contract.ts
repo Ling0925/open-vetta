@@ -44,6 +44,11 @@ export const CODING_AGENT_SUBAGENT_INTERRUPT = defineSessionExtensionEndpoint<
 	CodingAgentSubagentSnapshot | undefined
 >(CODING_AGENT_BACKGROUND_WORK_EXTENSION_ID, "subagents.interrupt");
 
+export const CODING_AGENT_SUBAGENT_FOLLOW_UP = defineSessionExtensionEndpoint<
+	{ readonly target: string; readonly message: string },
+	CodingAgentSubagentSnapshot | undefined
+>(CODING_AGENT_BACKGROUND_WORK_EXTENSION_ID, "subagents.follow-up");
+
 /** Stops every live subagent and running background command of one session. */
 export const CODING_AGENT_WORK_STOP_ALL = defineSessionExtensionEndpoint<void, number>(
 	CODING_AGENT_BACKGROUND_WORK_EXTENSION_ID,
