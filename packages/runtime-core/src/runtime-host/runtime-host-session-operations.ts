@@ -4,6 +4,7 @@ import type {
 	HistoryEntry,
 	PromptRequest,
 	RuntimeQueuePromptIfRunningOutcome,
+	RuntimeTurnAbortOutcome,
 	RuntimeTurnPromptOutcome,
 	SessionEvent,
 	SessionExecutionMode,
@@ -211,8 +212,20 @@ export class RuntimeHostSessionOperations {
 		await handle.turnControl.retry();
 	}
 
-	abort(sessionId: string): Promise<void> {
-		return this.requireSession(sessionId).turnControl.abort();
+	async abort(sessionId: string, expectedTurnId?: string): Promise<RuntimeTurnAbortOutcome> {
+		const handle = this.requireSession(sessionId);
+		const state = handle.stateReader.readState();
+		if (expectedTurnId && state.currentTurnId !== expectedTurnId) {
+			return {
+				status: "stale",
+				expectedTurnId,
+				...(state.currentTurnId ? { currentTurnId: state.currentTurnId } : {}),
+			};
+		}
+		if (!state.isStreaming) return { status: "idle" };
+		const turnId = state.currentTurnId;
+		await handle.turnControl.abort();
+		return { status: "aborted", ...(turnId ? { turnId } : {}) };
 	}
 
 	getQueueState(sessionId: string): RuntimeSessionQueueStateView {
@@ -347,6 +360,7 @@ export class RuntimeHostSessionOperations {
 			thinkingLevel: state.thinkingLevel,
 			executionMode: handle.executionMode,
 			isStreaming: state.isStreaming,
+			currentTurnId: state.currentTurnId,
 			currentTurnStartedAt: this.options.events.readCurrentTurnStartedAt(sessionKey),
 			messageCount: state.messageCount,
 			...(state.contextState ? { contextState: state.contextState } : {}),

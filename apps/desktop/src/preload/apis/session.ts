@@ -107,7 +107,7 @@ export function createSessionApi(ipc: HostTransport): Pick<DesktopApi, "session"
 			prompt: (sessionId, request, traceContext) => ipc.invoke(CHANNELS.PROMPT, sessionId, request, traceContext),
 			reconcileInput: (sessionId, inputId) => ipc.invoke(CHANNELS.RECONCILE_INPUT, sessionId, inputId),
 			continue: (sessionId) => ipc.invoke(CHANNELS.CONTINUE, sessionId),
-			abort: (sessionId) => ipc.invoke(CHANNELS.ABORT, sessionId),
+			abort: (sessionId, expectedTurnId) => ipc.invoke(CHANNELS.ABORT, sessionId, expectedTurnId),
 			getQueueState: (sessionId) => ipc.invoke(CHANNELS.QUEUE_STATE, sessionId),
 			queueContextCompaction: (sessionId) => ipc.invoke(CHANNELS.QUEUE_CONTEXT_COMPACTION, sessionId),
 			removeQueuedMessage: (sessionId, itemId) => ipc.invoke(CHANNELS.QUEUE_REMOVE, sessionId, itemId),

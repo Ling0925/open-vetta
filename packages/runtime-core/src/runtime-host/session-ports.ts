@@ -79,6 +79,7 @@ export type RuntimeSessionState = Pick<
 	| "model"
 	| "thinkingLevel"
 	| "isStreaming"
+	| "currentTurnId"
 	| "messageCount"
 	| "contextPercent"
 	| "contextTokens"

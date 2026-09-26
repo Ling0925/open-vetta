@@ -3,6 +3,7 @@ import type { Api, Message, Model } from "@vetta/ai";
 import type {
 	HistoryEntry,
 	PromptRequest,
+	RuntimeTurnAbortOutcome,
 	RuntimeTurnPromptOutcome,
 	SessionEvent,
 	SessionStateSnapshot,
@@ -120,8 +121,8 @@ export class RuntimeHostSession implements RuntimeActiveSession {
 		return this.host.retry(this.sessionId);
 	}
 
-	abort(_reason?: string): Promise<void> {
-		return this.host.abort(this.sessionId);
+	abort(expectedTurnId?: string): Promise<RuntimeTurnAbortOutcome> {
+		return this.host.abort(this.sessionId, expectedTurnId);
 	}
 
 	readState(): SessionStateSnapshot {

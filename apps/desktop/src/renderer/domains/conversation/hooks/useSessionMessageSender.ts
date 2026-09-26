@@ -95,6 +95,11 @@ function getProjects() {
 	return getDefaultStore().get(projectsAtom);
 }
 
+async function abortCurrentRuntimeTurn(runtimeId: string): Promise<void> {
+	const state = await window.vetta.session.getState(runtimeId);
+	await window.vetta.session.abort(runtimeId, state.currentTurnId);
+}
+
 export function useSessionMessageSender({ bumpSuggestionToken }: SessionMessageSenderOptions): SessionMessageSender {
 	const activeSession = useAtomValue(activeSessionAtom);
 	const [attachedImages, setAttachedImages] = useAtom(attachedImagesAtom);
@@ -315,7 +320,7 @@ export function useSessionMessageSender({ bumpSuggestionToken }: SessionMessageS
 							finish();
 							return;
 						}
-						void window.vetta.session.abort(session.runtimeId).catch((err) => {
+						void abortCurrentRuntimeTurn(session.runtimeId).catch((err) => {
 							console.error("[useSessionManager.sendMessage] abort before edit failed:", err);
 						});
 					});
@@ -711,7 +716,7 @@ export function useSessionMessageSender({ bumpSuggestionToken }: SessionMessageS
 
 	const abortMessage = useCallback(async () => {
 		if (!activeSession?.runtimeId) return;
-		await window.vetta.session.abort(activeSession.runtimeId);
+		await abortCurrentRuntimeTurn(activeSession.runtimeId);
 	}, [activeSession]);
 
 	// 立即发送某条排队消息（队列面板点击 / 拖拽后即时发）。ADR-0060：打断与续发在

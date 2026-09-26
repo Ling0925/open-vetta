@@ -16,6 +16,7 @@ import type {
 	RuntimeInputReconciliation,
 	RuntimeSandboxGrantInfo,
 	RuntimeSessionQueueStateView,
+	RuntimeTurnAbortOutcome,
 	RuntimeTurnPromptOutcome,
 	SessionConfig,
 	SessionEvent,
@@ -163,7 +164,7 @@ export interface DesktopSessionApi {
 	/** Resolve one stable input identity to its durable Turn state without replaying it. */
 	reconcileInput(sessionId: string, inputId: string): Promise<RuntimeInputReconciliation>;
 	continue(sessionId: string): Promise<void>;
-	abort(sessionId: string): Promise<void>;
+	abort(sessionId: string, expectedTurnId?: string): Promise<RuntimeTurnAbortOutcome>;
 	/** kernel 输入队列快照（ADR-0060）。 */
 	getQueueState(sessionId: string): Promise<RuntimeSessionQueueStateView>;
 	/** 在当前回复自然结束后压缩上下文；空闲时立即从队列执行。 */

@@ -1027,12 +1027,15 @@ export function registerSessionIpc(webContents: WebContents): () => void {
 		await runtime.continue(sessionId);
 	});
 
-	ipcMain.handle(CHANNELS.ABORT, async (_event, sessionId: unknown) => {
+	ipcMain.handle(CHANNELS.ABORT, async (_event, sessionId: unknown, expectedTurnId: unknown) => {
 		assertNonEmptyString(sessionId, "sessionId");
-		// Stopping is unconditional: the turn comes down together with the work it
-		// spawned. Subagents and background commands outlive the turn by design, so
-		// cancelling the turn alone would leave workflows running behind the button.
-		await Promise.allSettled([runtime.abort(sessionId), stopSessionBackgroundWork(runtime, sessionId)]);
+		if (expectedTurnId !== undefined) assertNonEmptyString(expectedTurnId, "expectedTurnId");
+		const outcome = await runtime.abort(sessionId, expectedTurnId as string | undefined);
+		if (outcome.status === "stale") return outcome;
+		// Background work belongs to the Turn the user intended to stop. A stale
+		// expectedTurnId must never kill work spawned by a newer Turn.
+		await Promise.allSettled([stopSessionBackgroundWork(runtime, sessionId)]);
+		return outcome;
 	});
 
 	// 输入队列管理（ADR-0060）：薄桥接，能力全部在 RuntimeHost。

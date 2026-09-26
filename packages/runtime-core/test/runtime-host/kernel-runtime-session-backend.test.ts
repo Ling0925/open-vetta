@@ -1270,6 +1270,19 @@ describe("KernelRuntimeSessionBackend", () => {
 		expect(contextController.readState().isCompacting).toBe(false);
 	});
 
+	it("exposes the active turn identity and clears it after terminal persistence", async () => {
+		const engine = new BlockingTurnEngine();
+		const { backend } = createBackend(engine);
+		const session = await backend.create({ id: "session-1" });
+		const active = session.prompt({ text: "first" });
+		await engine.started;
+
+		expect(session.readState()).toMatchObject({ isStreaming: true, currentTurnId: "turn-1" });
+		await session.abort("stop");
+		await expect(active).resolves.toMatchObject({ status: "cancelled", turnId: "turn-1" });
+		expect(session.readState()).toMatchObject({ isStreaming: false, currentTurnId: undefined });
+	});
+
 	it("queues explicit concurrent input and retains it after abort", async () => {
 		const engine = new BlockingTurnEngine();
 		const promptAdapter = new RecordingPromptAdapter();

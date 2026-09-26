@@ -272,6 +272,15 @@ export type SessionEvent =
 	| QueueChangedEvent;
 
 /** prompt 的即时回执（ADR-0060）：排队时立即返回，宿主/UI 据此区分「已发出」与「已排队」。 */
+export type RuntimeTurnAbortOutcome =
+	| { readonly status: "aborted"; readonly turnId?: string }
+	| { readonly status: "idle" }
+	| {
+			readonly status: "stale";
+			readonly expectedTurnId: string;
+			readonly currentTurnId?: string;
+	  };
+
 export interface RuntimeTurnPromptOutcome {
 	readonly status: "completed" | "cancelled" | "failed" | "queued" | "handled";
 	/** Structured failure for a terminal failed turn. Kept on the prompt receipt so
@@ -318,6 +327,8 @@ export interface SessionStateSnapshot {
 	thinkingLevel: ThinkingLevel;
 	executionMode: SessionExecutionMode;
 	isStreaming: boolean;
+	/** Durable identity of the currently admitted Turn when known. */
+	currentTurnId?: string;
 	/** Timestamp (ms) for the current agent_start, if this session is streaming. */
 	currentTurnStartedAt?: number;
 	messageCount: number;
@@ -523,7 +534,7 @@ export interface SessionFacade {
 	): Promise<RuntimeTurnPromptOutcome>;
 	queuePromptIfRunning(sessionId: string, request: PromptRequest): Promise<RuntimeQueuePromptIfRunningOutcome>;
 	continue(sessionId: string): Promise<void>;
-	abort(sessionId: string): Promise<void>;
+	abort(sessionId: string, expectedTurnId?: string): Promise<RuntimeTurnAbortOutcome>;
 	invokeSessionExtension<Input, Output>(
 		sessionId: string,
 		token: SessionExtensionEndpointToken<Input, Output>,

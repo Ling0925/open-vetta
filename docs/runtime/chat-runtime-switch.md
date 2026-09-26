@@ -73,6 +73,11 @@ Codex 固定使用工作区写入沙箱，额外访问通过现有权限抽屉�
 保留 Native 原权限选择供切回使用，但不把 Native 完全访问模式复制给 Codex。
 权限请求结束/取消会移除原抽屉的陈旧请求；旧按钮回调不能作用于新的请求。
 停止与消费者退出取消所属执行，关闭须等待进程和网关清理。清理未确认时禁止再接任务或切换执行者。
+Runtime state 现在同时暴露 `currentTurnId`。Desktop 的 Stop 会先读取该身份，再以
+`expectedTurnId` 提交 abort；若用户点击与主进程处理之间已经开始了新的 Turn，返回 stale 并且
+**不会**中止新 Turn，也不会清理新 Turn 的后台任务。旧调用方不提供 expectedTurnId 时仍保留兼容的
+无条件 stop 语义。Turn 尚在 admission、还未持久化 turn.started 的极短窗口可能拿不到 identity，
+此时 renderer 不猜测一个 Turn ID。
 停止不回滚已完成的外部操作，不保证远端计算立即终止。
 
 当前支持本地普通会话的文本任务和 Codex 原生工具。远程项目、团队、独立 Agent 权限档案、Native 计划模式、

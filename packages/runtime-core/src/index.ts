@@ -17,6 +17,7 @@ export type {
 	RuntimeQueuePromptIfRunningOutcome,
 	RuntimeSandboxGrantInfo,
 	RuntimeSessionAgentSelection,
+	RuntimeTurnAbortOutcome,
 	RuntimeTurnPromptOutcome,
 	SessionConfig,
 	SessionError,

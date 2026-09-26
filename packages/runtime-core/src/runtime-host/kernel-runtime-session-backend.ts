@@ -372,6 +372,7 @@ export class RuntimeSession {
 			contextState: this.eventSink.readContextState(),
 			activeToolNames: [...dynamic.activeToolNames],
 			isStreaming: this.session.state === "running" || this.session.state === "cancelling",
+			currentTurnId: this.eventSink.readCurrentTurnId(),
 			messageCount: this.projection.readMessageCount(),
 			parentSessionPath: identity.parentSessionPath,
 			parentEntryId: identity.parentEntryId,
@@ -813,6 +814,7 @@ class RuntimeSessionEventSink implements EventSink {
 		(observation: RuntimeSessionExecutionObservation) => Promise<void> | void
 	>();
 	private readonly initializationEvents: SessionEvent[] = [];
+	private currentTurnId: string | undefined;
 	private documentParticipants: readonly RuntimeDocumentParticipant[] = [];
 	private documentMutationCoordinator: ConversationDocumentMutationCoordinator | undefined;
 	private identity: RuntimeSessionIdentity = {};
@@ -821,6 +823,14 @@ class RuntimeSessionEventSink implements EventSink {
 	private initializing = true;
 
 	async publish(event: KernelEvent): Promise<void> {
+		if (event.type === "turn.started" || event.type === "turn.continued") {
+			this.currentTurnId = event.turnId;
+		} else if (
+			(event.type === "turn.completed" || event.type === "turn.cancelled" || event.type === "turn.failed") &&
+			this.currentTurnId === event.turnId
+		) {
+			this.currentTurnId = undefined;
+		}
 		if (event.type === "execution.observation") {
 			await this.notifyExecutionObservationListeners({
 				turnId: event.turnId,
@@ -916,6 +926,10 @@ class RuntimeSessionEventSink implements EventSink {
 			});
 	}
 
+	readCurrentTurnId(): string | undefined {
+		return this.currentTurnId;
+	}
+
 	subscribeExecutionObservation(
 		handler: (observation: RuntimeSessionExecutionObservation) => Promise<void> | void,
 	): () => void {
@@ -956,6 +970,7 @@ class RuntimeSessionEventSink implements EventSink {
 		this.listeners.clear();
 		this.executionObservationListeners.clear();
 		this.initializationEvents.length = 0;
+		this.currentTurnId = undefined;
 		this.stateSource = undefined;
 		this.documentMutationCoordinator = undefined;
 	}

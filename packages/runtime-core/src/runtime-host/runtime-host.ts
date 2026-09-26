@@ -7,6 +7,7 @@ import type {
 	PromptRequest,
 	RuntimeQueuePromptIfRunningOutcome,
 	RuntimeSandboxGrantInfo,
+	RuntimeTurnAbortOutcome,
 	RuntimeTurnPromptOutcome,
 	SessionConfig,
 	SessionEvent,
@@ -318,8 +319,8 @@ export class RuntimeHost implements SessionFacade {
 		await this.sessionOperations.retry(sessionId);
 	}
 
-	async abort(sessionId: string): Promise<void> {
-		await this.sessionOperations.abort(sessionId);
+	async abort(sessionId: string, expectedTurnId?: string): Promise<RuntimeTurnAbortOutcome> {
+		return this.sessionOperations.abort(sessionId, expectedTurnId);
 	}
 
 	// ---- 输入队列管理（ADR-0060）。backend 不具备 queueController 时静默降级为空队列。 ----
