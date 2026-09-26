@@ -34,6 +34,36 @@ describe("ToolCallBlock Work-mode label", () => {
 });
 
 
+describe("Codex tool-call presentation", () => {
+	it("shows the actual Codex command on the collapsed row and terminal details when expanded", async () => {
+		const user = userEvent.setup();
+		const block: ToolCallBlock = {
+			type: "tool_call",
+			toolCallId: "codex-command-1",
+			toolName: "codex_commandExecution",
+			args: {
+				command: "ls ~/.vetta/desktop-app/*.json",
+				cwd: "/Users/blank",
+				exitCode: 1,
+			},
+			status: "error",
+			startedAt: 1,
+			durationMs: 57,
+			result: "zsh: no matches found",
+			isError: true,
+		};
+
+		render(<ToolCallBlockView block={block} />, { wrapper: Wrapper });
+		expect(screen.queryByText("codex_commandExecution")).toBeNull();
+		expect(screen.getByText("ls ~/.vetta/desktop-app/*.json")).toBeTruthy();
+
+		await user.click(screen.getByRole("button"));
+		expect(screen.getByTitle("/Users/blank")).toBeTruthy();
+		expect(screen.getByText("Exit 1")).toBeTruthy();
+		expect(screen.getByText("zsh: no matches found")).toBeTruthy();
+	});
+});
+
 describe("ToolCallBlock running command output", () => {
 	it("shows streamed output when a user opens an executing command", async () => {
 		const user = userEvent.setup();

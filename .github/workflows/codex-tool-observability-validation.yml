@@ -1,0 +1,61 @@
+name: codex-tool-observability-validation
+
+on:
+  push:
+    branches: [feat/codex-tool-observability]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: codex-tool-observability-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  targeted:
+    if: github.repository == 'Ling0925/open-vetta'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - uses: ./.github/actions/install-bun-dependencies
+      - name: Build Desktop workspace dependencies
+        run: bun run --cwd apps/desktop prepare:workspace
+      - name: Codex tool presentation contracts
+        run: >-
+          bun scripts/quality/run-vitest.mjs --run --config apps/desktop/vitest.config.ts
+          src/renderer/domains/conversation/components/blocks/tool-views/shared/parse-tool.row.test.ts
+          src/renderer/domains/conversation/components/blocks/tool-views/BashTerminalCard.partial-output.test.tsx
+          src/renderer/domains/conversation/components/blocks/ToolCallBlock.label.test.tsx
+          src/main/conversations/codex-approval-presentation.test.ts
+          --reporter=default --reporter=junit --outputFile=codex-tool-observability-junit.xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: codex-tool-observability-report
+          path: |
+            apps/desktop/codex-tool-observability-junit.xml
+            codex-tool-observability-junit.xml
+          if-no-files-found: ignore
+          retention-days: 7
+
+  quality:
+    if: github.repository == 'Ling0925/open-vetta'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - uses: ./.github/actions/install-bun-dependencies
+      - run: bun run check

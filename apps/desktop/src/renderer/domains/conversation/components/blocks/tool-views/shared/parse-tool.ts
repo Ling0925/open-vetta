@@ -31,10 +31,63 @@ export function parseMcpTool(name: string): { server: string; tool: string } | n
 	return match ? { server: match[1], tool: match[2] } : null;
 }
 
+const SHELL_TOOL_NAMES = new Set(["bash", "shell", "codex_commandExecution"]);
+
+function readCommandArg(args: Record<string, unknown>): string | null {
+	const command = args.command;
+	if (typeof command === "string") return command;
+	if (Array.isArray(command) && command.every((part) => typeof part === "string")) return command.join(" ");
+	return null;
+}
+
 export function getShellCommand(block: ToolCallBlock): string | null {
-	if (block.toolName !== "bash" && block.toolName !== "shell") return null;
-	const cmd = block.args.command;
-	return typeof cmd === "string" ? cmd : null;
+	if (!SHELL_TOOL_NAMES.has(block.toolName)) return null;
+	return readCommandArg(block.args);
+}
+
+export function getShellCwd(block: ToolCallBlock): string | null {
+	if (!SHELL_TOOL_NAMES.has(block.toolName)) return null;
+	const cwd = block.args.cwd;
+	return typeof cwd === "string" && cwd.trim().length > 0 ? cwd : null;
+}
+
+export function getShellExitCode(block: ToolCallBlock): number | null {
+	if (!SHELL_TOOL_NAMES.has(block.toolName)) return null;
+	const exitCode = block.args.exitCode;
+	return typeof exitCode === "number" && Number.isFinite(exitCode) ? exitCode : null;
+}
+
+function readString(args: Record<string, unknown>, keys: readonly string[]): string | null {
+	for (const key of keys) {
+		const value = args[key];
+		if (typeof value === "string" && value.trim()) return value.trim();
+	}
+	return null;
+}
+
+function readNestedString(value: unknown, keys: readonly string[]): string | null {
+	if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+	return readString(value as Record<string, unknown>, keys);
+}
+
+function codexFileChangePaths(args: Record<string, unknown>): string[] {
+	const direct = readString(args, ["file_path", "filePath", "path"]);
+	if (direct) return [direct];
+	for (const key of ["changes", "files", "edits"] as const) {
+		const value = args[key];
+		if (!Array.isArray(value)) continue;
+		const paths = value
+			.map((item) => readNestedString(item, ["file_path", "filePath", "path"]))
+			.filter((item): item is string => item !== null);
+		if (paths.length > 0) return [...new Set(paths)];
+	}
+	return [];
+}
+
+export function getCodexMcpInfo(args: Record<string, unknown>): { server: string | null; tool: string | null } {
+	const server = readString(args, ["server", "serverName", "server_name"]);
+	const tool = readString(args, ["tool", "toolName", "tool_name", "name"]);
+	return { server, tool };
 }
 
 export function getStringArg(args: Record<string, unknown>, key: string): string | null {
@@ -97,7 +150,12 @@ export function toolIcon(name: string): string {
 			return "icon-[mdi--file-replace-outline]";
 		case "bash":
 		case "shell":
+		case "codex_commandExecution":
 			return "icon-[mdi--console]";
+		case "codex_fileChange":
+			return "icon-[mdi--file-replace-outline]";
+		case "codex_mcpToolCall":
+			return "icon-[mdi--cloud-outline]";
 		case "ls":
 		case "find":
 		case "dir_tree":
@@ -141,7 +199,22 @@ export function toolLabel(block: ToolCallBlock, aliased = false): { name: string
 	let displayName = aliased ? toolAlias(name) : name;
 	let detail = "";
 
-	if (name === "read" || name === "write" || name === "edit") {
+	if (name === "codex_commandExecution") {
+		displayName = toolAlias("bash");
+		const command = readCommandArg(args);
+		if (command) detail = command.length > 120 ? command.slice(0, 117) + "..." : command;
+	} else if (name === "codex_fileChange") {
+		displayName = toolAlias("edit");
+		const paths = codexFileChangePaths(args);
+		if (paths.length > 0) {
+			detail = shortenPath(paths[0]);
+			if (paths.length > 1) detail += " +" + (paths.length - 1);
+		}
+	} else if (name === "codex_mcpToolCall") {
+		displayName = "MCP";
+		const mcp = getCodexMcpInfo(args);
+		detail = [mcp.server, mcp.tool].filter(Boolean).join(" · ");
+	} else if (name === "read" || name === "write" || name === "edit") {
 		const path = args.file_path ?? args.path;
 		if (typeof path === "string") detail = shortenPath(path);
 		if (name === "edit" && block.uiDetails?.firstChangedLine !== undefined) {

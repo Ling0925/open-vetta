@@ -101,6 +101,8 @@ function ToolCallContent({
 		return (
 			<BashTerminalCard
 				command={projection.shellCommand}
+				cwd={projection.shellCwd ?? undefined}
+				exitCode={projection.shellExitCode ?? undefined}
 				result={block.result}
 				partialResult={block.partialResult}
 				status={block.status}

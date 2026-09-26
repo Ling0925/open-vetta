@@ -13,7 +13,10 @@ import { selectAtom } from "jotai/utils";
 import { useId, useMemo, useState } from "react";
 import { formatDurationCompact } from "../components/blocks/tool-views/shared/format";
 import {
+	getCodexMcpInfo,
 	getShellCommand,
+	getShellCwd,
+	getShellExitCode,
 	getStringArg,
 	parseMcpTool,
 	toolCallDurationMs,
@@ -38,6 +41,7 @@ export function projectToolCallBlock(block: ToolCallBlock, exportMode = false) {
 		(block.toolName === "ask_user_question" && Array.isArray(block.args.questions)) ||
 		(block.toolName === "exit_plan_mode" && getStringArg(block.args, "plan") !== null);
 	const mcp = parseMcpTool(block.toolName);
+	const codexMcp = block.toolName === "codex_mcpToolCall" ? getCodexMcpInfo(block.args) : null;
 	const imagePreviews = block.imagePreviews ?? (block.imagePreview ? [block.imagePreview] : []);
 
 	return {
@@ -47,10 +51,12 @@ export function projectToolCallBlock(block: ToolCallBlock, exportMode = false) {
 		hasMeta,
 		icon: toolIcon(block.toolName),
 		iconColorClass: toolCallIconColorClass(block.status, block.isError),
-		mcpServer: mcp?.server,
+		mcpServer: mcp?.server ?? codexMcp?.server ?? undefined,
 		isPending: block.status === "pending",
 		currentPhase: block.currentPhase,
 		shellCommand: getShellCommand(block),
+		shellCwd: getShellCwd(block),
+		shellExitCode: getShellExitCode(block),
 		imagePreviews,
 		showImagePreview: imagePreviews.length > 0 && (block.toolName === "read" || mcp !== null),
 		audioPreviews: block.audioPreviews ?? [],

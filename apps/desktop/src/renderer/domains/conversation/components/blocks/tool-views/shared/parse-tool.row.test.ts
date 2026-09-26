@@ -2,7 +2,16 @@
 
 import type { ToolCallBlock } from "@shared/store/atoms";
 import { describe, expect, it } from "vitest";
-import { toolCallDurationMs, toolCallIconColorClass, toolLabel } from "./parse-tool";
+import {
+	getCodexMcpInfo,
+	getShellCommand,
+	getShellCwd,
+	getShellExitCode,
+	toolCallDurationMs,
+	toolCallIconColorClass,
+	toolIcon,
+	toolLabel,
+} from "./parse-tool";
 
 function block(toolName: string, args: Record<string, unknown>): ToolCallBlock {
 	return {
@@ -61,6 +70,43 @@ describe("toolLabel", () => {
 		expect(toolLabel(block("custom_tool", { description: "执行自定义操作" }))).toEqual({
 			name: "custom_tool",
 			detail: "执行自定义操作",
+		});
+	});
+
+	it("renders Codex command execution as a shell command with readable detail", () => {
+		const command = block("codex_commandExecution", {
+			command: "git status --short",
+			cwd: "/Users/blank/project",
+			exitCode: 0,
+		});
+		const label = toolLabel(command);
+		expect(label.name).not.toBe("codex_commandExecution");
+		expect(label.detail).toBe("git status --short");
+		expect(getShellCommand(command)).toBe("git status --short");
+		expect(getShellCwd(command)).toBe("/Users/blank/project");
+		expect(getShellExitCode(command)).toBe(0);
+		expect(toolIcon(command.toolName)).toBe("icon-[mdi--console]");
+	});
+
+	it("summarizes Codex file changes instead of exposing the protocol item name", () => {
+		const label = toolLabel(
+			block("codex_fileChange", {
+				changes: [{ path: "/repo/src/a.ts" }, { path: "/repo/src/b.ts" }],
+			}),
+		);
+		expect(label.name).not.toBe("codex_fileChange");
+		expect(label.detail).toContain("a.ts");
+		expect(label.detail).toContain("+1");
+	});
+
+	it("shows Codex MCP server and tool identity", () => {
+		expect(getCodexMcpInfo({ server: "github", tool: "search_code" })).toEqual({
+			server: "github",
+			tool: "search_code",
+		});
+		expect(toolLabel(block("codex_mcpToolCall", { server: "github", tool: "search_code" }))).toEqual({
+			name: "MCP",
+			detail: "github · search_code",
 		});
 	});
 

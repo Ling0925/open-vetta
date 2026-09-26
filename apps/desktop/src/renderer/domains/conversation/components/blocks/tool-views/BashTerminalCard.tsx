@@ -2,7 +2,7 @@ import {
 	BashTerminal,
 } from "@vetta-org/theme-ui/chat";
 import { useTranslation } from "react-i18next";
-import { formatPhases, formatStartedAt, formatDurationPrecise } from "./shared/format";
+import { formatDurationPrecise, formatPhases, formatStartedAt, shortenPath } from "./shared/format";
 import { bashHeaderLabel } from "./shared/parse-tool";
 import { CopyIconButton } from "./shared/CopyIconButton";
 
@@ -53,6 +53,8 @@ function BackgroundTaskTail({ task }: { task: BgTask }): JSX.Element {
 
 export function BashTerminalCard({
 	command,
+	cwd,
+	exitCode,
 	result,
 	partialResult,
 	status,
@@ -63,6 +65,8 @@ export function BashTerminalCard({
 	backgroundTask,
 }: {
 	command: string;
+	cwd?: string;
+	exitCode?: number;
 	result: string | undefined;
 	partialResult: string | undefined;
 	status: ToolStatus;
@@ -105,6 +109,17 @@ export function BashTerminalCard({
 				</BashTerminal.Header>
 				<BashTerminal.Command />
 				<BashTerminal.Result />
+				{cwd || exitCode !== undefined ? (
+					<div className="flex flex-wrap items-center gap-1.5 px-3 pb-2 text-[10px] text-muted-foreground/55">
+						{cwd ? (
+							<span className="max-w-full truncate font-mono" title={cwd}>
+								{shortenPath(cwd)}
+							</span>
+						) : null}
+						{cwd && exitCode !== undefined ? <span className="text-muted-foreground/30">·</span> : null}
+						{exitCode !== undefined ? <span className="tabular-nums">Exit {exitCode}</span> : null}
+					</div>
+				) : null}
 				{!pending && backgroundTask ? <BackgroundTaskTail task={backgroundTask} /> : null}
 				<BashTerminal.PendingStatus />
 				<BashTerminal.Meta />

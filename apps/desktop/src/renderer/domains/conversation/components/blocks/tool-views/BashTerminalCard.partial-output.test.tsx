@@ -26,4 +26,24 @@ describe("BashTerminalCard live output", () => {
 		expect(screen.getByText("latest command output")).toBeTruthy();
 		expect(screen.getByText("正在执行···")).toBeTruthy();
 	});
+
+	it("shows Codex working directory and exit code metadata", () => {
+		render(
+			<BashTerminalCard
+				command="git status --short"
+				cwd="/Users/blank/project"
+				exitCode={2}
+				partialResult={undefined}
+				result="fatal: fixture"
+				status="error"
+				isError
+				startedAt={1}
+				durationMs={18}
+				phases={undefined}
+			/>,
+		);
+
+		expect(screen.getByTitle("/Users/blank/project")).toBeTruthy();
+		expect(screen.getByText("Exit 2")).toBeTruthy();
+	});
 });
