@@ -25,6 +25,10 @@ const originalAtomState = {
 	activeSession: store.get(atoms.activeSessionAtom),
 	chatMessages: store.get(atoms.chatMessagesAtom),
 	pendingSessionOpen: store.get(atoms.pendingSessionOpenAtom),
+	activeInputActions: store.get(atoms.activeInputActionIdsAtom),
+	knowledgeRetrieval: store.get(atoms.knowledgeRetrievalActiveAtom),
+	sessionInputActions: store.get(atoms.sessionInputActionStateMapAtom),
+	sessionsMap: store.get(atoms.sessionsMapAtom),
 };
 
 function stubVettaWindow(): void {
@@ -60,6 +64,9 @@ describe("useChatViewModel 引用稳定性", () => {
 		] as never);
 		store.set(atoms.activeSessionAtom, makeActiveSession() as never);
 		store.set(atoms.pendingSessionOpenAtom, null);
+		store.set(atoms.activeInputActionIdsAtom, new Set());
+		store.set(atoms.knowledgeRetrievalActiveAtom, false);
+		store.set(atoms.sessionInputActionStateMapAtom, {});
 	});
 
 	afterEach(() => {
@@ -67,6 +74,10 @@ describe("useChatViewModel 引用稳定性", () => {
 		store.set(atoms.activeSessionAtom, originalAtomState.activeSession);
 		store.set(atoms.chatMessagesAtom, originalAtomState.chatMessages);
 		store.set(atoms.pendingSessionOpenAtom, originalAtomState.pendingSessionOpen);
+		store.set(atoms.activeInputActionIdsAtom, originalAtomState.activeInputActions);
+		store.set(atoms.knowledgeRetrievalActiveAtom, originalAtomState.knowledgeRetrieval);
+		store.set(atoms.sessionInputActionStateMapAtom, originalAtomState.sessionInputActions);
+		store.set(atoms.sessionsMapAtom, originalAtomState.sessionsMap);
 		if (originalVettaDescriptor) {
 			Object.defineProperty(window, "vetta", originalVettaDescriptor);
 		} else {
@@ -127,19 +138,46 @@ describe("useChatViewModel 引用稳定性", () => {
 		expect(result.current.model.header.exportDisabled).toBe(false);
 	});
 
-	it("打开已有会话时用目标路径稳定列表身份，并进入历史预览模式", () => {
+	it("打开已有会话时 pending target 直接接管展示身份和输入动作状态", () => {
+		store.set(
+			atoms.sessionsMapAtom,
+			new Map([
+				[
+					"/repo/b",
+					[
+						{
+							id: "b",
+							path: "/sessions/b.jsonl",
+							cwd: "/repo/b",
+							firstMessage: "Target session",
+							modifiedAt: 1,
+						},
+					],
+				],
+			]) as never,
+		);
+		store.set(atoms.activeInputActionIdsAtom, new Set(["action-a"]));
+		store.set(atoms.sessionInputActionStateMapAtom, {
+			"/sessions/a.jsonl": { actionIds: ["action-a"], knowledgeRetrieval: false },
+			"/sessions/b.jsonl": { actionIds: ["action-b"], knowledgeRetrieval: true },
+		});
 		const { result, rerender } = renderHook(() => useChatViewModel());
 
 		act(() => {
-			getDefaultStore().set(atoms.pendingSessionOpenAtom, {
+			store.set(atoms.pendingSessionOpenAtom, {
 				cwd: "/repo/b",
 				sessionPath: "/sessions/b.jsonl",
 				interactionId: "open-b",
 			});
-			getDefaultStore().set(atoms.activeSessionAtom, null);
+			store.set(atoms.activeSessionAtom, null);
 		});
 		rerender();
 
 		expect(result.current.model.sessionId).toBe("/sessions/b.jsonl");
+		expect(result.current.model.exportTitle).toBe("Target session");
+		expect([...store.get(atoms.activeInputActionIdsAtom)]).toEqual(["action-b"]);
+		expect(store.get(atoms.knowledgeRetrievalActiveAtom)).toBe(true);
+		// Runtime-only workspace identity remains unavailable until hydration completes.
+		expect(result.current.model.cwd).toBeNull();
 	});
 });

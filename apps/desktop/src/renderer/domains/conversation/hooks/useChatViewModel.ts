@@ -48,6 +48,10 @@ export function useChatViewModel(): ChatViewModelResult {
 	const activeSessionPath = useAtomValue(activeSessionPathAtom);
 	const activeSessionCwd = useAtomValue(activeSessionCwdAtom);
 	const pendingSessionOpen = useAtomValue(pendingSessionOpenAtom);
+	// Pending target owns presentation identity immediately; Runtime-bound capabilities
+	// continue to use activeSession until hydration is complete.
+	const presentationSessionPath = pendingSessionOpen?.sessionPath ?? activeSessionPath;
+	const presentationSessionCwd = pendingSessionOpen?.cwd ?? activeSessionCwd;
 	const messages = useAtomValue(chatMessagesAtom);
 	const isStreaming = useAtomValue(isConversationBusyAtom);
 	const [panelOpen, setPanelOpen] = useAtom(activityPanelOpenAtom);
@@ -66,7 +70,7 @@ export function useChatViewModel(): ChatViewModelResult {
 	const prevSessionPathRef = useRef<string | null | undefined>(undefined);
 
 	useEffect(() => {
-		const nextPath = activeSessionPath || null;
+		const nextPath = presentationSessionPath || null;
 		const prevPath = prevSessionPathRef.current;
 
 		if (prevPath === undefined) {
@@ -107,7 +111,7 @@ export function useChatViewModel(): ChatViewModelResult {
 		}
 
 		prevSessionPathRef.current = nextPath;
-	}, [activeSessionPath, setPromptAttachment]);
+	}, [presentationSessionPath, setPromptAttachment]);
 
 	const [pinned, setPinned] = useState(false);
 	const [exporting, setExporting] = useState(false);
@@ -142,13 +146,13 @@ export function useChatViewModel(): ChatViewModelResult {
 	}, [closeInlinePreview, inlinePreviewActive, setPanelOpen]);
 
 	const sessionTitle = useMemo(() => {
-		if (activeSessionPath === null && activeSessionCwd === null) return null;
+		if (presentationSessionPath === null && presentationSessionCwd === null) return null;
 		for (const list of sessionsMap.values()) {
-			const found = list.find((session) => session.path === activeSessionPath);
+			const found = list.find((session) => session.path === presentationSessionPath);
 			if (found) return sessionDisplayLabel(found);
 		}
-		return getProjectDisplayName(activeSessionCwd ?? "", defaultCwd);
-	}, [activeSessionPath, activeSessionCwd, defaultCwd, sessionsMap]);
+		return getProjectDisplayName(presentationSessionCwd ?? "", defaultCwd);
+	}, [presentationSessionPath, presentationSessionCwd, defaultCwd, sessionsMap]);
 
 	useEffect(() => {
 		setHeaderTitle(sessionTitle);
@@ -159,10 +163,10 @@ export function useChatViewModel(): ChatViewModelResult {
 	// 把远端会话当成本地会话误操作。徽标上直接写主机名——同时开着好几台远端时，只写「远程」
 	// 等于没说，而用户真正要确认的是「这条命令要跑在哪台机器上」。
 	const remoteLocation = useMemo(() => {
-		if (!activeSessionCwd) return null;
-		const location = parseProjectLocation(activeSessionCwd);
+		if (!presentationSessionCwd) return null;
+		const location = parseProjectLocation(presentationSessionCwd);
 		return location.kind === "ssh" ? location : null;
-	}, [activeSessionCwd]);
+	}, [presentationSessionCwd]);
 	const remoteHost = useSshHost(remoteLocation?.hostId);
 
 	useEffect(() => {
@@ -244,9 +248,9 @@ export function useChatViewModel(): ChatViewModelResult {
 			isStreaming,
 			messages,
 			rootClassName: surface?.rootClassName,
-			// pending path is the visual identity. It avoids old -> null -> target
-			// Virtuoso resets while Runtime-bound activeSession is intentionally absent.
-			sessionId: pendingSessionOpen?.sessionPath ?? activeSessionPath,
+			// Presentation identity changes immediately; Runtime-only surfaces still read cwd
+			// from activeSession and therefore do not initialize against a half-restored session.
+			sessionId: presentationSessionPath,
 		},
 	};
 }
