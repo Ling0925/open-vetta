@@ -1,12 +1,6 @@
 import type { Message } from "@vetta/ai";
 import type { RuntimeSessionObservationEvent } from "@vetta/runtime-core";
-import {
-	finalizeRuntimeModelCallMessages,
-	prepareRuntimeModelCallCheckpoint,
-	type TurnEngineEvent,
-	type TurnEnginePort,
-	type TurnEngineRequest,
-} from "@vetta/runtime-core/kernel";
+import type { TurnEngineEvent, TurnEnginePort, TurnEngineRequest } from "@vetta/runtime-core/kernel";
 import { codexConversationInput } from "./conversation-context.js";
 import type { CodexHostEvent } from "./host-contracts.js";
 import { CodexHostProjection } from "./host-projection.js";
@@ -68,47 +62,28 @@ export class CodexConversationTurnEngine implements TurnEnginePort {
 		request: TurnEngineRequest,
 		signal: AbortSignal,
 	): Promise<TurnEngineRequest> {
-		const checkpoint = request.contextPlane
-			? await request.contextPlane.prepareModelCall(
-					{
-						reason: "model_call",
-						messages: request.messages,
-						...(request.contextMessages ? { messageEnvelopes: request.contextMessages } : {}),
-						modelCallIndex: 0,
-						recoveryAttempt: 0,
-					},
-					signal,
-				)
-			: await prepareRuntimeModelCallCheckpoint({
-					sessionId: request.sessionId,
-					turnId: request.turnId,
-					snapshot: request.snapshot,
-					modelBinding: request.modelBinding,
-					checkpoint: request.checkpoint,
-					messages: request.messages,
-					...(request.contextMessages ? { messageEnvelopes: request.contextMessages } : {}),
-					reason: "model_call",
-					modelCallIndex: 0,
-					recoveryAttempt: 0,
-					signal,
-				});
+		if (!request.contextPlane) {
+			throw new CodexRuntimeError(
+				"CONTEXT_PLANE_REQUIRED",
+				"Codex execution requires the Turn-bound Vetta Context Plane",
+			);
+		}
+		const checkpoint = await request.contextPlane.prepareModelCall(
+			{
+				reason: "model_call",
+				messages: request.messages,
+				...(request.contextMessages ? { messageEnvelopes: request.contextMessages } : {}),
+				modelCallIndex: 0,
+				recoveryAttempt: 0,
+			},
+			signal,
+		);
 		const contextMessages = checkpoint?.contextMessageEnvelopes ?? request.contextMessages;
-		const messages = request.contextPlane
-			? (checkpoint?.messages ?? request.messages)
-			: await finalizeRuntimeModelCallMessages({
-					sessionId: request.sessionId,
-					turnId: request.turnId,
-					snapshot: request.snapshot,
-					modelBinding: request.modelBinding,
-					messages: checkpoint?.messages ?? request.messages,
-					signal,
-				});
-
 		return {
 			...request,
 			// A compaction continuation may have rebound the dynamic session identity.
 			sessionId: request.sessionId,
-			messages,
+			messages: checkpoint?.messages ?? request.messages,
 			...(contextMessages ? { contextMessages } : {}),
 			signal,
 		};

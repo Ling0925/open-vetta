@@ -31,6 +31,12 @@ function request(signal = new AbortController().signal): TurnEngineRequest {
 		},
 		messages: [user("Earlier context"), message],
 		input: { message },
+		contextPlane: {
+			prepareModelCall: async (input) => ({
+				messages: input.messages,
+				...(input.messageEnvelopes ? { contextMessageEnvelopes: input.messageEnvelopes } : {}),
+			}),
+		},
 		signal,
 	};
 }
@@ -122,7 +128,7 @@ describe("Codex in the original conversation pipeline", () => {
 			await f.connection.session.close();
 		}
 	});
-	it("uses Vetta transform, checkpoint/compaction and finalization before entering the Codex loop", async () => {
+	it("consumes exactly the Vetta-prepared Context Plane result before entering the Codex loop", async () => {
 		const f = await fixture();
 		const current = user("Current request");
 		const order: string[] = [];
@@ -130,40 +136,22 @@ describe("Codex in the original conversation pipeline", () => {
 			...request(),
 			messages: [user("large old history"), current],
 			input: { message: current },
-			modelBinding: { model: {} as never },
-			snapshot: {
-				...request().snapshot,
-				modelCallContextTransformer: {
-					transform: async (input) => {
-						order.push("transform");
-						assert.deepEqual(input.messages.map((message) => message.content), [
-							"large old history",
-							"Current request",
-						]);
-						return [user("transformed history"), current];
-					},
+			contextPlane: {
+				prepareModelCall: async (input) => {
+					order.push("context-plane");
+					assert.equal(input.reason, "model_call");
+					assert.equal(input.modelCallIndex, 0);
+					assert.deepEqual(input.messages.map((message) => message.content), [
+						"large old history",
+						"Current request",
+					]);
+					return { messages: [user("compacted summary"), current, user("final Vetta context")] };
 				},
-				modelCallMessageFinalizer: {
-					finalize: async (input) => {
-						order.push("finalize");
-						return [...input.messages, user("final Vetta context")];
-					},
-				},
-			},
-			checkpoint: async (checkpoint) => {
-				order.push("checkpoint");
-				assert.equal(checkpoint.reason, "model_call");
-				assert.equal(checkpoint.modelCallIndex, 0);
-				assert.deepEqual(checkpoint.messages.map((message) => message.content), [
-					"transformed history",
-					"Current request",
-				]);
-				return { messages: [user("compacted summary"), current] };
 			},
 		};
 		try {
 			await collect(new CodexConversationTurnEngine(async () => f.connection), value);
-			assert.deepEqual(order, ["transform", "checkpoint", "finalize"]);
+			assert.deepEqual(order, ["context-plane"]);
 			const context = JSON.parse(f.input().split("\n\n").at(-1)!);
 			assert.deepEqual(
 				context.conversation.map((message: { content: unknown }) => message.content),
@@ -171,6 +159,20 @@ describe("Codex in the original conversation pipeline", () => {
 			);
 			assert.equal(context.currentRequestIndex, 1);
 			assert.equal(f.transport.requests("turn/start").length, 1);
+		} finally {
+			await f.connection.session.close();
+		}
+	});
+
+	it("fails closed before connecting when the Turn-bound Context Plane is missing", async () => {
+		const f = await fixture();
+		const value = { ...request(), contextPlane: undefined };
+		try {
+			await assert.rejects(collect(new CodexConversationTurnEngine(async () => f.connection), value), {
+				code: "CONTEXT_PLANE_REQUIRED",
+			});
+			assert.equal(f.transport.requests("turn/start").length, 0);
+			assert.equal(f.closed(), 0);
 		} finally {
 			await f.connection.session.close();
 		}
