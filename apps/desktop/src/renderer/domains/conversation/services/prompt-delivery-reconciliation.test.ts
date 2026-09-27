@@ -34,6 +34,17 @@ describe("prompt delivery reconciliation", () => {
 		).toEqual({ kind: "completed", turnId: "turn-1" });
 	});
 
+	it("preserves queue persistence ambiguity so the UI can explain the actual failure", () => {
+		expect(
+			classifyPromptDeliveryReconciliation({
+				status: "ambiguous",
+				inputId: "input",
+				turnIds: [],
+				reason: "queue_persistence_failed",
+			}),
+		).toEqual({ kind: "ambiguous", turnIds: [], reason: "queue_persistence_failed" });
+	});
+
 	it("keeps failed, cancelled and ambiguous durable states non-replayable", () => {
 		expect(
 			classifyPromptDeliveryReconciliation({

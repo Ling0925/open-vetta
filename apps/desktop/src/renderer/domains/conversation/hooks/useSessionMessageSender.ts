@@ -641,10 +641,16 @@ export function useSessionMessageSender({ bumpSuggestionToken }: SessionMessageS
 							return { status: "queued", queueItemId: reconciliation.queueItemId };
 						}
 						if (reconciliation.kind === "ambiguous") {
-							const message = i18n.t("codex:chatBackend.reconciliation.ambiguous", {
-								defaultValue:
-									"This submission has conflicting durable Turn records. It was not replayed; reopen the conversation and inspect its history.",
-							});
+							const message =
+								reconciliation.reason === "queue_persistence_failed"
+									? i18n.t("codex:chatBackend.reconciliation.queuePersistenceFailed", {
+											defaultValue:
+												"This submission reached the Runtime queue, but its queue snapshot could not be confirmed on disk. It was not replayed automatically; keep this conversation open or reopen it before deciding whether to send it again.",
+										})
+									: i18n.t("codex:chatBackend.reconciliation.ambiguous", {
+											defaultValue:
+												"This submission has conflicting durable Turn records. It was not replayed; reopen the conversation and inspect its history.",
+										});
 							setChatMessages((prev) => appendError(prev, message));
 							setActiveSessionStreaming(false);
 							setRetryProgress(null);

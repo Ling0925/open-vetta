@@ -9,7 +9,11 @@ export type PromptDeliveryReconciliation =
 	| { readonly kind: "failed"; readonly turnId: string; readonly message: string }
 	| { readonly kind: "cancelled"; readonly turnId: string }
 	| { readonly kind: "transferred"; readonly turnId: string; readonly targetSessionId: string }
-	| { readonly kind: "ambiguous"; readonly turnIds: readonly string[] };
+	| {
+			readonly kind: "ambiguous";
+			readonly turnIds: readonly string[];
+			readonly reason: Extract<RuntimeInputReconciliation, { status: "ambiguous" }>["reason"];
+	  };
 
 export function classifyPromptDeliveryReconciliation(
 	receipt: RuntimeInputReconciliation,
@@ -32,6 +36,6 @@ export function classifyPromptDeliveryReconciliation(
 		case "transferred":
 			return { kind: "transferred", turnId: receipt.turnId, targetSessionId: receipt.targetSessionId };
 		case "ambiguous":
-			return { kind: "ambiguous", turnIds: receipt.turnIds };
+			return { kind: "ambiguous", turnIds: receipt.turnIds, reason: receipt.reason };
 	}
 }
