@@ -778,6 +778,86 @@ it("离开正在恢复的会话时取消 open，并释放随后迟到的 Runtime
 	expect(store.get(activeSessionAtom)).toBeNull();
 });
 
+it("被新会话替代的迟到创建失败不会清空当前会话", { timeout: 10_000 }, async () => {
+	const { activeSessionAtom, chatMessagesAtom, pendingSessionOpenAtom } = await import("@shared/store/atoms");
+	const { useSessionManager } = await import("./useSessionManager");
+	const store = getDefaultStore();
+	let rejectFirst!: (error: Error) => void;
+	const firstCreate = new Promise<never>((_resolve, reject) => {
+		rejectFirst = reject;
+	});
+	const sessionApi = {
+		autoTitle: vi.fn(),
+		create: vi.fn((config: { sessionPath?: string }) =>
+			config.sessionPath === firstSessionPath
+				? firstCreate
+				: Promise.resolve({ cwd, sessionId: "runtime-second", sessionPath: secondSessionPath }),
+		),
+		getFullHistory: vi.fn(async () => userHistory("second history", "second-user")),
+		getQueueState: vi.fn(async () => ({ paused: false, entries: [] })),
+		getSessionPath: vi.fn(async () => secondSessionPath),
+		getState: vi.fn(async () => ({
+			activeToolNames: [],
+			contextPercent: null,
+			contextWindow: 128_000,
+			executionMode: "full-access" as const,
+			isStreaming: false,
+			messageCount: 1,
+			model: null,
+			scenario: "project" as const,
+		})),
+		openViewer: vi.fn(async (sessionPath: string) => ({
+			history: userHistory(sessionPath === secondSessionPath ? "second history" : "first preview", "preview-user"),
+		})),
+		prompt: vi.fn(),
+		subscribe: vi.fn(async () => vi.fn()),
+		updateSettings: vi.fn(async () => undefined),
+	};
+	Object.defineProperty(window, "vetta", {
+		configurable: true,
+		value: {
+			batchTasks: { resumeTaskWithText: vi.fn() },
+			config: { get: vi.fn() },
+			dialog: { persistImages: vi.fn() },
+			session: sessionApi,
+		},
+	});
+	store.set(activeSessionAtom, null);
+	store.set(chatMessagesAtom, []);
+
+	function Probe() {
+		manager = useSessionManager();
+		return null;
+	}
+	await act(async () => {
+		root = createRoot(container as HTMLDivElement);
+		root.render(createElement(Probe));
+	});
+
+	let firstOpening: Promise<void> | undefined;
+	await act(async () => {
+		firstOpening = manager?.openSession(cwd, firstSessionPath, undefined, { interactionId: "open-first-stale" });
+		await Promise.resolve();
+	});
+	await act(async () => {
+		await manager?.openSession(cwd, secondSessionPath, undefined, { interactionId: "open-second-current" });
+	});
+	expect(store.get(activeSessionAtom)?.runtimeId).toBe("runtime-second");
+	expect(store.get(pendingSessionOpenAtom)).toBeNull();
+
+	await act(async () => {
+		rejectFirst(new Error("late stale failure"));
+		await firstOpening;
+		await Promise.resolve();
+	});
+	expect(store.get(activeSessionAtom)?.runtimeId).toBe("runtime-second");
+	expect(visibleTexts(store.get(chatMessagesAtom))).not.toContain("late stale failure");
+	expect(mocks.perfSessionSwitchMark).toHaveBeenCalledWith(
+		"session-create-failed-superseded",
+		"open-first-stale",
+	);
+});
+
 it("已有会话创建失败时退出加载态并保留可诊断错误", { timeout: 10_000 }, async () => {
 	const { activeSessionAtom, chatMessagesAtom, pendingSessionOpenAtom } = await import("@shared/store/atoms");
 	const { useSessionManager } = await import("./useSessionManager");
