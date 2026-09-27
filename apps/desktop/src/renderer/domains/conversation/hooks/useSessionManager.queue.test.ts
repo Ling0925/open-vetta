@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
 	loadSessions: vi.fn(async () => undefined),
 	navigate: vi.fn(async () => undefined),
 	prompt: vi.fn(async (): Promise<unknown> => ({ status: "completed" })),
+	resumeTaskWithText: vi.fn(async () => undefined),
 }));
 
 vi.mock("@tanstack/react-router", () => ({
@@ -104,7 +105,7 @@ beforeEach(() => {
 	Object.defineProperty(window, "vetta", {
 		configurable: true,
 		value: {
-			batchTasks: { resumeTaskWithText: vi.fn() },
+			batchTasks: { resumeTaskWithText: mocks.resumeTaskWithText },
 			config: { get: vi.fn(async () => ({})) },
 			dialog: { persistImages: vi.fn(async () => []) },
 			session: {
@@ -153,6 +154,50 @@ async function mount(input: string, streaming: boolean): Promise<ReturnType<type
 	});
 	return store;
 }
+
+it("paused batch 从聊天继续时把乐观消息 identity 透传到 Runtime admission", async () => {
+	const store = await mount("继续处理这个任务", false);
+	const { batchProjectsAtom, chatMessagesAtom } = await import("@shared/store/atoms");
+	await act(async () => {
+		store.set(batchProjectsAtom, [
+			{
+				id: "batch-project",
+				name: "Batch Project",
+				prompt: "Original batch prompt",
+				concurrency: 1,
+				tasks: [
+					{
+						id: "batch-task",
+						name: "Batch Task",
+						cwd,
+						sourcePath: "/source",
+						status: "paused",
+						sessionId: runtimeId,
+						createdAt: 1,
+						updatedAt: 1,
+					},
+				],
+				createdAt: 1,
+				updatedAt: 1,
+			},
+		]);
+		await Promise.resolve();
+	});
+
+	await act(async () => {
+		await manager?.sendMessage();
+	});
+
+	const userMessage = store.get(chatMessagesAtom).find((message) => message.kind === "user");
+	expect(userMessage).toBeDefined();
+	expect(mocks.resumeTaskWithText).toHaveBeenCalledWith(
+		"batch-project",
+		"batch-task",
+		"继续处理这个任务",
+		userMessage?.id,
+	);
+	expect(mocks.prompt).not.toHaveBeenCalled();
+});
 
 it("新会话在订阅建立后立即发送，不等待空历史与状态水合", { timeout: 30_000 }, async () => {
 	const state = deferred<{

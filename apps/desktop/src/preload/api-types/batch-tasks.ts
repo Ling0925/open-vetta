@@ -97,6 +97,6 @@ export interface DesktopBatchTasksApi {
 	batchResetFailed(projectId: string, taskIds: string[]): Promise<void>;
 	deleteSession(sessionPath: string): Promise<void>;
 	resumeTask(projectId: string, taskId: string): Promise<void>;
-	resumeTaskWithText(projectId: string, taskId: string, text: string): Promise<void>;
+	resumeTaskWithText(projectId: string, taskId: string, text: string, inputId?: string): Promise<void>;
 	onTaskEvent(handler: (event: BatchTaskEvent) => void): () => void;
 }

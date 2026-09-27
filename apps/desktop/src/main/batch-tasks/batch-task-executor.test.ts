@@ -166,12 +166,13 @@ describe("batch RuntimeHost consumer", () => {
 		} as unknown as RuntimeHost;
 		const completed = waitForBatchEvent((event) => event.type === "task.completed" && event.taskId === task.id);
 
-		enqueueResumeTask(project, task, runtime, "Continue the paused task");
+		enqueueResumeTask(project, task, runtime, "Continue the paused task", "batch-resume-input-1");
 		await completed;
 
 		expect(createSession).not.toHaveBeenCalled();
 		expect(prompt).toHaveBeenCalledWith("paused-session", {
 			text: "Continue the paused task",
+			inputId: "batch-resume-input-1",
 			modelKey: "test/provider-model",
 		});
 	});

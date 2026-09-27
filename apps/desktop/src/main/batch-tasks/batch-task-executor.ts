@@ -99,6 +99,8 @@ type PendingJob = {
 	 * text as the next user prompt. Absent on regular runs.
 	 */
 	resumeText?: string;
+	/** Stable Runtime admission identity for a user-authored paused-task resume. */
+	resumeInputId?: string;
 };
 
 const runningByProject = new Map<string, Set<string>>();
@@ -196,7 +198,7 @@ function launchJob(job: PendingJob): void {
 
 async function startJob(job: PendingJob): Promise<void> {
 	try {
-		await runTaskInner(job.project, job.task, job.runtime, job.resumeText);
+		await runTaskInner(job.project, job.task, job.runtime, job.resumeText, job.resumeInputId);
 	} finally {
 		const running = getRunningSet(job.project.id);
 		running.delete(job.task.id);
@@ -236,8 +238,9 @@ export function enqueueResumeTask(
 	task: BatchTask,
 	runtime: RuntimeHost,
 	resumeText: string = "继续",
+	resumeInputId?: string,
 ): void {
-	enqueueJob({ project, task, runtime, resumeText }, { priority: true });
+	enqueueJob({ project, task, runtime, resumeText, ...(resumeInputId ? { resumeInputId } : {}) }, { priority: true });
 }
 
 /**
@@ -443,6 +446,7 @@ async function runTaskInner(
 	task: BatchTask,
 	runtime: RuntimeHost,
 	resumeText?: string,
+	resumeInputId?: string,
 ): Promise<void> {
 	const abortController = new AbortController();
 	const isResume = resumeText !== undefined;
@@ -569,6 +573,7 @@ async function runTaskInner(
 		);
 		await runtime.prompt(sessionId, {
 			text: promptText,
+			...(isResume && resumeInputId ? { inputId: resumeInputId } : {}),
 			...(!isResume && project.skill
 				? {
 						promptRef: {

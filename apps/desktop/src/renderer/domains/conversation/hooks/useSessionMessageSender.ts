@@ -422,8 +422,12 @@ export function useSessionMessageSender({ bumpSuggestionToken }: SessionMessageS
 				});
 			}
 
+			// 用户发送身份在所有 dispatch 分支前确定。普通会话直接交给 session.prompt；
+			// paused batch 会跨 IPC/调度器透传同一 identity，最终仍由 Runtime admission 去重。
+			const clientInputId = optimisticUserMsgId ?? stagedInput?.optimisticMessage.id ?? nextId("input");
+
 			// 检查当前 session 是否归属一个 paused 的 batch-task 子任务。命中则改走
-			// resume 路径（入队首，由调度器按并发数放行），跳过 session.prompt。
+			// resume 路径（入队首，由调度器按并发数放行），跳过 renderer 的 session.prompt。
 			let pausedBatch: { projectId: string; taskId: string } | undefined;
 			for (const p of batchProjectsRef.current) {
 				const matched = p.tasks.find((t) => t.sessionId === session.runtimeId && t.status === "paused");
@@ -440,7 +444,12 @@ export function useSessionMessageSender({ bumpSuggestionToken }: SessionMessageS
 					const legacyText = attachments.length
 						? `${attachments.map((attachment) => `@${attachment.path}`).join("\n")}\n${text}`
 						: text;
-					await window.vetta.batchTasks.resumeTaskWithText(pausedBatch.projectId, pausedBatch.taskId, legacyText);
+					await window.vetta.batchTasks.resumeTaskWithText(
+						pausedBatch.projectId,
+						pausedBatch.taskId,
+						legacyText,
+						clientInputId,
+					);
 				} catch (err) {
 					const message = err instanceof Error ? err.message : String(err);
 					console.error("[useSessionManager.sendMessage] resumeTaskWithText rejected:", err);
@@ -478,7 +487,6 @@ export function useSessionMessageSender({ bumpSuggestionToken }: SessionMessageS
 				return;
 			}
 
-			const clientInputId = optimisticUserMsgId ?? stagedInput?.optimisticMessage.id ?? nextId("input");
 			const promptReq: PromptRequest = {
 				text: text || "(see attached content)",
 				inputId: clientInputId,

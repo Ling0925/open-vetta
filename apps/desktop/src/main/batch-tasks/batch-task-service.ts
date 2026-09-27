@@ -413,7 +413,7 @@ export class BatchTaskService {
 		);
 	}
 
-	async resumeTask(projectId: string, taskId: string, text?: string): Promise<BatchTaskCommandResult> {
+	async resumeTask(projectId: string, taskId: string, text?: string, inputId?: string): Promise<BatchTaskCommandResult> {
 		const { project, task } = await this.requireTask(projectId, taskId);
 		if (task.status !== "paused") {
 			throw new BatchTaskServiceError("BATCH_TASK_NOT_PAUSED", "只有已暂停的任务可以继续。", {
@@ -422,7 +422,8 @@ export class BatchTaskService {
 			});
 		}
 		const resumeText = text?.trim() ? text : undefined;
-		enqueueResumeTask(project, task, this.getRuntime(), resumeText ?? "继续");
+		const resumeInputId = inputId?.trim() || undefined;
+		enqueueResumeTask(project, task, this.getRuntime(), resumeText ?? "继续", resumeInputId);
 		return this.result(projectId, [taskId]);
 	}
 

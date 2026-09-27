@@ -41,8 +41,8 @@ export function createBatchTasksApi(ipc: HostTransport): Pick<DesktopApi, "batch
 				ipc.invoke(BATCH_TASKS_CHANNELS.BATCH_RESET_FAILED, projectId, taskIds),
 			deleteSession: (sessionPath) => ipc.invoke(BATCH_TASKS_CHANNELS.DELETE_SESSION, sessionPath),
 			resumeTask: (projectId, taskId) => ipc.invoke(BATCH_TASKS_CHANNELS.RESUME_TASK, projectId, taskId),
-			resumeTaskWithText: (projectId, taskId, text) =>
-				ipc.invoke(BATCH_TASKS_CHANNELS.RESUME_TASK_WITH_TEXT, projectId, taskId, text),
+			resumeTaskWithText: (projectId, taskId, text, inputId) =>
+				ipc.invoke(BATCH_TASKS_CHANNELS.RESUME_TASK_WITH_TEXT, projectId, taskId, text, inputId),
 			onTaskEvent: (handler) => onIpcEvent(ipc, BATCH_TASKS_CHANNELS.EVENT, handler),
 		},
 	};

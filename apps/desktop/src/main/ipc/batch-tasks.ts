@@ -105,7 +105,9 @@ export function registerBatchTasksIpc(
 	);
 	ipcMain.handle(
 		CHANNELS.RESUME_TASK_WITH_TEXT,
-		afterReady((projectId: string, taskId: string, text: string) => service.resumeTask(projectId, taskId, text)),
+		afterReady((projectId: string, taskId: string, text: string, inputId?: string) =>
+			service.resumeTask(projectId, taskId, text, inputId),
+		),
 	);
 
 	return () => {
