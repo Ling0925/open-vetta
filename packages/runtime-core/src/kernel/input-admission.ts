@@ -5,7 +5,7 @@ export const RUNTIME_INPUT_IDENTITY_CONTEXT_TYPE = "runtime.input.identity";
 
 export type RuntimeInputTerminalState = "active" | "completed" | "cancelled" | "failed" | "transferred";
 
-export type RuntimeInputReconciliation =
+export type RuntimeDurableInputReconciliation =
 	| { readonly status: "missing"; readonly inputId: string }
 	| {
 			readonly status: "active";
@@ -48,6 +48,15 @@ export type RuntimeInputReconciliation =
 			readonly reason: "multiple_turns" | "multiple_terminal_records";
 	  };
 
+export type RuntimeInputReconciliation =
+	| RuntimeDurableInputReconciliation
+	| {
+			readonly status: "queued";
+			readonly inputId: string;
+			readonly queueItemId: string;
+			readonly behavior: "steer" | "followUp";
+	  };
+
 export type RuntimeInputAdmissionLookup =
 	| { readonly state: "missing"; readonly inputId: string }
 	| {
@@ -66,7 +75,7 @@ export function reconcileRuntimeInput(
 	conversation: Pick<StoredConversation, "events">,
 	inputId: string,
 	document?: Pick<ConversationDocument, "entries">,
-): RuntimeInputReconciliation {
+): RuntimeDurableInputReconciliation {
 	const turnIds = collectTurnIds(conversation, document, inputId);
 	if (turnIds.size === 0) return { status: "missing", inputId };
 	if (turnIds.size > 1) {

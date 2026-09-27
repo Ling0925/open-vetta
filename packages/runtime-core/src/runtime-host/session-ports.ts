@@ -169,7 +169,7 @@ export interface RuntimeSessionConversationController {
 	appendMessage(record: ConversationMessageRecord): Promise<{ readonly entryId: string }>;
 }
 
-/** Durable input admission/terminal reconciliation for retry-safe clients. */
+/** Accepted-input reconciliation for retry-safe clients: current queue first, then durable Turn state. */
 export interface RuntimeSessionInputReconciliationView {
 	reconcileInput(inputId: string): Promise<RuntimeInputReconciliation>;
 }

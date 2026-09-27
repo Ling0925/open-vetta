@@ -395,6 +395,17 @@ export class RuntimeSession {
 		if (!normalized || normalized.length > 256 || /[\x00-\x1f\x7f]/.test(normalized)) {
 			throw new Error("Invalid input identity");
 		}
+		const queued = this.session
+			.listQueue()
+			.entries.find((entry) => entry.input.request?.inputId === normalized);
+		if (queued) {
+			return {
+				status: "queued",
+				inputId: normalized,
+				queueItemId: queued.id,
+				behavior: queued.behavior,
+			};
+		}
 		const conversation = await this.repository.load(this.session.id);
 		return reconcileRuntimeInput(conversation, normalized, this.projection.readDocument());
 	}

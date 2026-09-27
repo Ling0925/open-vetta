@@ -285,6 +285,7 @@ class RecordingPromptAdapter implements RuntimePromptAdapter {
 		return {
 			payload: request,
 			displayText: request.text,
+			...(request.inputId ? { inputId: request.inputId } : {}),
 			...(request.modelKey || request.reasoning
 				? { model: { key: request.modelKey, reasoning: request.reasoning } }
 				: {}),
@@ -556,6 +557,32 @@ describe("KernelRuntimeSessionBackend", () => {
 			modelKey: "test/alternate-model",
 			reasoning: "medium",
 		});
+	});
+
+	it("reconciles an accepted queued input before it has a durable Turn identity", async () => {
+		const engine = new BlockingTurnEngine();
+		const { backend } = createBackend(engine);
+		const session = await backend.create({ id: "session-1" });
+
+		const running = session.prompt({ text: "hold" });
+		await engine.started;
+		const queued = await session.prompt({
+			text: "later",
+			inputId: "input-queued",
+			streamingBehavior: "followUp",
+		});
+		expect(queued).toMatchObject({ status: "queued", behavior: "followUp" });
+		if (queued.status !== "queued" || !queued.id) throw new Error("Expected queued input with identity");
+
+		expect(await session.reconcileInput("input-queued")).toEqual({
+			status: "queued",
+			inputId: "input-queued",
+			queueItemId: queued.id,
+			behavior: "followUp",
+		});
+
+		await session.abort("test cleanup");
+		await running;
 	});
 
 	it("continues from persisted context without adding a user message", async () => {
