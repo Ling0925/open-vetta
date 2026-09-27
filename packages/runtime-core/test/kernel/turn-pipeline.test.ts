@@ -415,6 +415,46 @@ describe("greenfield runtime kernel", () => {
 		).toHaveLength(1);
 	});
 
+	it("persists queued input identity and context before the execution loop can consume them", async () => {
+		const queuedContext: SessionContextRecord = {
+			type: "queued-context",
+			content: "queued context",
+			modelVisible: true,
+			display: false,
+		};
+		const engine: TurnEnginePort = {
+			async *execute(request) {
+				await request.admitQueuedInputs?.({
+					inputIds: ["queued-input"],
+					context: [queuedContext],
+				});
+				yield { type: "message", message: assistantMessage("done") };
+				yield { type: "completed", stopReason: "stop" };
+			},
+		};
+		const harness = await createHarness({ turnEngine: engine });
+		await harness.session.send({ message: userMessage("initial") });
+
+		const conversation = await harness.repository.load("session-1");
+		const identity = conversation.events.find(
+			(event) =>
+				event.type === "context.appended" &&
+				event.record.type === "runtime.input.identity" &&
+				event.record.metadata?.inputId === "queued-input",
+		);
+		expect(identity).toMatchObject({
+			type: "context.appended",
+			turnId: "turn-1",
+			record: { metadata: { inputId: "queued-input", turnId: "turn-1" } },
+		});
+		expect(
+			conversation.events.find(
+				(event) => event.type === "context.appended" && event.record.type === "queued-context",
+			),
+		).toMatchObject({ type: "context.appended", turnId: "turn-1", record: queuedContext });
+		expect(conversation.events.at(-1)).toMatchObject({ type: "turn.completed", turnId: "turn-1" });
+	});
+
 	it("assembles provider context before the current input and binds one snapshot", async () => {
 		const contextStrategy = new RecordingContextStrategy();
 		const providerMessage = userMessage("provider context");

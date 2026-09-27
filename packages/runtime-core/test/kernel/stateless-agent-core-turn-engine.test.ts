@@ -183,6 +183,97 @@ describe("StatelessAgentCoreTurnEngine", () => {
 		});
 	});
 
+	it("hands queued request identities to the Pipeline before removing the reservation", async () => {
+		const queue = new SessionInputQueue();
+		queue.enqueueRequestWithId("followUp", {
+			payload: { text: "queued" },
+			displayText: "queued",
+			inputId: "input-queued",
+		});
+		const record: SessionContextRecord = {
+			type: "queued-context",
+			content: "queued context",
+			modelVisible: true,
+			display: false,
+		};
+		const runtimeSnapshot: RuntimeSnapshot = {
+			...snapshot(),
+			inputRequestPreparer: {
+				async prepare() {
+					return { action: "continue" as const, input: { message: user("queued"), context: [record] } };
+				},
+			},
+		};
+		const responses = [
+			assistant([{ type: "text", text: "first" }]),
+			assistant([{ type: "text", text: "second" }]),
+		];
+		let responseIndex = 0;
+		const engine = new StatelessAgentCoreTurnEngine({
+			model: model(),
+			streamFn: () => {
+				const response = responses[responseIndex++];
+				if (!response) throw new Error("Missing response");
+				return recordedStream(response);
+			},
+		});
+		const admissions: Array<{ inputIds: readonly string[]; context: readonly SessionContextRecord[] }> = [];
+		for await (const _event of engine.execute({
+			sessionId: "session-1",
+			turnId: "turn-1",
+			snapshot: runtimeSnapshot,
+			messages: [user("hello")],
+			signal: new AbortController().signal,
+			inputQueue: queue,
+			admitQueuedInputs: async (input) => {
+				admissions.push(input);
+			},
+		})) {
+			// Exhaust the loop.
+		}
+		expect(admissions).toEqual([{ inputIds: ["input-queued"], context: [record] }]);
+		expect(queue.pendingCount).toBe(0);
+	});
+
+	it("retains a queued request when durable queued admission fails", async () => {
+		const queue = new SessionInputQueue();
+		const queued = queue.enqueueRequestWithId("followUp", {
+			payload: { text: "queued" },
+			displayText: "queued",
+			inputId: "input-queued",
+		});
+		const runtimeSnapshot: RuntimeSnapshot = {
+			...snapshot(),
+			inputRequestPreparer: {
+				async prepare() {
+					return { action: "continue" as const, input: { message: user("queued") } };
+				},
+			},
+		};
+		const responses = [assistant([{ type: "text", text: "first" }])];
+		const engine = new StatelessAgentCoreTurnEngine({
+			model: model(),
+			streamFn: () => recordedStream(responses[0]!),
+		});
+		const execution = (async () => {
+			for await (const _event of engine.execute({
+				sessionId: "session-1",
+				turnId: "turn-1",
+				snapshot: runtimeSnapshot,
+				messages: [user("hello")],
+				signal: new AbortController().signal,
+				inputQueue: queue,
+				admitQueuedInputs: async () => {
+					throw new Error("durable queued admission failed");
+				},
+			})) {
+				// Exhaust the loop.
+			}
+		})();
+		await expect(execution).rejects.toThrow("durable queued admission failed");
+		expect(queue.list().entries.map(({ id }) => id)).toEqual([queued.id]);
+	});
+
 	it("delivers queued context via appendQueuedContext without duplicating it as a message event", async () => {
 		const queue = new SessionInputQueue();
 		const record: SessionContextRecord = {

@@ -987,7 +987,15 @@ export interface TurnEngineRequest {
 	readonly input?: SessionInput;
 	/** Backend-neutral Vetta Context Plane. Runtime-managed context features must enter execution through this port. */
 	readonly contextPlane?: RuntimeTurnContextPlane;
-	/** Engine 消费流式队列上下文时，必须先交回 Pipeline 持久化。 */
+	/**
+	 * Execution loops must hand queued request identities and context back to the Pipeline
+	 * before the queue reservation becomes consumable/model-visible.
+	 */
+	admitQueuedInputs?(input: {
+		readonly inputIds: readonly string[];
+		readonly context: readonly SessionContextRecord[];
+	}): Promise<void>;
+	/** Legacy context-only persistence port for older TurnEngine implementations. */
 	appendQueuedContext?(records: readonly SessionContextRecord[]): Promise<void>;
 	/** Pipeline-internal durable checkpoint source used to bind contextPlane; execution loops must not consume it directly. */
 	readonly checkpoint?: TurnEngineContextCheckpointHandler;

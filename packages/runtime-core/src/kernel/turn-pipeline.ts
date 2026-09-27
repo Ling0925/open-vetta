@@ -312,13 +312,7 @@ export class TurnPipeline {
 					type: "context.appended",
 					sessionId: state.sessionId,
 					turnId,
-					record: {
-						type: "runtime.input.identity",
-						content: "",
-						modelVisible: false,
-						display: false,
-						metadata: { inputId, turnId },
-					},
+					record: createRuntimeInputIdentityRecord(inputId, turnId),
 					timestamp: startedAt,
 				});
 			}
@@ -574,6 +568,39 @@ export class TurnPipeline {
 				inputQueue,
 				input,
 				contextPlane,
+				admitQueuedInputs: async ({ inputIds, context }) => {
+					const normalizedInputIds = inputIds.map((value) => normalizeInputId(value) as string);
+					if (new Set(normalizedInputIds).size !== normalizedInputIds.length) {
+						throw inputAlreadyAdmittedError();
+					}
+					if (normalizedInputIds.length > 0) {
+						const latest = await this.repository.load(state.sessionId);
+						const latestDocument = await this.conversationDocumentReader?.readDocument(state.sessionId);
+						for (const queuedInputId of normalizedInputIds) {
+							assertInputNotAdmitted(latest, queuedInputId, latestDocument);
+						}
+						state.version = latest.version;
+					}
+					const timestamp = this.clock.now();
+					const records: readonly SessionContextRecord[] = [
+						...normalizedInputIds.map((queuedInputId) =>
+							createRuntimeInputIdentityRecord(queuedInputId, turnId),
+						),
+						...context,
+					];
+					if (records.length === 0) return;
+					await this.append(
+						state,
+						signal,
+						records.map((record) => ({
+							type: "context.appended" as const,
+							sessionId: state.sessionId,
+							turnId,
+							record,
+							timestamp: record.timestamp ?? timestamp,
+						})),
+					);
+				},
 				appendQueuedContext: async (records) => {
 					const timestamp = this.clock.now();
 					await this.append(
@@ -1175,6 +1202,16 @@ export class TurnPipeline {
 			});
 		}
 	}
+}
+
+function createRuntimeInputIdentityRecord(inputId: string, turnId: string): SessionContextRecord {
+	return {
+		type: "runtime.input.identity",
+		content: "",
+		modelVisible: false,
+		display: false,
+		metadata: { inputId, turnId },
+	};
 }
 
 function assertInputNotAdmitted(
