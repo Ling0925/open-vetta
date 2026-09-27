@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import type { SessionEvent } from "../../src/index.js";
 import {
 	defineRuntimeAgent,
 	RUNTIME_HOST_LIFECYCLE_OBSERVATION,
@@ -90,6 +91,69 @@ describe("RuntimeHost dynamic Agent lifecycle", () => {
 		expect(backendDispose).toHaveBeenCalledOnce();
 		await host.close();
 		expect(backendDispose).toHaveBeenCalledOnce();
+	});
+
+	it("keeps a live Session registered when queue sidecar flush fails during disposal", async () => {
+		const listeners = new Set<(event: SessionEvent) => void>();
+		const sessionDispose = vi.fn(async () => {});
+		let failPersistence = true;
+		const host = new RuntimeHost({
+			queueSidecarStore: {
+				read: async () => undefined,
+				write: async () => {
+					if (failPersistence) throw new Error("disk unavailable");
+				},
+				remove: async () => {
+					if (failPersistence) throw new Error("disk unavailable");
+				},
+			},
+			createSessionBackend: () =>
+				sessionBackend(() => ({
+					...assembly("session-1", sessionDispose),
+					lifecycle: {
+						sessionId: "session-1",
+						sessionPath: "session-1.jsonl",
+						dispose: sessionDispose,
+					},
+					corePorts: {
+						...assembly("session-1").corePorts,
+						eventStream: {
+							subscribe: (listener) => {
+								listeners.add(listener);
+								return () => listeners.delete(listener);
+							},
+						},
+					},
+				})),
+		});
+		await host.createSession({ executionMode: "full-access", sessionPath: "session-1.jsonl" });
+		for (const listener of listeners) {
+			listener({
+				type: "queue.changed",
+				sessionId: "session-1",
+				paused: false,
+				entries: [{ id: "queued" }],
+				snapshot: { paused: false, entries: [{ id: "queued" }] },
+			} as SessionEvent);
+		}
+
+		await expect(host.disposeSession("session-1")).rejects.toThrow("disk unavailable");
+		expect(sessionDispose).not.toHaveBeenCalled();
+		expect(host.getState("session-1").sessionId).toBe("session-1");
+
+		failPersistence = false;
+		for (const listener of listeners) {
+			listener({
+				type: "queue.changed",
+				sessionId: "session-1",
+				paused: false,
+				entries: [{ id: "queued" }],
+				snapshot: { paused: false, entries: [{ id: "queued" }] },
+			} as SessionEvent);
+		}
+		await expect(host.disposeSession("session-1")).resolves.toBeUndefined();
+		expect(sessionDispose).toHaveBeenCalledOnce();
+		await host.close();
 	});
 
 	it("waits for an admitted in-flight creation before closing Sessions and Backends", async () => {
