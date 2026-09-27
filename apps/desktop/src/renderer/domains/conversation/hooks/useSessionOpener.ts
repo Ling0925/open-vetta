@@ -67,6 +67,7 @@ export interface SessionOpenerController {
 		options?: OpenSessionOptions,
 	) => Promise<void>;
 	openSessionRef: MutableRefObject<SessionOpenerController["openSession"] | undefined>;
+	cancelSessionOpen: () => void;
 	bumpSuggestionToken: (runtimeId: string) => void;
 }
 
@@ -150,6 +151,32 @@ export function useSessionOpener(): SessionOpenerController {
 		| undefined
 	>(undefined);
 
+	const cancelSessionOpen = useCallback(() => {
+		const store = getDefaultStore();
+		if (!store.get(pendingSessionOpenAtom) && !store.get(pendingSessionCreationAtom)) return;
+		bumpOpenSessionToken();
+		setPendingSessionOpen(null);
+		setPendingSessionCreation(null);
+		currentUnsubscribe?.();
+		setCurrentUnsubscribe(null);
+		setChatStreamOwner(null);
+		resetEventBuffers();
+		resetStreamState();
+		setActiveSessionStreaming(false);
+		setIsCompacting(false);
+		setRetryProgress(null);
+		setActiveSession(null);
+		activeSessionRef.current = null;
+	}, [
+		resetEventBuffers,
+		setActiveSession,
+		setActiveSessionStreaming,
+		setIsCompacting,
+		setPendingSessionCreation,
+		setPendingSessionOpen,
+		setRetryProgress,
+	]);
+
 	const openSession = useCallback(
 		async (cwd: string, sessionPath?: string, executionMode?: SessionExecutionMode, options?: OpenSessionOptions) => {
 			const isExistingSessionOpen = sessionPath !== undefined;
@@ -179,6 +206,22 @@ export function useSessionOpener(): SessionOpenerController {
 			const navigateBeforeCreate =
 				sessionPath === undefined && shouldNavigate && options?.navigateBeforeCreate === true;
 			const stageExistingSessionOpen = isExistingSessionOpen && shouldNavigate;
+			let createdRuntimeId: string | undefined;
+			const disposeCreatedRuntimeIfUnowned = (): void => {
+				const runtimeId = createdRuntimeId;
+				if (!runtimeId) return;
+				const store = getDefaultStore();
+				if (store.get(activeSessionAtom)?.runtimeId === runtimeId) return;
+				const pending = store.get(pendingSessionOpenAtom);
+				if (sessionPath !== undefined && pending?.sessionPath === sessionPath) return;
+				createdRuntimeId = undefined;
+				void window.vetta.session.dispose(runtimeId).catch((error) => {
+					console.warn("[useSessionOpener] failed to dispose superseded Runtime session", {
+						runtimeId,
+						error,
+					});
+				});
+			};
 			const clearOwnPendingTransition = (): void => {
 				if (navigateBeforeCreate) {
 					setPendingSessionCreation((current) => (current?.interactionId === interactionId ? null : current));
@@ -190,6 +233,7 @@ export function useSessionOpener(): SessionOpenerController {
 			const finishCancelledOpen = (): void => {
 				previewClosed = true;
 				clearOwnPendingTransition();
+				disposeCreatedRuntimeIfUnowned();
 				if (isExistingSessionOpen) perfSessionSwitchComplete("cancelled", interactionId);
 			};
 			const failSessionHydration = (stage: "path" | "history" | "state" | "subscribe", error: unknown): void => {
@@ -205,6 +249,7 @@ export function useSessionOpener(): SessionOpenerController {
 				setActiveSession(null);
 				activeSessionRef.current = null;
 				setChatStreamOwner(null);
+				disposeCreatedRuntimeIfUnowned();
 				if (isExistingSessionOpen) perfSessionSwitchComplete("failed", interactionId);
 			};
 			if (navigateBeforeCreate) {
@@ -401,6 +446,7 @@ export function useSessionOpener(): SessionOpenerController {
 				return;
 			}
 			const { sessionId } = createResult;
+			createdRuntimeId = sessionId;
 			previewRuntimeId = sessionId;
 			if (myOpenToken !== getOpenSessionToken()) {
 				markSessionSwitch("session-create-superseded");
@@ -740,5 +786,5 @@ export function useSessionOpener(): SessionOpenerController {
 
 	openSessionRef.current = openSession;
 
-	return { openSession, openSessionRef, bumpSuggestionToken };
+	return { openSession, openSessionRef, cancelSessionOpen, bumpSuggestionToken };
 }

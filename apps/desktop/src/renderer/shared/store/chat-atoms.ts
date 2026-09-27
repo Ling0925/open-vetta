@@ -458,6 +458,12 @@ export interface StagedSendInput {
 
 /** Global callback to open a session (set by useSessionManager, consumed by other pages) */
 // Use a module-level ref instead of atom to avoid structured clone issues with functions
+export const cancelSessionOpenFnRef: {
+	current: (() => void) | null;
+} = {
+	current: null,
+};
+
 export const openSessionFnRef: {
 	current:
 		| ((

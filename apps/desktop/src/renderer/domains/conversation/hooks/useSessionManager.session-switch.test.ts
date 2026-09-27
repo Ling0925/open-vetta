@@ -75,6 +75,7 @@ interface SessionManagerProbe {
 		options?: OpenSessionOptions,
 	): Promise<void>;
 	sendMessage(): Promise<unknown>;
+	cancelSessionOpen(): void;
 }
 
 interface Deferred<T> {
@@ -722,6 +723,59 @@ it("会话恢复期间立即接受发送并在订阅就绪后派发到目标 Run
 
 	pendingPrompt?.resolve(undefined);
 	await sending;
+});
+
+it("离开正在恢复的会话时取消 open，并释放随后迟到的 Runtime", { timeout: 10_000 }, async () => {
+	const { activeSessionAtom, pendingSessionOpenAtom } = await import("@shared/store/atoms");
+	const { useSessionManager } = await import("./useSessionManager");
+	const store = getDefaultStore();
+	const created = deferred<{ cwd: string; sessionId: string; sessionPath: string }>();
+	const dispose = vi.fn(async () => undefined);
+	const sessionApi = {
+		autoTitle: vi.fn(),
+		create: vi.fn(() => created.promise),
+		dispose,
+		openViewer: vi.fn(async () => ({ history: [] })),
+		prompt: vi.fn(),
+	};
+	Object.defineProperty(window, "vetta", {
+		configurable: true,
+		value: {
+			batchTasks: { resumeTaskWithText: vi.fn() },
+			config: { get: vi.fn() },
+			dialog: { persistImages: vi.fn() },
+			session: sessionApi,
+		},
+	});
+	store.set(activeSessionAtom, { cwd, runtimeId: "runtime-old", sessionPath: firstSessionPath });
+
+	function Probe() {
+		manager = useSessionManager();
+		return null;
+	}
+	await act(async () => {
+		root = createRoot(container as HTMLDivElement);
+		root.render(createElement(Probe));
+	});
+
+	let opening: Promise<void> | undefined;
+	await act(async () => {
+		opening = manager?.openSession(cwd, secondSessionPath, undefined, { interactionId: "open-cancelled" });
+		await Promise.resolve();
+	});
+	expect(store.get(pendingSessionOpenAtom)?.sessionPath).toBe(secondSessionPath);
+
+	act(() => manager?.cancelSessionOpen());
+	expect(store.get(pendingSessionOpenAtom)).toBeNull();
+	expect(store.get(activeSessionAtom)).toBeNull();
+
+	await act(async () => {
+		created.resolve({ cwd, sessionId: "runtime-late", sessionPath: secondSessionPath });
+		await opening;
+		await Promise.resolve();
+	});
+	expect(dispose).toHaveBeenCalledWith("runtime-late");
+	expect(store.get(activeSessionAtom)).toBeNull();
 });
 
 it("已有会话创建失败时退出加载态并保留可诊断错误", { timeout: 10_000 }, async () => {

@@ -1,6 +1,7 @@
 import { pluginSendMessageRef } from "@domains/plugins/runtime/plugin-host-bridge";
 import {
 	abortMessageFnRef,
+	cancelSessionOpenFnRef,
 	type OpenSessionOptions,
 	openSessionFnRef,
 	type SendMessageOptions,
@@ -23,20 +24,22 @@ interface SessionManagerResult {
 	sendMessage: (overrideText?: string, options?: SendMessageOptions) => Promise<SendMessageResult | undefined>;
 	abortMessage: () => Promise<void>;
 	sendQueuedNow: (runtimeId: string, id: string) => Promise<void>;
+	cancelSessionOpen: () => void;
 	openSessionRef: MutableRefObject<SessionManagerResult["openSession"] | undefined>;
 }
 
 export function useSessionManager(): SessionManagerResult {
-	const { openSession, openSessionRef, bumpSuggestionToken } = useSessionOpener();
+	const { openSession, openSessionRef, cancelSessionOpen, bumpSuggestionToken } = useSessionOpener();
 	const { sendMessage, abortMessage, sendQueuedNow } = useSessionMessageSender({
 		bumpSuggestionToken,
 	});
 
 	openSessionFnRef.current = openSession;
+	cancelSessionOpenFnRef.current = cancelSessionOpen;
 	pluginSendMessageRef.current = sendMessage;
 	sendMessageFnRef.current = sendMessage;
 	abortMessageFnRef.current = abortMessage;
 	sendQueuedNowFnRef.current = sendQueuedNow;
 
-	return { openSession, sendMessage, abortMessage, sendQueuedNow, openSessionRef };
+	return { openSession, sendMessage, abortMessage, sendQueuedNow, cancelSessionOpen, openSessionRef };
 }
