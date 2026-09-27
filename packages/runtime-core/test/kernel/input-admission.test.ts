@@ -74,6 +74,29 @@ describe("runtime input admission lookup", () => {
 		).toEqual({ state: "admitted", inputId: "input-handled", terminal: "handled" });
 	});
 
+	it("does not collapse two handled journal admissions that share one timestamp", () => {
+		const handledEvent = {
+			type: "context.recorded" as const,
+			sessionId: "session",
+			record: {
+				type: "runtime.input.identity",
+				content: "",
+				modelVisible: false,
+				display: false,
+				metadata: { inputId: "input-duplicate", disposition: "handled" },
+			},
+			timestamp: 7,
+		};
+		expect(
+			reconcileRuntimeInput(conversation([handledEvent, handledEvent]), "input-duplicate"),
+		).toEqual({
+			status: "ambiguous",
+			inputId: "input-duplicate",
+			turnIds: [],
+			reason: "multiple_handled_records",
+		});
+	});
+
 	it("reports an admitted input without a terminal record as active", () => {
 		expect(lookupRuntimeInputAdmission(conversation([identity("turn-1", "input-1")]), "input-1")).toEqual({
 			state: "admitted",

@@ -188,20 +188,26 @@ function collectHandledTimestamps(
 	document: Pick<ConversationDocument, "entries"> | undefined,
 	inputId: string,
 ): number[] {
-	const timestamps: number[] = [];
+	const journalTimestamps: number[] = [];
 	for (const event of conversation.events) {
 		if (event.type !== "context.recorded" || event.record.type !== RUNTIME_INPUT_IDENTITY_CONTEXT_TYPE) continue;
 		const metadata = readRecord(event.record.metadata);
-		if (metadata?.inputId === inputId && metadata.disposition === "handled") timestamps.push(event.timestamp);
+		if (metadata?.inputId === inputId && metadata.disposition === "handled") {
+			journalTimestamps.push(event.timestamp);
+		}
 	}
+	// The document mirrors journal records for the current Conversation. Only use it
+	// as a continuation fallback when the current journal no longer carries the fact.
+	if (journalTimestamps.length > 0) return journalTimestamps;
+	const documentTimestamps: number[] = [];
 	for (const entry of document?.entries ?? []) {
 		if (entry.type !== "custom_message" || entry.customType !== RUNTIME_INPUT_IDENTITY_CONTEXT_TYPE) continue;
 		const details = readRecord(entry.details);
 		if (details?.inputId !== inputId || details.disposition !== "handled") continue;
 		const timestamp = Date.parse(entry.timestamp);
-		if (Number.isFinite(timestamp)) timestamps.push(timestamp);
+		if (Number.isFinite(timestamp)) documentTimestamps.push(timestamp);
 	}
-	return [...new Set(timestamps)];
+	return documentTimestamps;
 }
 
 function readRecord(value: unknown): Record<string, unknown> | undefined {
