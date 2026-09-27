@@ -227,10 +227,11 @@ export class RuntimeHostSessionLifecycle {
 
 	private async disposeSessionHandle(sessionKey: string, handle: RuntimeHostSessionRecord): Promise<void> {
 		try {
-			await handle.lifecycle.dispose();
-			// Graceful close must not release the Session while an accepted queue snapshot
-			// is still waiting to reach its sidecar. Hard crashes remain a separate boundary.
+			// Flush accepted queue state while the Runtime is still a live, registered owner.
+			// If persistence fails, disposal can be retried without leaving a disposed handle
+			// behind in the Directory and accidentally reusing it on the next open.
 			await this.options.queueSidecar.flush(handle.lifecycle.sessionPath);
+			await handle.lifecycle.dispose();
 			if (!this.options.directory.isRegisteredOwner(sessionKey, handle)) return;
 			const canonicalSessionId = this.options.directory.readCanonicalSessionIdByKey(
 				sessionKey,
