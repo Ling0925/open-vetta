@@ -297,6 +297,44 @@ it("失步竞态：以为空闲实则已在跑（回执 queued）时撤掉抢先
 	expect(reconcileOptimisticUserMessages(runtimeId, history)).toEqual(history);
 });
 
+it("prompt IPC 丢响应但 Runtime 已入队时，对账恢复 queued 回执而不是显示发送失败", async () => {
+	mocks.prompt.mockRejectedValue(new Error("IPC response lost"));
+	const sessionApi = (window as unknown as { vetta: { session: Record<string, unknown> } }).vetta.session;
+	sessionApi.reconcileInput = vi.fn(async (_sessionId: string, inputId: string) => ({
+		status: "queued",
+		inputId,
+		queueItemId: "q-reconciled",
+		behavior: "followUp",
+	}));
+	sessionApi.getState = vi.fn(async () => ({
+		activeToolNames: [],
+		contextPercent: null,
+		contextWindow: 128_000,
+		executionMode: "full-access",
+		isStreaming: true,
+		messageCount: 0,
+		model: null,
+		scenario: "project",
+	}));
+	const store = await mount("回执丢失但已排队", false);
+	const { chatMessagesAtom } = await import("@shared/store/atoms");
+
+	let result: Awaited<ReturnType<SessionManagerProbe["sendMessage"]>>;
+	await act(async () => {
+		result = await manager?.sendMessage();
+	});
+
+	expect(result).toEqual({ status: "queued", queueItemId: "q-reconciled" });
+	expect(sessionApi.reconcileInput).toHaveBeenCalledOnce();
+	expect(store.get(chatMessagesAtom).filter((message) => message.kind === "user")).toEqual([]);
+	expect(
+		store
+			.get(chatMessagesAtom)
+			.flatMap((message) => (message.kind === "agent" ? message.blocks : []))
+			.some((block) => block.type === "error"),
+	).toBe(false);
+});
+
 it("queued 回执晚于队列消费时，历史回流只保留一条用户消息", { timeout: 30_000 }, async () => {
 	let eventHandler: SessionEventHandler | undefined;
 	const promptOutcome = deferred<unknown>();

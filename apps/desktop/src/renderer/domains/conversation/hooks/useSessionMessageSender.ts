@@ -632,6 +632,14 @@ export function useSessionMessageSender({ bumpSuggestionToken }: SessionMessageS
 					const reconciliation = classifyPromptDeliveryReconciliation(receipt);
 					if (reconciliation.kind !== "missing") {
 						if (optimisticUserMsgId) forgetOptimisticUserMessage(session.runtimeId, optimisticUserMsgId);
+						if (reconciliation.kind === "queued") {
+							if (optimisticUserMsgId) {
+								setChatMessages((prev) => prev.filter((message) => message.id !== optimisticUserMsgId));
+							}
+							const state = await window.vetta.session.getState(session.runtimeId).catch(() => null);
+							setActiveSessionStreaming(state?.isStreaming ?? true);
+							return { status: "queued", queueItemId: reconciliation.queueItemId };
+						}
 						if (reconciliation.kind === "ambiguous") {
 							const message = i18n.t("codex:chatBackend.reconciliation.ambiguous", {
 								defaultValue:

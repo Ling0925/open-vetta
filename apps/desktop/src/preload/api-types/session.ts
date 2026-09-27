@@ -161,7 +161,7 @@ export interface DesktopSessionApi {
 		request: PromptRequest,
 		traceContext?: DesktopSessionTraceContext,
 	): Promise<RuntimeTurnPromptOutcome>;
-	/** Resolve one stable input identity to its durable Turn state without replaying it. */
+	/** Resolve one stable input identity to an accepted queue entry or durable Turn state without replaying it. */
 	reconcileInput(sessionId: string, inputId: string): Promise<RuntimeInputReconciliation>;
 	continue(sessionId: string): Promise<void>;
 	abort(sessionId: string, expectedTurnId?: string): Promise<RuntimeTurnAbortOutcome>;

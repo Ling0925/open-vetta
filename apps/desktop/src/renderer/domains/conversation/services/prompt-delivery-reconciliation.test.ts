@@ -2,6 +2,17 @@ import { describe, expect, it } from "vitest";
 import { classifyPromptDeliveryReconciliation } from "./prompt-delivery-reconciliation";
 
 describe("prompt delivery reconciliation", () => {
+	it("keeps an accepted queue entry distinct from missing durable history", () => {
+		expect(
+			classifyPromptDeliveryReconciliation({
+				status: "queued",
+				inputId: "input",
+				queueItemId: "q-1",
+				behavior: "followUp",
+			}),
+		).toEqual({ kind: "queued", queueItemId: "q-1", behavior: "followUp" });
+	});
+
 	it("treats active and completed durable inputs as accepted instead of retry candidates", () => {
 		expect(
 			classifyPromptDeliveryReconciliation({ status: "active", inputId: "input", turnId: "turn-1" }),
