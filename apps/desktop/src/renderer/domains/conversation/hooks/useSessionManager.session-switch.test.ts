@@ -729,6 +729,7 @@ it("已有会话创建失败时退出加载态并保留可诊断错误", { timeo
 	const { useSessionManager } = await import("./useSessionManager");
 	const store = getDefaultStore();
 	const failure = new Error("restore failed");
+	const preview = deferred<{ history: ReturnType<typeof userHistory> }>();
 	Object.defineProperty(window, "vetta", {
 		configurable: true,
 		value: {
@@ -738,7 +739,7 @@ it("已有会话创建失败时退出加载态并保留可诊断错误", { timeo
 			session: {
 				autoTitle: vi.fn(),
 				create: vi.fn(async () => Promise.reject(failure)),
-				openViewer: vi.fn(async () => ({ history: [] })),
+				openViewer: vi.fn(() => preview.promise),
 				prompt: vi.fn(),
 			},
 		},
@@ -766,6 +767,17 @@ it("已有会话创建失败时退出加载态并保留可诊断错误", { timeo
 		blocks: [expect.objectContaining({ type: "error", text: failure.message })],
 	});
 	expect(mocks.perfSessionSwitchComplete).toHaveBeenCalledWith("failed", "open-failed");
+
+	await act(async () => {
+		preview.resolve({ history: userHistory("stale preview", "stale-preview") });
+		await Promise.resolve();
+		await Promise.resolve();
+	});
+	expect(visibleTexts(store.get(chatMessagesAtom))).not.toContain("stale preview");
+	expect(store.get(chatMessagesAtom).at(-1)).toMatchObject({
+		kind: "agent",
+		blocks: [expect.objectContaining({ type: "error", text: failure.message })],
+	});
 });
 
 it("只读历史预览失败时回退到 Runtime 历史水合", { timeout: 10_000 }, async () => {

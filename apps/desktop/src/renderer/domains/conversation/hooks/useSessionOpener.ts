@@ -159,6 +159,9 @@ export function useSessionOpener(): SessionOpenerController {
 			const markSessionSwitch = (label: string): void => {
 				if (isExistingSessionOpen) perfSessionSwitchMark(label, interactionId);
 			};
+			let previewMessagesSnapshot: ReturnType<typeof fullHistoryToChat> | undefined;
+			let previewRuntimeId: string | undefined;
+			let previewClosed = false;
 			perfSendMark("open-session-enter", interactionId);
 			markSessionSwitch("open-session-enter");
 			// 取自己的调用令牌；每个异步边界都执行 newest-wins 校验。
@@ -185,10 +188,12 @@ export function useSessionOpener(): SessionOpenerController {
 				}
 			};
 			const finishCancelledOpen = (): void => {
+				previewClosed = true;
 				clearOwnPendingTransition();
 				if (isExistingSessionOpen) perfSessionSwitchComplete("cancelled", interactionId);
 			};
 			const failSessionHydration = (stage: "path" | "history" | "state" | "subscribe", error: unknown): void => {
+				previewClosed = true;
 				if (myOpenToken !== getOpenSessionToken()) {
 					finishCancelledOpen();
 					return;
@@ -275,9 +280,6 @@ export function useSessionOpener(): SessionOpenerController {
 			// lock-free viewer path so the first meaningful content can render before Runtime
 			// capabilities, state and the live subscription begin restoring.
 			// Runtime hydration below remains canonical and will reconcile streaming drafts.
-			let previewMessagesSnapshot: ReturnType<typeof fullHistoryToChat> | undefined;
-			let previewRuntimeId: string | undefined;
-			let runtimePresentationCommitted = false;
 			if (stageExistingSessionOpen) {
 				markSessionSwitch("session-preview-history-start");
 				void window.vetta.session
@@ -299,7 +301,7 @@ export function useSessionOpener(): SessionOpenerController {
 						}
 						// Preview is presentation-only. Once Runtime hydration starts committing
 						// canonical state, a late Viewer result must not replace newer live content.
-						if (runtimePresentationCommitted) {
+						if (previewClosed) {
 							markSessionSwitch("session-preview-history-skipped-runtime-ready");
 							return;
 						}
@@ -361,6 +363,7 @@ export function useSessionOpener(): SessionOpenerController {
 				perfSendMark("session-create-end", interactionId);
 				markSessionSwitch("session-create-end");
 			} catch (error) {
+				previewClosed = true;
 				perfSendMark("session-create-failed", interactionId);
 				markSessionSwitch("session-create-failed");
 				if (isExistingSessionOpen) perfSessionSwitchComplete("failed", interactionId);
@@ -538,7 +541,7 @@ export function useSessionOpener(): SessionOpenerController {
 
 			perfSendMark("session-state-loaded", interactionId);
 			markSessionSwitch("session-state-loaded");
-			runtimePresentationCommitted = true;
+			previewClosed = true;
 			const contextComposition = resolveSessionContextComposition(resolvedSessionPath, state.contextComposition);
 			// Fork lineage from session header (parentSession / parentEntryId).
 			const parentSessionPath = state.parentSessionPath;
