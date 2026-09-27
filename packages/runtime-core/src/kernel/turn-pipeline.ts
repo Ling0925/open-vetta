@@ -243,17 +243,11 @@ export class TurnPipeline {
 			await this.enterStage(state.sessionId, turnId, "admission");
 			signal.throwIfAborted();
 			if (inputId) {
-				const previous = lookupRuntimeInputAdmission(
+				assertInputNotAdmitted(
 					await this.repository.load(state.sessionId),
 					inputId,
 					await this.conversationDocumentReader?.readDocument(state.sessionId),
 				);
-				if (previous.state === "ambiguous") {
-					throw inputAlreadyAdmittedError();
-				}
-				if (previous.state === "admitted") {
-					throw inputAlreadyAdmittedError({ turnId: previous.turnId, terminal: previous.terminal });
-				}
 			}
 
 			await this.enterStage(state.sessionId, turnId, "snapshot_binding");
@@ -299,6 +293,7 @@ export class TurnPipeline {
 			await this.enterStage(state.sessionId, turnId, "conversation_loading");
 			const conversation = await this.repository.load(state.sessionId);
 			const conversationDocument = await this.conversationDocumentReader?.readDocument(state.sessionId);
+			if (inputId) assertInputNotAdmitted(conversation, inputId, conversationDocument);
 			state.version = conversation.version;
 			signal.throwIfAborted();
 
@@ -370,7 +365,18 @@ export class TurnPipeline {
 					timestamp: record.timestamp ?? startedAt,
 				});
 			}
-			await this.append(state, signal, startEvents);
+			try {
+				await this.append(state, signal, startEvents);
+			} catch (error) {
+				if (inputId) {
+					// The optimistic repository version is the durable serialization point.
+					// A sibling request may have admitted the same inputId after our last read.
+					const latest = await this.repository.load(state.sessionId);
+					const latestDocument = await this.conversationDocumentReader?.readDocument(state.sessionId);
+					assertInputNotAdmitted(latest, inputId, latestDocument);
+				}
+				throw error;
+			}
 			state.started = true;
 
 			await this.enterStage(state.sessionId, turnId, "context_assembly");
@@ -1168,6 +1174,18 @@ export class TurnPipeline {
 				timestamp: this.clock.now(),
 			});
 		}
+	}
+}
+
+function assertInputNotAdmitted(
+	conversation: Pick<StoredConversation, "events">,
+	inputId: string,
+	document?: Pick<ConversationDocument, "entries">,
+): void {
+	const previous = lookupRuntimeInputAdmission(conversation, inputId, document);
+	if (previous.state === "ambiguous") throw inputAlreadyAdmittedError();
+	if (previous.state === "admitted") {
+		throw inputAlreadyAdmittedError({ turnId: previous.turnId, terminal: previous.terminal });
 	}
 }
 

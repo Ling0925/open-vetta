@@ -361,6 +361,60 @@ describe("greenfield runtime kernel", () => {
 		expect(engine.requests).toHaveLength(1);
 	});
 
+	it("serializes concurrent requests with the same inputId at the durable admission boundary", async () => {
+		const engine = new CompletingTurnEngine(assistantMessage("done"));
+		const harness = await createHarness({ turnEngine: engine });
+		const request = { payload: { text: "hello" }, displayText: "hello", inputId: "input-race" };
+		let waiting = 0;
+		let releasePreparation!: () => void;
+		let bothPreparing!: () => void;
+		const preparationGate = new Promise<void>((resolve) => {
+			releasePreparation = resolve;
+		});
+		const bothPreparingGate = new Promise<void>((resolve) => {
+			bothPreparing = resolve;
+		});
+		const preparer = {
+			async prepare() {
+				waiting += 1;
+				if (waiting === 2) bothPreparing();
+				await preparationGate;
+				return { action: "continue" as const, input: { message: userMessage("hello") } };
+			},
+		};
+
+		const first = harness.pipeline.runRequest(
+			"session-1",
+			request,
+			new AbortController().signal,
+			undefined,
+			preparer,
+		);
+		const second = harness.pipeline.runRequest(
+			"session-1",
+			request,
+			new AbortController().signal,
+			undefined,
+			preparer,
+		);
+		await bothPreparingGate;
+		releasePreparation();
+		const results = await Promise.allSettled([first, second]);
+
+		expect(results.filter(({ status }) => status === "fulfilled")).toHaveLength(1);
+		const rejected = results.find(
+			(result): result is PromiseRejectedResult => result.status === "rejected",
+		);
+		expect(rejected?.reason).toMatchObject({ code: KERNEL_ERROR_CODES.INPUT_ALREADY_ADMITTED });
+		expect(engine.requests).toHaveLength(1);
+		const conversation = await harness.repository.load("session-1");
+		expect(
+			conversation.events.filter(
+				(event) => event.type === "context.appended" && event.record.type === "runtime.input.identity",
+			),
+		).toHaveLength(1);
+	});
+
 	it("assembles provider context before the current input and binds one snapshot", async () => {
 		const contextStrategy = new RecordingContextStrategy();
 		const providerMessage = userMessage("provider context");
