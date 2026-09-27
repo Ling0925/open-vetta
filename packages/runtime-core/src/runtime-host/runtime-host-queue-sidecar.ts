@@ -41,7 +41,19 @@ export class RuntimeHostQueueSidecar {
 				this.reportFailure?.(error, event.sessionId);
 			}
 		});
-		this.writes.set(key, next);
+		const tracked = next.finally(() => {
+			if (this.writes.get(key) === tracked) this.writes.delete(key);
+		});
+		this.writes.set(key, tracked);
+	}
+
+	/** Waits for the latest queue snapshot write already admitted for this Session path. */
+	async flush(sessionPath?: string): Promise<void> {
+		if (sessionPath) {
+			await this.writes.get(this.normalizePath(sessionPath));
+			return;
+		}
+		await Promise.all([...this.writes.values()]);
 	}
 
 	async restore(queueController: RuntimeSessionQueueController, sessionPath: string | undefined): Promise<void> {

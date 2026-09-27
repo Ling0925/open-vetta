@@ -222,6 +222,9 @@ export class RuntimeHostSessionLifecycle {
 	private async disposeSessionHandle(sessionKey: string, handle: RuntimeHostSessionRecord): Promise<void> {
 		try {
 			await handle.lifecycle.dispose();
+			// Graceful close must not release the Session while an accepted queue snapshot
+			// is still waiting to reach its sidecar. Hard crashes remain a separate boundary.
+			await this.options.queueSidecar.flush(handle.lifecycle.sessionPath);
 			if (!this.options.directory.isRegisteredOwner(sessionKey, handle)) return;
 			const canonicalSessionId = this.options.directory.readCanonicalSessionIdByKey(
 				sessionKey,

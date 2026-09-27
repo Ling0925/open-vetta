@@ -44,6 +44,36 @@ describe("RuntimeHostQueueSidecar", () => {
 		await vi.waitFor(() => expect(reportFailure).toHaveBeenCalledWith(failure, "session"));
 	});
 
+	it("flush waits for the newest admitted write for one normalized Session path", async () => {
+		let release!: () => void;
+		const gate = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		const writes: string[] = [];
+		const sidecar = new RuntimeHostQueueSidecar({
+			store: createStore({
+				write: async (_path, snapshot) => {
+					writes.push(String(snapshot));
+					await gate;
+				},
+			}),
+			normalizePath: (path) => path.toLowerCase(),
+		});
+
+		sidecar.persist("C:/Session.jsonl", event("accepted"));
+		let flushed = false;
+		const pending = sidecar.flush("c:/session.jsonl").then(() => {
+			flushed = true;
+		});
+		await Promise.resolve();
+		expect(writes).toEqual(["accepted"]);
+		expect(flushed).toBe(false);
+
+		release();
+		await pending;
+		expect(flushed).toBe(true);
+	});
+
 	it("restores a valid snapshot and ignores read failures", async () => {
 		const restoreQueue = vi.fn();
 		const queueController = { restoreQueue } as unknown as RuntimeSessionQueueController;
