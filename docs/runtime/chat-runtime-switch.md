@@ -66,9 +66,11 @@ session/RPC/thread/turn/item，旧批准不能落到新的 Turn。
 Runtime snapshot，因此手动压缩、Context Summary、自动压缩开关和 eligibility 在 Codex 模式下也继续可用。
 Codex 清理失败只阻止新的 Codex execution acquisition，不阻止用户读取历史或执行 Vetta 自己的手动压缩/摘要。
 
-为了避免“两个 loop = 两个上下文系统”，Codex snapshot 只移除 Native loop 专属的 instructions、tools、
-model-call contribution/frame、AgentRunPreparer 与 continuation policy；不会再移除 context providers、context strategy、
-manual/context-summary strategy、model-call context transformer/finalizer、budget 或 observers。
+为了避免“两个 loop = 两个上下文系统”，后端选择器不再改 Kernel 的 snapshot。Kernel 始终使用完整
+Context snapshot 完成 Provider、预算、压缩、summary 与 Context Plane 绑定；真正进入 Codex loop 时才生成一个
+execution-only snapshot，移除 Native tools/instructions，同时移除所有 Context 实现 hook。Codex 只能消费已经绑定的
+`contextPlane`，不能直接调用 ContextStrategy 或自行提交 Vetta compaction。手动压缩/summary 使用的是 Kernel 完整
+snapshot，因此切到 Codex 后仍可正常执行。
 
 ## Codex 工具可观察性
 

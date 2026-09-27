@@ -27,7 +27,7 @@ export class ConversationRuntimeBackendSelection {
 	constructor(private readonly options: RuntimeBackendSelectionOptions) {}
 
 	readonly composeExecution: RuntimeExecutionComposer = (resources, native) => {
-		const bindings = new Map<string, TurnEnginePort>();
+		const bindings = new Map<string, { readonly engine: TurnEnginePort; readonly backend: SessionRuntimeBackend }>();
 		return {
 			snapshotProvider: {
 				acquire: async (context) => {
@@ -43,17 +43,17 @@ export class ConversationRuntimeBackendSelection {
 						if (choice.backend === "codex" && executionAcquisition) {
 							this.options.assertReusable(context.sessionId);
 						}
-						const snapshot =
-							choice.backend === "codex" ? codexExecutionSnapshot(lease.snapshot) : lease.snapshot;
 						if (executionAcquisition) {
-							bindings.set(
-								context.operationId,
-								choice.backend === "codex" ? this.options.codex : native.turnEngine,
-							);
+							bindings.set(context.operationId, {
+								engine: choice.backend === "codex" ? this.options.codex : native.turnEngine,
+								backend: choice.backend,
+							});
 						}
 						return {
 							...lease,
-							snapshot,
+							// Context ownership stays in Kernel. Never project away Context
+							// capabilities before TurnPipeline has assembled/compacted the Turn.
+							snapshot: lease.snapshot,
 							release: async () => {
 								try {
 									await lease.release();
@@ -70,9 +70,17 @@ export class ConversationRuntimeBackendSelection {
 			},
 			turnEngine: {
 				execute: (request) => {
-					const engine = bindings.get(request.turnId);
-					if (!engine) throw new RuntimeBackendError("RUNTIME_BINDING_MISSING");
-					return engine.execute(request);
+					const binding = bindings.get(request.turnId);
+					if (!binding) throw new RuntimeBackendError("RUNTIME_BINDING_MISSING");
+					if (binding.backend === "native") return binding.engine.execute(request);
+					if (!request.contextPlane) throw new RuntimeBackendError("CONTEXT_PLANE_REQUIRED");
+					return binding.engine.execute({
+						...request,
+						// The external loop receives only execution-loop capabilities.
+						// Durable context hooks remain captured by request.contextPlane.
+						snapshot: codexExecutionSnapshot(request.snapshot),
+						checkpoint: undefined,
+					});
 				},
 			},
 		};
@@ -256,12 +264,11 @@ export class ConversationRuntimeBackendSelection {
 }
 
 /**
- * Codex replaces only the execution loop. Vetta keeps the Context Plane:
- * conversation projection, context providers, budgets, transform/finalization,
- * automatic/manual compaction, summaries, observers and composition reporting.
+ * Projection visible to the external Codex loop only.
  *
- * The fields stripped below belong to the Native Agent loop itself. Keeping this
- * boundary explicit lets future context policy changes apply to both backends.
+ * TurnPipeline has already captured the full immutable snapshot inside
+ * request.contextPlane. The loop must not gain a second context owner, so every
+ * context/compaction hook is removed or replaced by a fail-closed sentinel here.
  */
 function codexExecutionSnapshot(snapshot: RuntimeSnapshot): RuntimeSnapshot {
 	return {
@@ -272,5 +279,17 @@ function codexExecutionSnapshot(snapshot: RuntimeSnapshot): RuntimeSnapshot {
 		modelCallFrameComposer: undefined,
 		agentRunPreparer: undefined,
 		continuationPolicy: undefined,
+		contextProviders: [],
+		contextStrategy: {
+			prepare: async () => {
+				throw new RuntimeBackendError("CONTEXT_PLANE_REQUIRED");
+			},
+		},
+		manualCompactionStrategy: undefined,
+		contextSummaryStrategy: undefined,
+		modelCallContextTransformer: undefined,
+		modelCallMessageFinalizer: undefined,
+		conversationContextProjector: undefined,
+		contextCompositionPublisher: undefined,
 	};
 }

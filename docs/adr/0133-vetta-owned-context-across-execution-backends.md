@@ -37,9 +37,14 @@ Native TurnEngine 继续在每次模型调用前使用这些 Runtime hook。Code
 3. model-call message finalizer；
 4. 将最终模型可见消息序列封装为 Codex handoff。
 
-Codex snapshot 只移除 Native loop 专属的 tools、instructions、model-call frame/contribution、AgentRunPreparer 与
-continuation policy；不得移除 Context Plane 能力。手动压缩和 Context Summary 在 Codex 选中时仍由 Vetta 执行，
-也不依赖 Codex 子进程是否可复用。
+后端选择器不得修改 Kernel 获取到的 RuntimeSnapshot。Kernel 始终持有完整 Context Plane，并先完成
+Conversation 投影、Provider 注入、预算、自动/手动 compaction 与 `TurnEngineContextPlane` 绑定。只有真正 dispatch
+到 Codex loop 的最后边界才投影执行快照：移除 Native tools/instructions/frame，同时移除 Context Provider、
+Context Strategy、manual/summary、transform/finalizer 等上下文实现端口。Codex 只能经已绑定的
+`TurnEngineContextPlane` 获得模型可见上下文；缺少该端口时 fail-closed。
+
+因此手动压缩、Context Summary 和后续 Context policy 即使在 Codex 选中时也仍由 Vetta 的完整 snapshot 执行，
+不依赖 Codex 子进程是否可复用。
 
 `runtime-core/kernel/model-call-context` 是两个 loop 共用的 Context Plane 调用边界。TurnPipeline 在 admission
 后创建一个 Turn-bound `RuntimeTurnContextPlane` 并交给执行引擎；Native 与 Codex 只调用

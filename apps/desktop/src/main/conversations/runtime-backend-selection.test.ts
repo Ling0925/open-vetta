@@ -20,9 +20,11 @@ function fixture(validate: () => Promise<void> = async () => {}) {
 	let disposed = 0;
 	let released = 0;
 	const calls: string[] = [];
+	const requests: Array<{ readonly name: string; readonly request: Parameters<TurnEnginePort["execute"]>[0] }> = [];
 	const engine = (name: string): TurnEnginePort => ({
-		async *execute() {
+		async *execute(request) {
 			calls.push(name);
+			requests.push({ name, request });
 			yield { type: "completed", stopReason: "stop" };
 		},
 	});
@@ -67,6 +69,7 @@ function fixture(validate: () => Promise<void> = async () => {}) {
 		original,
 		native,
 		calls,
+		requests,
 		readDocument: () => document,
 		busy: (value: boolean) => {
 			busy = value;
@@ -171,7 +174,7 @@ describe("same-conversation backend ownership", () => {
 		assert.equal(f.readDocument().entries.length, 0);
 		assert.equal(f.counts().disposed, 1);
 	});
-	it("keeps Vetta context management when Codex is selected and permits manual compaction snapshots", async () => {
+	it("keeps the full Vetta Context snapshot in Kernel and strips context ownership only at Codex dispatch", async () => {
 		const f = fixture();
 		const session = await open(f);
 		await f.selection.select("same-session", "codex", "default");
@@ -202,33 +205,65 @@ describe("same-conversation backend ownership", () => {
 			contextSummaryStrategy,
 			modelCallContextTransformer: transformer,
 			modelCallMessageFinalizer: finalizer,
+			conversationContextProjector: {},
+			contextCompositionPublisher: {},
 			toolPolicy: { authorize: async () => true },
 			tokenBudget: 8_000,
 			reservedOutputTokens: 1_000,
 			observers: [],
 		} as unknown as RuntimeSnapshot;
 		const composition = f.compose(source);
-		const lease = await composition.snapshotProvider.acquire({
+		const manualLease = await composition.snapshotProvider.acquire({
 			sessionId: "same-session",
 			operationId: "same-session:manual-compaction",
 			reason: "manual_compaction",
 			signal: new AbortController().signal,
 		});
 		try {
-			assert.equal(lease.snapshot.contextStrategy, contextStrategy);
-			assert.equal(lease.snapshot.contextProviders[0], contextProvider);
-			assert.equal(lease.snapshot.manualCompactionStrategy, manualCompactionStrategy);
-			assert.equal(lease.snapshot.contextSummaryStrategy, contextSummaryStrategy);
-			assert.equal(lease.snapshot.modelCallContextTransformer, transformer);
-			assert.equal(lease.snapshot.modelCallMessageFinalizer, finalizer);
-			assert.equal(lease.snapshot.tools.size, 0);
-			assert.deepEqual(lease.snapshot.instructions, []);
-			assert.deepEqual(lease.snapshot.modelCallProviders, []);
-			assert.equal(lease.snapshot.modelCallFrameComposer, undefined);
-			assert.equal(lease.snapshot.agentRunPreparer, undefined);
-			assert.equal(lease.snapshot.continuationPolicy, undefined);
+			assert.equal(manualLease.snapshot, source);
+			assert.equal(manualLease.snapshot.contextStrategy, contextStrategy);
+			assert.equal(manualLease.snapshot.tools.size, 1);
+			assert.equal(manualLease.snapshot.instructions.length, 1);
 		} finally {
-			await lease.release();
+			await manualLease.release();
+		}
+
+		const signal = new AbortController().signal;
+		const turnLease = await composition.snapshotProvider.acquire({
+			sessionId: "same-session",
+			operationId: "turn-context-owner",
+			reason: "turn",
+			signal,
+		});
+		const contextPlane = { prepareModelCall: async () => ({ messages: [] }) };
+		try {
+			for await (const _event of composition.turnEngine.execute({
+				sessionId: "same-session",
+				turnId: "turn-context-owner",
+				signal,
+				messages: [],
+				snapshot: turnLease.snapshot,
+				contextPlane,
+			})) {
+				/* Drain selected Codex engine. */
+			}
+			const delivered = f.requests.at(-1);
+			assert.equal(delivered?.name, "codex");
+			assert.equal(delivered?.request.contextPlane, contextPlane);
+			assert.equal(delivered?.request.checkpoint, undefined);
+			assert.equal(delivered?.request.snapshot.tools.size, 0);
+			assert.deepEqual(delivered?.request.snapshot.instructions, []);
+			assert.deepEqual(delivered?.request.snapshot.contextProviders, []);
+			assert.equal(delivered?.request.snapshot.manualCompactionStrategy, undefined);
+			assert.equal(delivered?.request.snapshot.contextSummaryStrategy, undefined);
+			assert.equal(delivered?.request.snapshot.modelCallContextTransformer, undefined);
+			assert.equal(delivered?.request.snapshot.modelCallMessageFinalizer, undefined);
+			await assert.rejects(
+				delivered!.request.snapshot.contextStrategy.prepare({} as never, signal),
+				{ code: "CONTEXT_PLANE_REQUIRED" },
+			);
+		} finally {
+			await turnLease.release();
 			await session.lifecycle.dispose();
 		}
 	});
@@ -254,6 +289,7 @@ describe("same-conversation backend ownership", () => {
 				signal,
 				messages: [],
 				snapshot: { ...lease.snapshot },
+				contextPlane: { prepareModelCall: async () => ({ messages: [] }) },
 			})) {
 				/* Drain actual selected engine. */
 			}
