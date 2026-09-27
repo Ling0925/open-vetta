@@ -34,6 +34,26 @@ afterEach(() => {
 });
 
 describe("ModelSelectorView", () => {
+	it("stays closed and exposes native disabled semantics when configuration is temporarily read-only", async () => {
+		const user = userEvent.setup();
+		render(
+			<ModelSelectorView
+				disabled
+				selectedModel="provider/alpha"
+				selectedOption={{ key: "provider/alpha", provider: "provider", modelId: "alpha", displayName: "Alpha" }}
+				menuLevels={[]}
+				groups={[]}
+				labels={labels}
+				onModelSelect={vi.fn()}
+				onReasoningSelect={vi.fn()}
+			/>,
+		);
+		const trigger = screen.getByRole("button", { name: "Alpha" });
+		expect(trigger).toBeDisabled();
+		await user.click(trigger);
+		expect(screen.queryByRole("searchbox", { name: "Search models" })).toBeNull();
+	});
+
 	it("opens, searches and selects without locking the surrounding document", async () => {
 		const user = userEvent.setup();
 		const onModelSelect = vi.fn();

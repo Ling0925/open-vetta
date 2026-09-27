@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { SELECTED_MODEL_STORAGE_KEY, selectedModelAtom } from "@shared/store/atoms";
+import { pendingSessionOpenAtom, SELECTED_MODEL_STORAGE_KEY, selectedModelAtom } from "@shared/store/atoms";
 import { act, renderHook } from "@testing-library/react";
 import { createStore, Provider } from "jotai";
 import type { ReactNode } from "react";
@@ -60,4 +60,23 @@ it("remembers a model picked in a scoped composer as the global new-session pref
 	expect(scope.onModelSelect).toHaveBeenCalledWith("cli-proxy-api.google/gemini-3.8-flash-high", undefined);
 	expect(store.get(selectedModelAtom)).toBe("cli-proxy-api.google/gemini-3.8-flash-high");
 	expect(localStorage.getItem(SELECTED_MODEL_STORAGE_KEY)).toBe("cli-proxy-api.google/gemini-3.8-flash-high");
+});
+
+
+it("keeps the ordinary model selector read-only while an existing session Runtime is restoring", () => {
+	const store = createStore();
+	store.set(selectedModelAtom, "cli-proxy-api.responses/gpt-5.5");
+	store.set(pendingSessionOpenAtom, {
+		cwd: "/repo/a",
+		sessionPath: "/sessions/target.jsonl",
+		interactionId: "open-target",
+	});
+	const wrapper = ({ children }: { children: ReactNode }) => <Provider store={store}>{children}</Provider>;
+	const { result } = renderHook(() => useModelSelectorModel({ updateActiveSession: true }), { wrapper });
+
+	expect(result.current.viewProps.disabled).toBe(true);
+	act(() => result.current.viewProps.onModelSelect("cli-proxy-api.google/gemini-3.8-flash-high"));
+
+	expect(store.get(selectedModelAtom)).toBe("cli-proxy-api.responses/gpt-5.5");
+	expect(localStorage.getItem(SELECTED_MODEL_STORAGE_KEY)).toBeNull();
 });

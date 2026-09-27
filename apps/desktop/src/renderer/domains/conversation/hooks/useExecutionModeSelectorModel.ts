@@ -1,6 +1,7 @@
 import {
 	activeSessionAtom,
 	isStreamingAtom,
+	pendingSessionOpenAtom,
 	type SessionExecutionMode,
 	sessionExecutionModeAtom,
 } from "@shared/store/atoms";
@@ -31,12 +32,14 @@ export interface ExecutionModeSelectorBinding {
 	readonly cwd?: string | null;
 	readonly mode: SessionExecutionMode;
 	readonly isStreaming: boolean;
+	readonly disabled?: boolean;
 	readonly onSelectMode: (mode: SessionExecutionMode) => Promise<void> | void;
 }
 
 export function useDefaultExecutionModeSelectorModel(): ExecutionModeSelectorViewProps {
 	const activeSession = useAtomValue(activeSessionAtom);
 	const isStreaming = useAtomValue(isStreamingAtom);
+	const pendingSessionOpen = useAtomValue(pendingSessionOpenAtom);
 	const [mode, setMode] = useAtom(sessionExecutionModeAtom);
 	const onSelectMode = useCallback(
 		async (nextMode: SessionExecutionMode) => {
@@ -65,7 +68,13 @@ export function useDefaultExecutionModeSelectorModel(): ExecutionModeSelectorVie
 	);
 	const search = useSearch({ strict: false }) as { cwd?: string };
 	const cwd = activeSession?.cwd ?? (search.cwd ? decodeURIComponent(search.cwd) : null);
-	return useExecutionModeSelectorModel({ cwd, mode, isStreaming, onSelectMode });
+	return useExecutionModeSelectorModel({
+		cwd,
+		mode,
+		isStreaming,
+		disabled: pendingSessionOpen !== null,
+		onSelectMode,
+	});
 }
 
 export function useExecutionModeSelectorModel(binding: ExecutionModeSelectorBinding): ExecutionModeSelectorViewProps {
@@ -73,7 +82,7 @@ export function useExecutionModeSelectorModel(binding: ExecutionModeSelectorBind
 	const [open, setOpen] = useState(false);
 	const [isSwitching, setIsSwitching] = useState(false);
 	const [sandboxUnavailableReason, setSandboxUnavailableReason] = useState<string | null>(null);
-	const disabled = binding.isStreaming || isSwitching;
+	const disabled = binding.disabled === true || binding.isStreaming || isSwitching;
 	const isRemoteProject = typeof binding.cwd === "string" && isSshProjectUri(binding.cwd);
 	const effectiveMode: SessionExecutionMode = isRemoteProject ? "full-access" : binding.mode;
 

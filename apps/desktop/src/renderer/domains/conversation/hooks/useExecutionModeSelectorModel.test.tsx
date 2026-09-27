@@ -1,14 +1,22 @@
 // @vitest-environment jsdom
+import { pendingSessionOpenAtom, sessionExecutionModeAtom } from "@shared/store/atoms";
 import { act, renderHook, waitFor } from "@testing-library/react";
+import { createStore, Provider } from "jotai";
+import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { useExecutionModeSelectorModel } from "./useExecutionModeSelectorModel";
+import {
+	useDefaultExecutionModeSelectorModel,
+	useExecutionModeSelectorModel,
+} from "./useExecutionModeSelectorModel";
 
 vi.mock("react-i18next", () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
+vi.mock("@tanstack/react-router", () => ({ useSearch: () => ({}) }));
 
 describe("执行模式选择器", () => {
 	beforeEach(() => {
 		(window as unknown as { vetta: unknown }).vetta = {
 			config: { get: vi.fn(async () => ({ sandbox: { status: "available" } })) },
+			session: { setExecutionMode: vi.fn(async () => undefined) },
 		};
 	});
 
@@ -34,6 +42,24 @@ describe("执行模式选择器", () => {
 
 		act(() => result.current.onSelect("sandbox"));
 		expect(onSelectMode).not.toHaveBeenCalled();
+	});
+
+	it("已有会话 Runtime 恢复期间禁用模式切换，不会误写新会话默认值", async () => {
+		const store = createStore();
+		store.set(sessionExecutionModeAtom, "sandbox");
+		store.set(pendingSessionOpenAtom, {
+			cwd: "/repo/a",
+			sessionPath: "/sessions/target.jsonl",
+			interactionId: "open-target",
+		});
+		const wrapper = ({ children }: { children: ReactNode }) => <Provider store={store}>{children}</Provider>;
+		const { result } = renderHook(() => useDefaultExecutionModeSelectorModel(), { wrapper });
+		await waitFor(() => expect(result.current.disabled).toBe(true));
+
+		act(() => result.current.onSelect("full-access"));
+		expect(store.get(sessionExecutionModeAtom)).toBe("sandbox");
+		expect(localStorage.getItem("vetta-session-execution-mode")).toBeNull();
+		expect(window.vetta.session.setExecutionMode).not.toHaveBeenCalled();
 	});
 
 	it("本地项目照常可以在两种模式间切换", async () => {

@@ -3,6 +3,7 @@ import { type ModelOption, useModelOptions } from "@shared/components/ModelSelec
 import {
 	activeSessionAtom,
 	modelSupportsImagesAtom,
+	pendingSessionOpenAtom,
 	reasoningByModelAtom,
 	SELECTED_MODEL_STORAGE_KEY,
 	selectedModelAtom,
@@ -65,8 +66,10 @@ export function useModelSelectorModel({
 	const [reasoningByModel, setReasoningByModel] = useAtom(reasoningByModelAtom);
 	const selectedModel = scope ? scope.modelKey : globalSelectedModel;
 	const activeSession = useAtomValue(activeSessionAtom);
+	const pendingSessionOpen = useAtomValue(pendingSessionOpenAtom);
 	const setModelSupportsImages = useSetAtom(modelSupportsImagesAtom);
 	const { options, grouped, defaultKey, iconFor, labelFor } = useModelOptions();
+	const disabled = !scope && updateActiveSession && activeSession === null && pendingSessionOpen !== null;
 
 	const catalogOption = useMemo(() => options.find((m) => m.key === selectedModel) ?? null, [options, selectedModel]);
 	// 有 key 但 catalog 未就绪时仍展示 modelId，避免闪「选择模型」。
@@ -135,6 +138,7 @@ export function useModelSelectorModel({
 
 	const handleModelSelect = useCallback(
 		(key: string) => {
+			if (disabled) return;
 			if (scope) {
 				const defaultReasoning = resolveReasoning(options.find((option) => option.key === key))?.default;
 				scope.onModelSelect(key, defaultReasoning);
@@ -148,7 +152,7 @@ export function useModelSelectorModel({
 				void window.vetta.session.updateSettings(activeSession.runtimeId, { modelKey: key });
 			}
 		},
-		[setSelectedModel, activeSession, updateActiveSession, scope, options],
+		[setSelectedModel, activeSession, updateActiveSession, scope, options, disabled],
 	);
 
 	/**
@@ -168,22 +172,24 @@ export function useModelSelectorModel({
 
 	// 打开模型菜单时按 TTL 后台重校验目录，服务端增删模型无需重启即可看到。
 	const handleOpenChange = useCallback((open: boolean) => {
+		if (disabled) return;
 		if (open) void modelCatalog.revalidate();
-	}, []);
+	}, [disabled]);
 
 	const handleReasoningSelect = useCallback(
 		(value: string) => {
-			if (!selectedModel) return;
+			if (disabled || !selectedModel) return;
 			if (scope) scope.onReasoningSelect(value);
 			else setReasoningByModel({ ...reasoningByModel, [selectedModel]: value });
 		},
-		[selectedModel, reasoningByModel, setReasoningByModel, scope],
+		[selectedModel, reasoningByModel, setReasoningByModel, scope, disabled],
 	);
 
 	return {
 		// 已有选中 key 时即使 options 还在加载也展示触发器，避免空白/占位闪烁。
 		empty: options.length === 0 && !selectedModel,
 		viewProps: {
+			disabled,
 			currentLevel,
 			defaultKey,
 			groups: [...grouped.entries()].map(([provider, models]) => ({

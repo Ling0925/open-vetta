@@ -66,6 +66,7 @@ export interface ModelSelectorProviderGroup {
 }
 
 export interface ModelSelectorViewProps {
+	disabled?: boolean;
 	selectedModel?: string;
 	selectedOption: ModelSelectorOptionView | null;
 	currentLevel?: string;
@@ -98,6 +99,7 @@ function normalizeSearchValue(value: string): string {
 }
 
 export function ModelSelectorView({
+	disabled = false,
 	selectedModel,
 	selectedOption,
 	currentLevel,
@@ -137,6 +139,7 @@ export function ModelSelectorView({
 
 	const handleOpenChange = useCallback(
 		(nextOpen: boolean) => {
+			if (disabled && nextOpen) return;
 			setOpen(nextOpen);
 			if (!nextOpen) {
 				setReasoningOpen(false);
@@ -144,8 +147,12 @@ export function ModelSelectorView({
 			}
 			onOpenChange?.(nextOpen);
 		},
-		[onOpenChange],
+		[disabled, onOpenChange],
 	);
+
+	useEffect(() => {
+		if (disabled && open) handleOpenChange(false);
+	}, [disabled, handleOpenChange, open]);
 
 	useEffect(() => {
 		if (!open) return;
@@ -200,10 +207,11 @@ export function ModelSelectorView({
 			<DropdownMenuTrigger asChild>
 				<button
 					type="button"
+					disabled={disabled}
 					title={selectedOption?.displayName ?? labels.placeholder}
 					className={cn(
 						// 输入卡 @container：窄宽缩短模型名、藏推理档，避免工具栏换行
-						"flex min-w-0 max-w-[5.5rem] items-center gap-1 rounded-full border border-transparent px-1.5 py-0.5 text-[11px] text-foreground transition-colors focus:outline-none focus-visible:outline-none data-[state=open]:bg-accent/60 data-[state=open]:text-foreground @[22rem]:max-w-[9rem] @[28rem]:max-w-[13rem]",
+						"flex min-w-0 max-w-[5.5rem] items-center gap-1 rounded-full border border-transparent px-1.5 py-0.5 text-[11px] text-foreground transition-colors focus:outline-none focus-visible:outline-none data-[state=open]:bg-accent/60 data-[state=open]:text-foreground disabled:cursor-not-allowed disabled:opacity-60 @[22rem]:max-w-[9rem] @[28rem]:max-w-[13rem]",
 						className,
 						classNames?.trigger,
 					)}
