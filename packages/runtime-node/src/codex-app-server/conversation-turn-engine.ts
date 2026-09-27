@@ -1,6 +1,12 @@
 import type { Message } from "@vetta/ai";
 import type { RuntimeSessionObservationEvent } from "@vetta/runtime-core";
-import type { TurnEngineEvent, TurnEnginePort, TurnEngineRequest } from "@vetta/runtime-core/kernel";
+import {
+	finalizeRuntimeModelCallMessages,
+	prepareRuntimeModelCallCheckpoint,
+	type TurnEngineEvent,
+	type TurnEnginePort,
+	type TurnEngineRequest,
+} from "@vetta/runtime-core/kernel";
 import { codexConversationInput } from "./conversation-context.js";
 import type { CodexHostEvent } from "./host-contracts.js";
 import { CodexHostProjection } from "./host-projection.js";
@@ -62,55 +68,28 @@ export class CodexConversationTurnEngine implements TurnEnginePort {
 		request: TurnEngineRequest,
 		signal: AbortSignal,
 	): Promise<TurnEngineRequest> {
-		signal.throwIfAborted();
-		let messages = [...request.messages];
-		let contextMessages = request.contextMessages;
-
-		if (request.snapshot.modelCallContextTransformer && request.modelBinding) {
-			messages = [
-				...(await request.snapshot.modelCallContextTransformer.transform(
-					{
-						sessionId: request.sessionId,
-						turnId: request.turnId,
-						messages,
-						...(contextMessages ? { messageEnvelopes: contextMessages } : {}),
-						modelBinding: request.modelBinding,
-					},
-					signal,
-				)),
-			];
-			signal.throwIfAborted();
-		}
-
-		const checkpoint = await request.checkpoint?.(
-			{
-				reason: "model_call",
-				messages,
-				modelCallIndex: 0,
-				recoveryAttempt: 0,
-			},
+		const checkpoint = await prepareRuntimeModelCallCheckpoint({
+			sessionId: request.sessionId,
+			turnId: request.turnId,
+			snapshot: request.snapshot,
+			modelBinding: request.modelBinding,
+			checkpoint: request.checkpoint,
+			messages: request.messages,
+			...(request.contextMessages ? { messageEnvelopes: request.contextMessages } : {}),
+			reason: "model_call",
+			modelCallIndex: 0,
+			recoveryAttempt: 0,
 			signal,
-		);
-		signal.throwIfAborted();
-		if (checkpoint) {
-			messages = [...checkpoint.messages];
-			if (checkpoint.contextMessageEnvelopes) contextMessages = checkpoint.contextMessageEnvelopes;
-		}
-
-		if (request.snapshot.modelCallMessageFinalizer && request.modelBinding) {
-			messages = [
-				...(await request.snapshot.modelCallMessageFinalizer.finalize(
-					{
-						sessionId: request.sessionId,
-						turnId: request.turnId,
-						messages,
-						modelBinding: request.modelBinding,
-					},
-					signal,
-				)),
-			];
-			signal.throwIfAborted();
-		}
+		});
+		const contextMessages = checkpoint?.contextMessageEnvelopes ?? request.contextMessages;
+		const messages = await finalizeRuntimeModelCallMessages({
+			sessionId: request.sessionId,
+			turnId: request.turnId,
+			snapshot: request.snapshot,
+			modelBinding: request.modelBinding,
+			messages: checkpoint?.messages ?? request.messages,
+			signal,
+		});
 
 		return {
 			...request,

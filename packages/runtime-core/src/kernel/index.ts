@@ -194,6 +194,12 @@ export {
 	type RuntimeInputReconciliation,
 	type RuntimeInputTerminalState,
 } from "./input-admission.js";
+export {
+	finalizeRuntimeModelCallMessages,
+	type RuntimeModelCallCheckpointInput,
+	type RuntimeModelCallFinalizationInput,
+	prepareRuntimeModelCallCheckpoint,
+} from "./model-call-context.js";
 export { composeModelCallSystemPrompt, resolveModelCallFrame } from "./model-call-frame.js";
 export {
 	type CompiledPromptCacheLayout,

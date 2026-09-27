@@ -45,6 +45,10 @@ import type {
 	TurnEngineRequest,
 } from "./contracts.js";
 import { KERNEL_ERROR_CODES, TurnExecutionError, turnProtocolError } from "./errors.js";
+import {
+	finalizeRuntimeModelCallMessages,
+	prepareRuntimeModelCallCheckpoint,
+} from "./model-call-context.js";
 import { withPromptCacheDiagnostics } from "./model-call-diagnostics.js";
 import { composeModelCallSystemPrompt, resolveModelCallFrame } from "./model-call-frame.js";
 import { consumeQueuedInputBatch } from "./queued-input-consumption.js";
@@ -170,22 +174,17 @@ export class StatelessAgentCoreTurnEngine implements TurnEnginePort {
 				if (!frame) throw turnProtocolError(`Missing model-call frame at index ${modelCallIndex}`);
 				currentFrame = frame;
 				const runtimeMessages = toRuntimeMessages(callMessages, identities);
-				const finalizedMessages = request.snapshot.modelCallMessageFinalizer
-					? [
-							...(await request.snapshot.modelCallMessageFinalizer.finalize(
-								{
-									sessionId: request.sessionId,
-									turnId: request.turnId,
-									messages: runtimeMessages,
-									modelBinding: request.modelBinding ?? {
-										model,
-										reasoning: this.options.streamOptions?.reasoning,
-									},
-								},
-								signal,
-							)),
-						]
-					: runtimeMessages;
+				const finalizedMessages = await finalizeRuntimeModelCallMessages({
+					sessionId: request.sessionId,
+					turnId: request.turnId,
+					snapshot: request.snapshot,
+					modelBinding: request.modelBinding ?? {
+						model,
+						reasoning: this.options.streamOptions?.reasoning,
+					},
+					messages: runtimeMessages,
+					signal,
+				});
 				// instructionOverride 替换整段 Prompt，Frame 上算出的稳定前缀长度随即失效，必须丢弃。
 				const stableLength = request.instructionOverride ? 0 : frame.systemPromptStableLength;
 				const promptCacheSystemPromptBlocks = request.instructionOverride
@@ -270,37 +269,24 @@ export class StatelessAgentCoreTurnEngine implements TurnEnginePort {
 				request.checkpoint || request.snapshot.modelCallContextTransformer
 					? async (checkpointRequest, signal) => {
 							await eventDelivery.waitForCurrentDelivery(signal);
-							let checkpointMessages = toRuntimeMessages(checkpointRequest.messages, identities);
-							if (checkpointRequest.reason === "model_call" && request.snapshot.modelCallContextTransformer) {
-								checkpointMessages = [
-									...(await request.snapshot.modelCallContextTransformer.transform(
-										{
-											sessionId: request.sessionId,
-											turnId: request.turnId,
-											messages: checkpointMessages,
-											messageEnvelopes: toRuntimeMessageEnvelopes(checkpointRequest.messages, identities),
-											modelBinding: request.modelBinding ?? {
-												model,
-												reasoning: this.options.streamOptions?.reasoning,
-											},
-										},
-										signal,
-									)),
-								];
-							}
-							const result = await request.checkpoint?.(
-								{
-									reason: checkpointRequest.reason,
-									messages: checkpointMessages,
-									modelCallIndex: checkpointRequest.modelCallIndex,
-									assistantMessage: checkpointRequest.assistantMessage,
-									recoveryAttempt: checkpointRequest.recoveryAttempt,
+							const result = await prepareRuntimeModelCallCheckpoint({
+								sessionId: request.sessionId,
+								turnId: request.turnId,
+								snapshot: request.snapshot,
+								modelBinding: request.modelBinding ?? {
+									model,
+									reasoning: this.options.streamOptions?.reasoning,
 								},
+								checkpoint: request.checkpoint,
+								messages: toRuntimeMessages(checkpointRequest.messages, identities),
+								messageEnvelopes: toRuntimeMessageEnvelopes(checkpointRequest.messages, identities),
+								reason: checkpointRequest.reason,
+								modelCallIndex: checkpointRequest.modelCallIndex,
+								assistantMessage: checkpointRequest.assistantMessage,
+								recoveryAttempt: checkpointRequest.recoveryAttempt,
 								signal,
-							);
-							if (!result) {
-								return checkpointRequest.reason === "model_call" ? { messages: checkpointMessages } : undefined;
-							}
+							});
+							if (!result) return undefined;
 							return {
 								messages: result.messages,
 								contextMessages: result.contextMessageEnvelopes
