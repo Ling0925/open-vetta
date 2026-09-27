@@ -106,6 +106,7 @@ export type {
 	RuntimeInputRequestPreparationContext,
 	RuntimeInputRequestPreparationResult,
 	RuntimeInputRequestPreparer,
+	RuntimeModelCallContextRequest,
 	RuntimeSessionObservationEnvelope,
 	RuntimeSnapshot,
 	RuntimeSnapshotAcquireContext,
@@ -116,6 +117,7 @@ export type {
 	RuntimeToolExecutionRequest,
 	RuntimeToolResult,
 	RuntimeToolTurnBinding,
+	RuntimeTurnContextPlane,
 	RuntimeTurnCredentialBinding,
 	RuntimeTurnModelBinding,
 	RuntimeTurnModelBindingProvider,
@@ -195,9 +197,13 @@ export {
 	type RuntimeInputTerminalState,
 } from "./input-admission.js";
 export {
+	createRuntimeTurnContextPlane,
 	finalizeRuntimeModelCallMessages,
+	prepareRuntimeModelCallContext,
 	type RuntimeModelCallCheckpointInput,
+	type RuntimeModelCallContextInput,
 	type RuntimeModelCallFinalizationInput,
+	type RuntimeTurnContextPlaneOptions,
 	prepareRuntimeModelCallCheckpoint,
 } from "./model-call-context.js";
 export { composeModelCallSystemPrompt, resolveModelCallFrame } from "./model-call-frame.js";

@@ -174,17 +174,19 @@ export class StatelessAgentCoreTurnEngine implements TurnEnginePort {
 				if (!frame) throw turnProtocolError(`Missing model-call frame at index ${modelCallIndex}`);
 				currentFrame = frame;
 				const runtimeMessages = toRuntimeMessages(callMessages, identities);
-				const finalizedMessages = await finalizeRuntimeModelCallMessages({
-					sessionId: request.sessionId,
-					turnId: request.turnId,
-					snapshot: request.snapshot,
-					modelBinding: request.modelBinding ?? {
-						model,
-						reasoning: this.options.streamOptions?.reasoning,
-					},
-					messages: runtimeMessages,
-					signal,
-				});
+				const finalizedMessages = request.contextPlane
+					? runtimeMessages
+					: await finalizeRuntimeModelCallMessages({
+							sessionId: request.sessionId,
+							turnId: request.turnId,
+							snapshot: request.snapshot,
+							modelBinding: request.modelBinding ?? {
+								model,
+								reasoning: this.options.streamOptions?.reasoning,
+							},
+							messages: runtimeMessages,
+							signal,
+						});
 				// instructionOverride 替换整段 Prompt，Frame 上算出的稳定前缀长度随即失效，必须丢弃。
 				const stableLength = request.instructionOverride ? 0 : frame.systemPromptStableLength;
 				const promptCacheSystemPromptBlocks = request.instructionOverride
@@ -266,26 +268,40 @@ export class StatelessAgentCoreTurnEngine implements TurnEnginePort {
 				},
 			},
 			checkpoint:
-				request.checkpoint || request.snapshot.modelCallContextTransformer
+				request.contextPlane || request.checkpoint || request.snapshot.modelCallContextTransformer
 					? async (checkpointRequest, signal) => {
 							await eventDelivery.waitForCurrentDelivery(signal);
-							const result = await prepareRuntimeModelCallCheckpoint({
-								sessionId: request.sessionId,
-								turnId: request.turnId,
-								snapshot: request.snapshot,
-								modelBinding: request.modelBinding ?? {
-									model,
-									reasoning: this.options.streamOptions?.reasoning,
-								},
-								checkpoint: request.checkpoint,
-								messages: toRuntimeMessages(checkpointRequest.messages, identities),
-								messageEnvelopes: toRuntimeMessageEnvelopes(checkpointRequest.messages, identities),
-								reason: checkpointRequest.reason,
-								modelCallIndex: checkpointRequest.modelCallIndex,
-								assistantMessage: checkpointRequest.assistantMessage,
-								recoveryAttempt: checkpointRequest.recoveryAttempt,
-								signal,
-							});
+							const runtimeMessages = toRuntimeMessages(checkpointRequest.messages, identities);
+							const messageEnvelopes = toRuntimeMessageEnvelopes(checkpointRequest.messages, identities);
+							const result = request.contextPlane
+								? await request.contextPlane.prepareModelCall(
+										{
+											reason: checkpointRequest.reason,
+											messages: runtimeMessages,
+											messageEnvelopes,
+											modelCallIndex: checkpointRequest.modelCallIndex,
+											assistantMessage: checkpointRequest.assistantMessage,
+											recoveryAttempt: checkpointRequest.recoveryAttempt,
+										},
+										signal,
+									)
+								: await prepareRuntimeModelCallCheckpoint({
+										sessionId: request.sessionId,
+										turnId: request.turnId,
+										snapshot: request.snapshot,
+										modelBinding: request.modelBinding ?? {
+											model,
+											reasoning: this.options.streamOptions?.reasoning,
+										},
+										checkpoint: request.checkpoint,
+										messages: runtimeMessages,
+										messageEnvelopes,
+										reason: checkpointRequest.reason,
+										modelCallIndex: checkpointRequest.modelCallIndex,
+										assistantMessage: checkpointRequest.assistantMessage,
+										recoveryAttempt: checkpointRequest.recoveryAttempt,
+										signal,
+									});
 							if (!result) return undefined;
 							return {
 								messages: result.messages,

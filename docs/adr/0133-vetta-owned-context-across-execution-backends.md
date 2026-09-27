@@ -41,9 +41,11 @@ Codex snapshot 只移除 Native loop 专属的 tools、instructions、model-call
 continuation policy；不得移除 Context Plane 能力。手动压缩和 Context Summary 在 Codex 选中时仍由 Vetta 执行，
 也不依赖 Codex 子进程是否可复用。
 
-`runtime-core/kernel/model-call-context` 是两个 loop 共用的 Context Plane 调用边界：transform 与 durable checkpoint
-的先后顺序、以及 checkpoint 后的 finalization 不允许在某个后端适配器里复制实现。以后新增 context filtering、
-预算策略或 finalization 阶段时，应优先扩展这个通用边界，再由不同 TurnEngine 消费结果。
+`runtime-core/kernel/model-call-context` 是两个 loop 共用的 Context Plane 调用边界。TurnPipeline 在 admission
+后创建一个 Turn-bound `RuntimeTurnContextPlane` 并交给执行引擎；Native 与 Codex 只调用
+`prepareModelCall()`，不直接拥有 transform → durable checkpoint/compaction → finalization 的排序。
+旧 `checkpoint` 端口仅作为兼容边界保留。以后新增 context filtering、预算策略、长期记忆或 finalization
+阶段时，应优先扩展这个通用端口，而不是在不同 TurnEngine 里复制实现。
 
 ## 边界
 

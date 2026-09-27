@@ -68,28 +68,41 @@ export class CodexConversationTurnEngine implements TurnEnginePort {
 		request: TurnEngineRequest,
 		signal: AbortSignal,
 	): Promise<TurnEngineRequest> {
-		const checkpoint = await prepareRuntimeModelCallCheckpoint({
-			sessionId: request.sessionId,
-			turnId: request.turnId,
-			snapshot: request.snapshot,
-			modelBinding: request.modelBinding,
-			checkpoint: request.checkpoint,
-			messages: request.messages,
-			...(request.contextMessages ? { messageEnvelopes: request.contextMessages } : {}),
-			reason: "model_call",
-			modelCallIndex: 0,
-			recoveryAttempt: 0,
-			signal,
-		});
+		const checkpoint = request.contextPlane
+			? await request.contextPlane.prepareModelCall(
+					{
+						reason: "model_call",
+						messages: request.messages,
+						...(request.contextMessages ? { messageEnvelopes: request.contextMessages } : {}),
+						modelCallIndex: 0,
+						recoveryAttempt: 0,
+					},
+					signal,
+				)
+			: await prepareRuntimeModelCallCheckpoint({
+					sessionId: request.sessionId,
+					turnId: request.turnId,
+					snapshot: request.snapshot,
+					modelBinding: request.modelBinding,
+					checkpoint: request.checkpoint,
+					messages: request.messages,
+					...(request.contextMessages ? { messageEnvelopes: request.contextMessages } : {}),
+					reason: "model_call",
+					modelCallIndex: 0,
+					recoveryAttempt: 0,
+					signal,
+				});
 		const contextMessages = checkpoint?.contextMessageEnvelopes ?? request.contextMessages;
-		const messages = await finalizeRuntimeModelCallMessages({
-			sessionId: request.sessionId,
-			turnId: request.turnId,
-			snapshot: request.snapshot,
-			modelBinding: request.modelBinding,
-			messages: checkpoint?.messages ?? request.messages,
-			signal,
-		});
+		const messages = request.contextPlane
+			? (checkpoint?.messages ?? request.messages)
+			: await finalizeRuntimeModelCallMessages({
+					sessionId: request.sessionId,
+					turnId: request.turnId,
+					snapshot: request.snapshot,
+					modelBinding: request.modelBinding,
+					messages: checkpoint?.messages ?? request.messages,
+					signal,
+				});
 
 		return {
 			...request,

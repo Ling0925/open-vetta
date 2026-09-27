@@ -50,6 +50,7 @@ import {
 	turnProtocolError,
 } from "./errors.js";
 import { lookupRuntimeInputAdmission } from "./input-admission.js";
+import { createRuntimeTurnContextPlane } from "./model-call-context.js";
 import { composeModelCallSystemPrompt, resolveModelCallFrame } from "./model-call-frame.js";
 import {
 	projectRuntimeMessageEnvelope,
@@ -521,6 +522,31 @@ export class TurnPipeline {
 				instructionOverride = preparationResult?.instructionOverride;
 			}
 
+			const durableCheckpoint = async (
+				request: TurnEngineContextCheckpointRequest,
+				checkpointSignal: AbortSignal,
+			) =>
+				await this.prepareContextCheckpoint({
+					turnId,
+					snapshot,
+					modelBinding,
+					providerMessages,
+					compactionSourceDocument:
+						request.reason === "model_call" && (request.modelCallIndex ?? 0) === 0
+							? conversationDocument
+							: undefined,
+					request,
+					state,
+					signal: checkpointSignal,
+				});
+			const contextPlane = createRuntimeTurnContextPlane({
+				getSessionId: () => state.sessionId,
+				turnId,
+				snapshot,
+				modelBinding,
+				checkpoint: durableCheckpoint,
+			});
+
 			await this.enterStage(state.sessionId, turnId, "execution");
 			let stopReason: StopReason | undefined;
 			let assistantErrorMessage: string | undefined;
@@ -541,6 +567,7 @@ export class TurnPipeline {
 				signal,
 				inputQueue,
 				input,
+				contextPlane,
 				appendQueuedContext: async (records) => {
 					const timestamp = this.clock.now();
 					await this.append(
@@ -555,20 +582,8 @@ export class TurnPipeline {
 						})),
 					);
 				},
-				checkpoint: async (request, checkpointSignal) =>
-					await this.prepareContextCheckpoint({
-						turnId,
-						snapshot,
-						modelBinding,
-						providerMessages,
-						compactionSourceDocument:
-							request.reason === "model_call" && (request.modelCallIndex ?? 0) === 0
-								? conversationDocument
-								: undefined,
-						request,
-						state,
-						signal: checkpointSignal,
-					}),
+				// Legacy port retained for older TurnEngine implementations. New loops consume contextPlane.
+				checkpoint: durableCheckpoint,
 			})) {
 				if (stopReason) {
 					throw turnProtocolError("Turn engine emitted an event after completion");

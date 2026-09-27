@@ -939,6 +939,28 @@ export interface TurnObserver {
 	observe(event: StoredSessionEvent, signal: AbortSignal): Promise<void>;
 }
 
+export interface RuntimeModelCallContextRequest {
+	readonly reason: "model_call" | "assistant_result" | "assistant_error";
+	readonly messages: readonly Message[];
+	readonly messageEnvelopes?: readonly RuntimeMessageEnvelope[];
+	readonly modelCallIndex?: number;
+	readonly assistantMessage?: AssistantMessage;
+	readonly recoveryAttempt: number;
+}
+
+/**
+ * Vetta-owned Context Plane consumed by execution loops.
+ *
+ * Backends ask for model-visible context through this port instead of directly
+ * sequencing transformers, durable compaction/checkpoints and finalizers.
+ */
+export interface RuntimeTurnContextPlane {
+	prepareModelCall(
+		request: RuntimeModelCallContextRequest,
+		signal: AbortSignal,
+	): Promise<TurnEngineContextCheckpointResult | undefined>;
+}
+
 export interface TurnEngineRequest {
 	readonly sessionId: string;
 	readonly turnId: string;
@@ -958,6 +980,8 @@ export interface TurnEngineRequest {
 	readonly signal: AbortSignal;
 	readonly inputQueue?: TurnInputQueue;
 	readonly input?: SessionInput;
+	/** Backend-neutral Vetta Context Plane. New execution loops should prefer this over checkpoint. */
+	readonly contextPlane?: RuntimeTurnContextPlane;
 	/** Engine 消费流式队列上下文时，必须先交回 Pipeline 持久化。 */
 	appendQueuedContext?(records: readonly SessionContextRecord[]): Promise<void>;
 	/** 模型调用边界的持久化/压缩请求，沿普通异步调用栈完成。 */
