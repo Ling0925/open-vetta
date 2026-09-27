@@ -409,6 +409,11 @@ export function useSessionOpener(): SessionOpenerController {
 				markSessionSwitch("session-create-end");
 			} catch (error) {
 				previewClosed = true;
+				if (myOpenToken !== getOpenSessionToken()) {
+					markSessionSwitch("session-create-failed-superseded");
+					finishCancelledOpen();
+					return;
+				}
 				perfSendMark("session-create-failed", interactionId);
 				markSessionSwitch("session-create-failed");
 				if (isExistingSessionOpen) perfSessionSwitchComplete("failed", interactionId);
