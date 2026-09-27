@@ -14,7 +14,7 @@ export interface WorkspaceSession {
 	id: string;
 	snapshot(): Pick<CodexWorkspaceSnapshot, "rows" | "hasEarlierRows"> & { recovery: boolean };
 	subscribe(listener: () => void): () => void;
-	prompt(text: string): Promise<{ status: "completed" | "cancelled" | "failed"; errorCode?: string }>;
+	prompt(text: string, inputId: string): Promise<{ status: "completed" | "cancelled" | "failed"; errorCode?: string }>;
 	stop(): Promise<void>;
 	close(): Promise<void>;
 }
@@ -322,7 +322,7 @@ export class CodexWorkspaceController {
 			.then(async () => {
 				if (this.disposed || active.closing || this.phase === "stopping" || this.phase === "closing")
 					return { status: "cancelled" as const };
-				return active.handle.prompt(action.text);
+				return active.handle.prompt(action.text, action.inputId);
 			})
 			.then(
 				(result) => {

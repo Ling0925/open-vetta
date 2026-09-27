@@ -25,16 +25,16 @@ export class WorkspaceTurnAdmission {
 		return this.recovery;
 	}
 
-	prompt(text: string): Promise<Outcome> {
+	prompt(text: string, inputId: string): Promise<Outcome> {
 		if (this.closing) return Promise.reject(new CodexWorkspaceError("CLOSED"));
 		if (this.recovery) return Promise.reject(new CodexWorkspaceError("RECOVERY_REQUIRED"));
 		if (this.active) return Promise.reject(new CodexWorkspaceError("BUSY"));
-		if (!text.trim()) return Promise.reject(new CodexWorkspaceError("INPUT"));
+		if (!text.trim() || !inputId.trim()) return Promise.reject(new CodexWorkspaceError("INPUT"));
 		const controller = new AbortController();
 		// Publish ownership before preparation or a runtime callback can yield/re-enter.
 		const admission: Admission = {
 			controller, dispatched: false,
-			result: Promise.resolve().then(() => this.execute(admission, text)),
+			result: Promise.resolve().then(() => this.execute(admission, text, inputId)),
 		};
 		this.active = admission;
 		return admission.result;
@@ -73,14 +73,14 @@ export class WorkspaceTurnAdmission {
 		return this.closing;
 	}
 
-	private async execute(admission: Admission, text: string): Promise<Outcome> {
+	private async execute(admission: Admission, text: string, inputId: string): Promise<Outcome> {
 		const signal = admission.controller.signal;
 		try {
 			signal.throwIfAborted();
 			await this.prepare?.(signal);
 			signal.throwIfAborted();
 			admission.dispatched = true;
-			const result = await this.control.promptWhenAvailable({ text }, signal);
+			const result = await this.control.promptWhenAvailable({ text, inputId }, signal);
 			if (!result || (result.status !== "completed" && result.status !== "cancelled" && result.status !== "failed")) {
 				throw new CodexWorkspaceError("OUTCOME_UNKNOWN");
 			}

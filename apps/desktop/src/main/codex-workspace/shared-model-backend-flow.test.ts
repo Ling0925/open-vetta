@@ -29,15 +29,15 @@ describe("actual shared-model backend admission and cleanup", () => {
 		const backend = create();
 		try {
 			const session = await backend.open();
-			boundary.paused = true; const work = session.prompt("cancel this"); await boundary.entered.promise;
+			boundary.paused = true; const work = session.prompt("cancel this", "input-cancel"); await boundary.entered.promise;
 			await session.stop(); releaseRead();
 			assert.deepEqual(await work, { status: "cancelled" });
 			assert.equal(boundary.dispatched, 0);
-			assert.deepEqual(await session.prompt("next instruction"), { status: "completed" });
+			assert.deepEqual(await session.prompt("next instruction", "input-next"), { status: "completed" });
 			assert.equal(boundary.dispatched, 1);
 			await session.close();
 			const resumed = await backend.open("session");
-			assert.deepEqual(await resumed.prompt("after reopen"), { status: "completed" });
+			assert.deepEqual(await resumed.prompt("after reopen", "input-reopen"), { status: "completed" });
 		} finally { releaseRead(); await backend.close(); }
 	});
 
@@ -45,7 +45,7 @@ describe("actual shared-model backend admission and cleanup", () => {
 		const backend = create();
 		try {
 			const session = await backend.open();
-			boundary.paused = true; const work = session.prompt("cancel this"); await boundary.entered.promise;
+			boundary.paused = true; const work = session.prompt("cancel this", "input-cancel"); await boundary.entered.promise;
 			const handled = work.then(value => value, error => ({ rejected: String(error) }));
 			await session.close(); releaseRead();
 			assert.deepEqual(await handled, { status: "cancelled" });
@@ -58,7 +58,7 @@ describe("actual shared-model backend admission and cleanup", () => {
 		const backend = create();
 		try {
 			const session = await backend.open();
-			boundary.paused = true; const work = session.prompt("cancel this"); await boundary.entered.promise;
+			boundary.paused = true; const work = session.prompt("cancel this", "input-cancel"); await boundary.entered.promise;
 			const handled = work.then(value => value, error => ({ rejected: String(error) }));
 			await backend.close(); releaseRead();
 			assert.deepEqual(await handled, { status: "cancelled" });

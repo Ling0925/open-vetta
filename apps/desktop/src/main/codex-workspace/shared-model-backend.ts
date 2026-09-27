@@ -67,7 +67,7 @@ export function createSharedModelWorkspaceBackend(catalogRoot: string, profile: 
 						snapshot: () => ({ ...codexHistoryRows(assembly.historyReader.readHistory()),
 							recovery: turns.requiresRecovery() || owner.readSnapshot(assembly.lifecycle.sessionId).state === "recovery-required" }),
 						subscribe: listener => assembly.corePorts.eventStream.subscribe(() => listener()),
-						prompt: text => turns.prompt(text),
+						prompt: (text, inputId) => turns.prompt(text, inputId),
 						stop: () => turns.stop(), close: resource.release,
 					};
 				} catch (error) {

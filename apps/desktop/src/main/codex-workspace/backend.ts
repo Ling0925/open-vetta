@@ -36,7 +36,7 @@ export function createWorkspaceBackend(catalogRoot: string, profile: CodexWorksp
 					recovery: turns.requiresRecovery() || backend.readSnapshot(assembly.lifecycle.sessionId).state === "recovery-required"
 				}),
 				subscribe: listener => assembly.corePorts.eventStream.subscribe(() => listener()),
-				prompt: text => turns.prompt(text),
+				prompt: (text, inputId) => turns.prompt(text, inputId),
 				stop: () => turns.stop(), close: () => turns.close(() => assembly.lifecycle.dispose()),
 			};
 		},

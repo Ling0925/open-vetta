@@ -19,14 +19,15 @@ function runtime() {
 	let dispatches = 0;
 	let stops = 0;
 	let signal: AbortSignal | undefined;
+	let lastInput: { text: string; inputId?: string } | undefined;
 	const control: Pick<RuntimeSessionTurnControl, "promptWhenAvailable" | "abort"> = {
-		promptWhenAvailable: (_input, incoming) => {
-			dispatches++; signal = incoming; started.resolve(); return result.promise;
+		promptWhenAvailable: (input, incoming) => {
+			dispatches++; signal = incoming; lastInput = input; started.resolve(); return result.promise;
 		},
 		abort: async () => { stops++; stopReceived.resolve(); await acknowledged.promise; },
 	};
 	return { control, started, result, stopReceived, acknowledged,
-		counts: () => ({ dispatches, stops }), signal: () => signal };
+		counts: () => ({ dispatches, stops }), signal: () => signal, lastInput: () => lastInput };
 }
 
 async function gateway() {
@@ -46,22 +47,23 @@ describe("Codex preparation and dispatch share cancellation ownership", () => {
 		const source = await gateway(); const remote = runtime();
 		const turns = new WorkspaceTurnAdmission(remote.control, signal => source.bridge.assertCurrent(signal));
 		try {
-			source.block(); const pending = turns.prompt("inspect"); await source.entered.promise;
+			source.block(); const pending = turns.prompt("inspect", "input-inspect"); await source.entered.promise;
 			await turns.stop(); assert.deepEqual(await pending, { status: "cancelled" });
 			assert.deepEqual(remote.counts(), { dispatches: 0, stops: 0 });
 			assert.equal(turns.requiresRecovery(), false);
 			source.unblock();
-			const next = turns.prompt("new instruction"); await remote.started.promise;
+			const next = turns.prompt("new instruction", "input-next"); await remote.started.promise;
 			remote.result.resolve({ status: "completed", turnId: "next" });
 			assert.deepEqual(await next, { status: "completed" });
 			assert.equal(remote.counts().dispatches, 1);
+			assert.deepEqual(remote.lastInput(), { text: "new instruction", inputId: "input-next" });
 		} finally { source.unblock(); await turns.close(() => source.bridge.close()); }
 	});
 
 	it("an immediate stop cancels accepted work before any preparation or dispatch", async () => {
 		const remote = runtime(); let preparations = 0;
 		const turns = new WorkspaceTurnAdmission(remote.control, async () => { preparations++; });
-		const pending = turns.prompt("inspect"); const first = turns.stop();
+		const pending = turns.prompt("inspect", "input-inspect"); const first = turns.stop();
 		assert.equal(turns.stop(), first); await first;
 		assert.deepEqual(await pending, { status: "cancelled" });
 		assert.equal(preparations, 0); assert.equal(remote.counts().dispatches, 0);
@@ -71,8 +73,8 @@ describe("Codex preparation and dispatch share cancellation ownership", () => {
 		const source = await gateway(); const remote = runtime();
 		const turns = new WorkspaceTurnAdmission(remote.control, signal => source.bridge.assertCurrent(signal));
 		try {
-			source.block(); const pending = turns.prompt("first"); await source.entered.promise;
-			await assert.rejects(turns.prompt("second"), { code: "BUSY" });
+			source.block(); const pending = turns.prompt("first", "input-first"); await source.entered.promise;
+			await assert.rejects(turns.prompt("second", "input-second"), { code: "BUSY" });
 			await turns.stop(); await pending; assert.equal(remote.counts().dispatches, 0);
 		} finally { source.unblock(); await turns.close(() => source.bridge.close()); }
 	});
@@ -81,53 +83,53 @@ describe("Codex preparation and dispatch share cancellation ownership", () => {
 		const source = await gateway(); const remote = runtime();
 		const turns = new WorkspaceTurnAdmission(remote.control, signal => source.bridge.assertCurrent(signal));
 		try {
-			source.block(); const pending = turns.prompt("first"); await source.entered.promise;
+			source.block(); const pending = turns.prompt("first", "input-first"); await source.entered.promise;
 			const closing = turns.close(() => source.bridge.close());
 			assert.equal(turns.close(async () => { throw new Error("must not run twice"); }), closing);
 			await closing; assert.deepEqual(await pending, { status: "cancelled" });
 			source.unblock();
-			await assert.rejects(turns.prompt("late"), { code: "CLOSED" });
+			await assert.rejects(turns.prompt("late", "input-late"), { code: "CLOSED" });
 			assert.equal(remote.counts().dispatches, 0);
 		} finally { source.unblock(); await source.bridge.close(); }
 	});
 
 	it("a stop acknowledgement alone never settles a dispatched task", async () => {
 		const remote = runtime(); const turns = new WorkspaceTurnAdmission(remote.control);
-		const pending = turns.prompt("work"); await remote.started.promise;
+		const pending = turns.prompt("work", "input-work"); await remote.started.promise;
 		const stop = turns.stop(); await remote.stopReceived.promise;
 		assert.equal(remote.signal()?.aborted, true);
 		remote.acknowledged.resolve();
-		await assert.rejects(turns.prompt("premature next"), { code: "BUSY" });
+		await assert.rejects(turns.prompt("premature next", "input-premature"), { code: "BUSY" });
 		remote.result.resolve({ status: "cancelled", turnId: "first" });
 		await stop; assert.deepEqual(await pending, { status: "cancelled" });
 	});
 
 	it("retains ownership until stop cleanup ends even if terminal output arrives first", async () => {
 		const remote = runtime(); const turns = new WorkspaceTurnAdmission(remote.control);
-		const pending = turns.prompt("work"); await remote.started.promise;
+		const pending = turns.prompt("work", "input-work"); await remote.started.promise;
 		const stop = turns.stop(); await remote.stopReceived.promise;
 		remote.result.resolve({ status: "completed", turnId: "first" });
 		assert.deepEqual(await pending, { status: "completed" });
-		await assert.rejects(turns.prompt("too soon"), { code: "BUSY" });
+		await assert.rejects(turns.prompt("too soon", "input-too-soon"), { code: "BUSY" });
 		remote.acknowledged.resolve(); await stop;
-		assert.deepEqual(await turns.prompt("now accepted"), { status: "completed" });
+		assert.deepEqual(await turns.prompt("now accepted", "input-now"), { status: "completed" });
 		assert.equal(remote.counts().stops, 1);
 	});
 
 	it("does not report cancellation when execution fails after a stop was requested", async () => {
 		const remote = runtime(); const turns = new WorkspaceTurnAdmission(remote.control);
-		const pending = turns.prompt("work"); await remote.started.promise;
+		const pending = turns.prompt("work", "input-work"); await remote.started.promise;
 		const stop = turns.stop(); await remote.stopReceived.promise; remote.acknowledged.resolve();
 		const failure = new Error("outcome unknown");
 		const taskRejected = assert.rejects(pending, failure); const stopRejected = assert.rejects(stop, failure);
 		remote.result.reject(failure); await Promise.all([taskRejected, stopRejected]);
 		assert.equal(turns.requiresRecovery(), true);
-		await assert.rejects(turns.prompt("implicit replay"), { code: "RECOVERY_REQUIRED" });
+		await assert.rejects(turns.prompt("implicit replay", "input-replay"), { code: "RECOVERY_REQUIRED" });
 	});
 
 	it("a definite provider failure keeps its failure status rather than becoming a cancelled task", async () => {
 		const remote = runtime(); const turns = new WorkspaceTurnAdmission(remote.control);
-		const pending = turns.prompt("work"); await remote.started.promise;
+		const pending = turns.prompt("work", "input-work"); await remote.started.promise;
 		const stop = turns.stop(); await remote.stopReceived.promise; remote.acknowledged.resolve();
 		remote.result.resolve({ status: "failed", error: { code: "PROVIDER_ERROR", message: "fixture", retryable: false, origin: "provider" } });
 		assert.deepEqual(await pending, { status: "failed", errorCode: "PROVIDER_ERROR" }); await stop;
@@ -136,8 +138,8 @@ describe("Codex preparation and dispatch share cancellation ownership", () => {
 	it("a failed credential check blocks dispatch and requires an explicit new owner", async () => {
 		const remote = runtime(); const failure = new Error("credentials unavailable");
 		const turns = new WorkspaceTurnAdmission(remote.control, async () => { throw failure; });
-		await assert.rejects(turns.prompt("work"), failure);
-		await assert.rejects(turns.prompt("retry"), { code: "RECOVERY_REQUIRED" });
+		await assert.rejects(turns.prompt("work", "input-work"), failure);
+		await assert.rejects(turns.prompt("retry", "input-retry"), { code: "RECOVERY_REQUIRED" });
 		assert.equal(remote.counts().dispatches, 0);
 	});
 
@@ -146,7 +148,7 @@ describe("Codex preparation and dispatch share cancellation ownership", () => {
 			promptWhenAvailable: async () => undefined, abort: async () => {},
 		};
 		const turns = new WorkspaceTurnAdmission(control);
-		await assert.rejects(turns.prompt("work"), { code: "OUTCOME_UNKNOWN" });
+		await assert.rejects(turns.prompt("work", "input-work"), { code: "OUTCOME_UNKNOWN" });
 		assert.equal(turns.requiresRecovery(), true);
 	});
 
@@ -156,15 +158,15 @@ describe("Codex preparation and dispatch share cancellation ownership", () => {
 		const closing = turns.close(async () => { throw failure; });
 		await assert.rejects(closing, failure);
 		assert.equal(turns.close(async () => {}), closing);
-		await assert.rejects(turns.prompt("work"), { code: "CLOSED" });
+		await assert.rejects(turns.prompt("work", "input-work"), { code: "CLOSED" });
 	});
 	it("reports failed process cleanup without waiting forever for that process's task result", async () => {
 		const remote = runtime(); const turns = new WorkspaceTurnAdmission(remote.control);
-		const pending = turns.prompt("work"); await remote.started.promise;
+		const pending = turns.prompt("work", "input-work"); await remote.started.promise;
 		const failure = new Error("process cannot be stopped");
 		try {
 			await assert.rejects(turns.close(async () => { throw failure; }), failure);
-			await assert.rejects(turns.prompt("replacement"), { code: "CLOSED" });
+			await assert.rejects(turns.prompt("replacement", "input-replacement"), { code: "CLOSED" });
 		} finally {
 			remote.result.resolve({ status: "failed", error: { code: "OUTCOME_UNKNOWN", message: "fixture", origin: "runtime", retryable: false } });
 			await pending;
