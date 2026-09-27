@@ -199,6 +199,7 @@ describe("batch RuntimeHost consumer", () => {
 		const runtime = {
 			abort,
 			createSession,
+			getState: () => ({ currentTurnId: "batch-turn" }),
 			getMessages: () => [assistantMessage("aborted")],
 			getSessionPath: () => join(projectDir, ".vetta", "sessions", "batch.jsonl"),
 			prompt,
@@ -221,7 +222,7 @@ describe("batch RuntimeHost consumer", () => {
 
 		const firstShutdown = shutdownBatchTaskExecutor();
 		const secondShutdown = shutdownBatchTaskExecutor();
-		await vi.waitFor(() => expect(abort).toHaveBeenCalledWith("batch-active-session"));
+		await vi.waitFor(() => expect(abort).toHaveBeenCalledWith("batch-active-session", "batch-turn"));
 		finishPrompt();
 		await Promise.all([firstShutdown, secondShutdown]);
 

@@ -106,6 +106,12 @@ type PendingJob = {
 const runningByProject = new Map<string, Set<string>>();
 const pendingByProject = new Map<string, PendingJob[]>();
 
+async function abortObservedRuntimeTurn(runtime: RuntimeHost, sessionId: string): Promise<void> {
+	const expectedTurnId = runtime.getState(sessionId).currentTurnId;
+	if (!expectedTurnId) return;
+	await runtime.abort(sessionId, expectedTurnId);
+}
+
 function getRunningSet(projectId: string): Set<string> {
 	let s = runningByProject.get(projectId);
 	if (!s) {
@@ -349,7 +355,7 @@ function scheduleTimeout(taskId: string, runtime: RuntimeHost, timeoutMs: number
 		if (!executing) return;
 		log.warn(`Task ${taskId} timed out after ${timeoutMs}ms, aborting`);
 		executing.timedOut = true;
-		runtime.abort(executing.sessionId).catch((err) => {
+		abortObservedRuntimeTurn(runtime, executing.sessionId).catch((err) => {
 			log.warn(`abort on timeout failed for ${taskId}: ${err}`);
 		});
 	}, timeoutMs);
@@ -509,7 +515,7 @@ async function runTaskInner(
 			monitorRuntimeSession(runtime, sessionId, "batch");
 		}
 		if (!acceptingJobs) {
-			await runtime.abort(sessionId);
+			await abortObservedRuntimeTurn(runtime, sessionId);
 			return;
 		}
 
@@ -636,7 +642,7 @@ export async function abortTask(projectId: string, taskId: string, runtime: Runt
 	// 先从 map 中删除，防止 finalizeTask 在 prompt return 后重入
 	executingTasks.delete(taskId);
 	clearTimeout(executing.timeoutHandle);
-	await runtime.abort(executing.sessionId);
+	await abortObservedRuntimeTurn(runtime, executing.sessionId);
 	executing.abortController.abort();
 	log.debug(`Abort called for session ${executing.sessionId}`);
 }
@@ -659,7 +665,7 @@ export async function shutdownBatchTaskExecutor(): Promise<void> {
 		}
 		await Promise.allSettled(
 			activeTasks.map(async (executing) => {
-				await executing.runtime.abort(executing.sessionId);
+				await abortObservedRuntimeTurn(executing.runtime, executing.sessionId);
 				executing.abortController.abort();
 			}),
 		);
