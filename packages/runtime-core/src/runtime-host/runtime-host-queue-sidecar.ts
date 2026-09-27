@@ -16,6 +16,7 @@ export interface RuntimeHostQueueSidecarOptions {
  */
 export class RuntimeHostQueueSidecar {
 	private readonly writes = new Map<string, Promise<void>>();
+	private readonly failures = new Map<string, unknown>();
 	private readonly store: RuntimeQueueSidecarStore | undefined;
 	private readonly normalizePath: (path: string) => string;
 	private readonly reportFailure: ((error: unknown, sessionId: string) => void) | undefined;
@@ -30,30 +31,48 @@ export class RuntimeHostQueueSidecar {
 		if (!sessionPath || !this.store) return;
 		const key = this.normalizePath(sessionPath);
 		const previous = this.writes.get(key) ?? Promise.resolve();
-		const next = previous.then(async () => {
+		const next = previous.catch(() => undefined).then(async () => {
 			try {
 				if (event.entries.length === 0 && !event.paused) {
 					await this.store?.remove(sessionPath);
-					return;
+				} else {
+					await this.store?.write(sessionPath, event.snapshot);
 				}
-				await this.store?.write(sessionPath, event.snapshot);
+				this.failures.delete(key);
 			} catch (error) {
+				this.failures.set(key, error);
 				this.reportFailure?.(error, event.sessionId);
+				throw error;
 			}
 		});
 		const tracked = next.finally(() => {
 			if (this.writes.get(key) === tracked) this.writes.delete(key);
 		});
+		// Event relays are observational and do not await persistence. Attach a rejection
+		// observer here so failures remain available to flush() without becoming unhandled.
+		void tracked.catch(() => undefined);
 		this.writes.set(key, tracked);
 	}
 
-	/** Waits for the latest queue snapshot write already admitted for this Session path. */
+	/** Waits until the Session path has no newer admitted sidecar write, then surfaces its last failure. */
 	async flush(sessionPath?: string): Promise<void> {
 		if (sessionPath) {
-			await this.writes.get(this.normalizePath(sessionPath));
+			const key = this.normalizePath(sessionPath);
+			while (true) {
+				const pending = this.writes.get(key);
+				if (!pending) break;
+				await pending.catch(() => undefined);
+			}
+			const failure = this.failures.get(key);
+			if (failure !== undefined) throw failure;
 			return;
 		}
-		await Promise.all([...this.writes.values()]);
+		while (this.writes.size > 0) {
+			await Promise.allSettled([...this.writes.values()]);
+		}
+		const failures = [...this.failures.values()];
+		if (failures.length === 1) throw failures[0];
+		if (failures.length > 1) throw new AggregateError(failures, "Failed to persist Runtime queue sidecars");
 	}
 
 	async restore(queueController: RuntimeSessionQueueController, sessionPath: string | undefined): Promise<void> {

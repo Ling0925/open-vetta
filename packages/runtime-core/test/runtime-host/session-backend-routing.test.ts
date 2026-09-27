@@ -4,6 +4,7 @@ import {
 	RuntimeHost,
 	type RuntimeHostSessionAssembly,
 	type RuntimeHostSessionBackend,
+	type SessionEvent,
 	type RuntimeSessionCatalog,
 	type RuntimeSessionCreateRequest,
 } from "../../src/index.js";
@@ -112,6 +113,77 @@ describe("CatalogRoutedRuntimeHostSessionBackend", () => {
 			controller.signal,
 		);
 		await runtime.close();
+	});
+
+	it("fails queued prompt closed when its sidecar cannot be persisted", async () => {
+		let queueHandler: ((event: SessionEvent) => void) | undefined;
+		const failure = new Error("disk unavailable");
+		const base = assembly("session-queued-durability");
+		const sessionPath = "C:/sessions/queued-durability.jsonl";
+		const sessionBackend: RuntimeHostSessionBackend = {
+			createAssembly: async () => ({
+				...base,
+				lifecycle: { ...base.lifecycle, sessionPath },
+				inputReconciliationView: {
+					reconcileInput: async (inputId) => ({
+						status: "queued" as const,
+						inputId,
+						queueItemId: "queue-1",
+						behavior: "followUp" as const,
+					}),
+				},
+				corePorts: {
+					...base.corePorts,
+					eventStream: {
+						subscribe: (handler) => {
+							queueHandler = handler;
+							return () => {
+								if (queueHandler === handler) queueHandler = undefined;
+							};
+						},
+					},
+					turnControl: {
+						...base.corePorts.turnControl,
+						prompt: async () => {
+							queueHandler?.({
+								schemaVersion: 1,
+								sessionId: "session-queued-durability",
+								eventId: "queue-event-1",
+								timestamp: 1,
+								source: "runtime-core",
+								type: "queue.changed",
+								paused: false,
+								entries: [{ id: "queue-1", behavior: "followUp", displayText: "later" }],
+								snapshot: { paused: false, entries: [{ id: "queue-1" }] },
+							});
+							return { status: "queued" as const, pendingCount: 1, queueItemId: "queue-1" };
+						},
+					},
+				},
+			}),
+		};
+		const runtime = new RuntimeHost({
+			sessionBackend,
+			queueSidecarStore: {
+				read: async () => undefined,
+				write: async () => {
+					throw failure;
+				},
+				remove: async () => {},
+			},
+		});
+		const { sessionId } = await runtime.createSession();
+
+		await expect(
+			runtime.prompt(sessionId, { text: "later", inputId: "input-queued", streamingBehavior: "followUp" }),
+		).rejects.toThrow("Queued input persistence could not be confirmed");
+		await expect(runtime.reconcileInput(sessionId, "input-queued")).resolves.toEqual({
+			status: "ambiguous",
+			inputId: "input-queued",
+			turnIds: [],
+			reason: "queue_persistence_failed",
+		});
+		await expect(runtime.close()).rejects.toThrow("disk unavailable");
 	});
 
 	it("uses the explicit default backend only for new sessions", async () => {

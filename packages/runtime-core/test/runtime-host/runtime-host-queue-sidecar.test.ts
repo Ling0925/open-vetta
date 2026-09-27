@@ -31,7 +31,7 @@ describe("RuntimeHostQueueSidecar", () => {
 		await vi.waitFor(() => expect(calls).toEqual(["first", "second"]));
 	});
 
-	it("removes an empty unpaused queue and reports write failures without rejecting", async () => {
+	it("reports persistence failures and makes flush fail closed", async () => {
 		const failure = new Error("disk unavailable");
 		const reportFailure = vi.fn();
 		const remove = vi.fn(async () => {
@@ -41,7 +41,8 @@ describe("RuntimeHostQueueSidecar", () => {
 
 		sidecar.persist("session.jsonl", event(undefined, true));
 
-		await vi.waitFor(() => expect(reportFailure).toHaveBeenCalledWith(failure, "session"));
+		await expect(sidecar.flush("session.jsonl")).rejects.toBe(failure);
+		expect(reportFailure).toHaveBeenCalledWith(failure, "session");
 	});
 
 	it("flush waits for the newest admitted write for one normalized Session path", async () => {
@@ -72,6 +73,23 @@ describe("RuntimeHostQueueSidecar", () => {
 		release();
 		await pending;
 		expect(flushed).toBe(true);
+	});
+
+	it("clears a prior failure after a newer snapshot persists successfully", async () => {
+		let fail = true;
+		const sidecar = new RuntimeHostQueueSidecar({
+			store: createStore({
+				write: async () => {
+					if (fail) throw new Error("first write failed");
+				},
+			}),
+		});
+		sidecar.persist("session.jsonl", event("first"));
+		await expect(sidecar.flush("session.jsonl")).rejects.toThrow("first write failed");
+
+		fail = false;
+		sidecar.persist("session.jsonl", event("second"));
+		await expect(sidecar.flush("session.jsonl")).resolves.toBeUndefined();
 	});
 
 	it("restores a valid snapshot and ignores read failures", async () => {

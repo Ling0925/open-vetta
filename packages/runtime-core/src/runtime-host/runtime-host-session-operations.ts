@@ -20,6 +20,7 @@ import { isTurnPersistenceError } from "../kernel/errors.js";
 import type { SessionExtensionEndpointToken } from "../session-extensions/contracts.js";
 import type { RuntimeHostSessionDirectory } from "./runtime-host-session-directory.js";
 import type { RuntimeHostSessionEventRelay } from "./runtime-host-session-event-relay.js";
+import type { RuntimeHostQueueSidecar } from "./runtime-host-queue-sidecar.js";
 import { baseSessionEvent } from "./session-events.js";
 import type {
 	RuntimeContextCompactionRequest,
@@ -40,12 +41,20 @@ import type { RuntimeHostSessionRecord } from "./types.js";
 export interface RuntimeHostSessionOperationsOptions {
 	readonly directory: RuntimeHostSessionDirectory;
 	readonly events: RuntimeHostSessionEventRelay;
+	readonly queueSidecar?: RuntimeHostQueueSidecar;
 	readonly pathServices?: RuntimeHostPathServices;
 	readonly sandboxHostPath?: string;
 	readonly linuxBubblewrapPath?: string;
 	readonly macosSandboxExecPath?: string;
 	readonly synchronizeSessionIdentity: (sessionKey: string, handle: RuntimeHostSessionRecord) => void;
 	readonly reportWorkspacePreparationFailure: (error: unknown, sessionId: string) => void;
+}
+
+class RuntimeQueuePersistenceError extends Error {
+	constructor(cause: unknown) {
+		super("Queued input persistence could not be confirmed", { cause });
+		this.name = "RuntimeQueuePersistenceError";
+	}
 }
 
 /**
@@ -109,8 +118,10 @@ export class RuntimeHostSessionOperations {
 				metadata: request.metadata,
 			});
 			const normalized = outcome ?? { status: "completed" as const };
+			await this.confirmQueuedPersistence(handle, normalized);
 			return request.inputId ? { ...normalized, inputId: request.inputId } : normalized;
 		} catch (error) {
+			if (error instanceof RuntimeQueuePersistenceError) throw error;
 			const message = isSessionError(error) ? error.message : error instanceof Error ? error.message : String(error);
 			const failure = isTurnPersistenceError(error) ? error.failure : undefined;
 			if (failure && isTurnPersistenceError(error)) {
@@ -195,9 +206,23 @@ export class RuntimeHostSessionOperations {
 	async queuePromptIfRunning(sessionId: string, request: PromptRequest): Promise<RuntimeQueuePromptIfRunningOutcome> {
 		const handle = this.requireSession(sessionId);
 		await this.applyPendingExecutionMode(handle.lifecycle.sessionId, handle);
-		return handle.turnControl.queuePromptIfRunning
+		const outcome = handle.turnControl.queuePromptIfRunning
 			? await handle.turnControl.queuePromptIfRunning(request)
-			: { status: "idle" };
+			: { status: "idle" as const };
+		await this.confirmQueuedPersistence(handle, outcome);
+		return outcome;
+	}
+
+	private async confirmQueuedPersistence(
+		handle: RuntimeHostSessionRecord,
+		outcome: { readonly status: string },
+	): Promise<void> {
+		if (outcome.status !== "queued") return;
+		try {
+			await this.options.queueSidecar?.flush(handle.lifecycle.sessionPath);
+		} catch (error) {
+			throw new RuntimeQueuePersistenceError(error);
+		}
 	}
 
 	async continue(sessionId: string): Promise<void> {
@@ -379,10 +404,23 @@ export class RuntimeHostSessionOperations {
 		return { ...state, activeToolNames: [...state.activeToolNames] };
 	}
 
-	reconcileInput(sessionId: string, inputId: string): Promise<RuntimeInputReconciliation> {
-		const view = this.requireSession(sessionId).inputReconciliationView;
+	async reconcileInput(sessionId: string, inputId: string): Promise<RuntimeInputReconciliation> {
+		const handle = this.requireSession(sessionId);
+		const view = handle.inputReconciliationView;
 		if (!view) throw new Error("Session input reconciliation is unavailable");
-		return view.reconcileInput(inputId);
+		const receipt = await view.reconcileInput(inputId);
+		if (receipt.status !== "queued") return receipt;
+		try {
+			await this.options.queueSidecar?.flush(handle.lifecycle.sessionPath);
+			return receipt;
+		} catch {
+			return {
+				status: "ambiguous",
+				inputId,
+				turnIds: [],
+				reason: "queue_persistence_failed",
+			};
+		}
 	}
 
 	readSessionDocument(sessionId: string): ConversationDocument {

@@ -50,7 +50,8 @@ export type RuntimeDurableInputReconciliation =
 				| "multiple_turns"
 				| "multiple_terminal_records"
 				| "multiple_handled_records"
-				| "handled_and_turn";
+				| "handled_and_turn"
+				| "queue_persistence_failed";
 	  };
 
 export type RuntimeInputReconciliation =

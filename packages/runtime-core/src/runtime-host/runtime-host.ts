@@ -132,6 +132,7 @@ export class RuntimeHost implements SessionFacade {
 		this.sessionOperations = new RuntimeHostSessionOperations({
 			directory: this.sessionDirectory,
 			events: this.sessionEvents,
+			queueSidecar: this.queueSidecar,
 			pathServices: this.pathServices,
 			sandboxHostPath: options.sandboxHostPath,
 			linuxBubblewrapPath: options.linuxBubblewrapPath,
