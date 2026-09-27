@@ -1,5 +1,9 @@
 import { waitForCommittedPaint } from "@shared/lib/committed-paint";
-import { activeInputDraftKeyAtom, draftRuntimeBackendsAtom } from "@shared/store/atoms";
+import {
+	activeInputDraftKeyAtom,
+	draftRuntimeBackendsAtom,
+	pendingSessionOpenAtom,
+} from "@shared/store/atoms";
 import { useAtom, useAtomValue } from "jotai";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -21,13 +25,20 @@ export interface RuntimeBackendSelectorModel {
 export function useRuntimeBackendModel(runtimeId: string | undefined, busy: boolean) {
 	const { t } = useTranslation("codex");
 	const draftKey = useAtomValue(activeInputDraftKeyAtom);
+	const pendingSessionOpen = useAtomValue(pendingSessionOpenAtom);
 	const [drafts, setDrafts] = useAtom(draftRuntimeBackendsAtom);
 	const [loaded, setLoaded] = useState<SessionRuntimeBackendState>();
 	const [loading, setLoading] = useState(true);
 	const [switching, setSwitching] = useState(false);
 	const [error, setError] = useState<string>();
 	const [attempt, setAttempt] = useState(0);
-	const scope = runtimeId ?? draftKey ?? "unbound";
+	// Existing-session restore deliberately clears activeSession before the target Runtime
+	// is ready. Its sessionPath draft scope must not be mistaken for an uncreated conversation.
+	const restoringExisting = runtimeId === undefined && pendingSessionOpen !== null;
+	const scope =
+		runtimeId ??
+		(restoringExisting ? `opening:${pendingSessionOpen.interactionId}` : draftKey) ??
+		"unbound";
 	const currentScope = useRef(scope);
 	currentScope.current = scope;
 	const selectionPending = useRef(false);
@@ -42,7 +53,7 @@ export function useRuntimeBackendModel(runtimeId: string | undefined, busy: bool
 		setError(undefined);
 		setLoaded(undefined);
 		if (!runtimeId) {
-			setLoading(false);
+			setLoading(restoringExisting);
 			return;
 		}
 		setLoading(true);
@@ -72,11 +83,17 @@ export function useRuntimeBackendModel(runtimeId: string | undefined, busy: bool
 			cancelled = true;
 			remove();
 		};
-	}, [runtimeId, attempt, scope]);
+	}, [runtimeId, attempt, restoringExisting, scope]);
 	const state = loaded?.sessionId === runtimeId ? loaded : undefined;
-	const backend = runtimeId ? state?.backend : draftKey ? (drafts[draftKey] ?? "native") : "native";
+	const backend = runtimeId
+		? state?.backend
+		: restoringExisting
+			? undefined
+			: draftKey
+				? (drafts[draftKey] ?? "native")
+				: "native";
 	const pending = switching || state?.switching === true;
-	const unavailable = runtimeId ? loading || !state : !draftKey;
+	const unavailable = runtimeId ? loading || !state : restoringExisting || !draftKey;
 	const disabled = busy || pending || unavailable;
 	const select = useCallback(
 		async (next: SessionRuntimeBackend) => {
@@ -100,7 +117,8 @@ export function useRuntimeBackendModel(runtimeId: string | undefined, busy: bool
 			} catch (reason) {
 				if (currentScope.current !== origin) return;
 				setError(reason instanceof Error ? reason.message : "RUNTIME_SWITCH_FAILED");
-				// A lost IPC response does not prove that persistence failed. Reconcile before allowing another send.
+				// A lost IPC response does not prove that persistence failed. Reconcile before
+				// allowing another backend selection; prompt dispatch itself uses Runtime state.
 				try {
 					const reply = await window.vetta.session.getRuntimeBackend(runtimeId);
 					if (currentScope.current !== origin) return;
@@ -130,5 +148,7 @@ export function useRuntimeBackendModel(runtimeId: string | undefined, busy: bool
 		},
 		retry: () => setAttempt((value) => value + 1),
 	};
-	return { model, backend, blocked: pending || unavailable, switching: pending };
+	// Only an in-flight backend mutation blocks prompt dispatch. Loading/reconciling the
+	// selector never needs to stall an existing Session because Runtime owns the selection.
+	return { model, backend, blocked: pending, switching: pending };
 }
