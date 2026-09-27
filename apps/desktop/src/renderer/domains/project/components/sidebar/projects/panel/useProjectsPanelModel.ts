@@ -5,6 +5,7 @@ import type { SessionInfo } from "@shared/store/atoms";
 import {
 	activeSessionAtom,
 	batchProjectsAtom,
+	cancelSessionOpenFnRef,
 	confirmDialogAtom,
 	conversationFilterSource,
 	defaultConversationCwdAtom,
@@ -13,6 +14,7 @@ import {
 	expandedBatchProjectsAtom,
 	inlineFilePreviewAtom,
 	pendingSessionOpenAtom,
+	readSessionManagerFn,
 } from "@shared/store/atoms";
 import { useMatches, useNavigate } from "@tanstack/react-router";
 import { useAtom, useAtomValue, useSetAtom, useStore } from "jotai";
@@ -72,6 +74,9 @@ export function useProjectsPanelModel({
 	const setInlineFilePreview = useSetAtom(inlineFilePreviewAtom);
 	const setConfirm = useSetAtom(confirmDialogAtom);
 	const navigate = useNavigate();
+	const cancelSessionOpen = useCallback(() => {
+		readSessionManagerFn(cancelSessionOpenFnRef, "cancelSessionOpen")?.();
+	}, []);
 	const matches = useMatches();
 	const currentPath = matches[matches.length - 1]?.pathname ?? "/";
 	const routeParams = matches[matches.length - 1]?.params as
@@ -171,19 +176,21 @@ export function useProjectsPanelModel({
 	const navigateProject = useCallback(
 		(cwd: string) => {
 			void (async () => {
+				cancelSessionOpen();
 				setInlineFilePreview(null);
 				await navigate({ to: "/project/$cwd", params: { cwd: encodeURIComponent(cwd) } });
 				setActiveSession(null);
 			})();
 		},
-		[navigate, setActiveSession, setInlineFilePreview],
+		[cancelSessionOpen, navigate, setActiveSession, setInlineFilePreview],
 	);
 
 	const newSession = useCallback(
 		(cwd: string) => {
+			cancelSessionOpen();
 			void navigate({ to: "/new-session/$cwd", params: { cwd: encodeURIComponent(cwd) } });
 		},
-		[navigate],
+		[cancelSessionOpen, navigate],
 	);
 
 	/**
@@ -216,30 +223,32 @@ export function useProjectsPanelModel({
 			const target = resolveSessionOpenTarget(sessionsMapRef.current.get(cwd), path);
 			if (target === "unavailable") return;
 			if (target === "viewer") {
-				selectAfterPaint({ kind: "conversation", path }, () =>
-					navigate({ to: "/viewer/$path", params: { path: encodeURIComponent(path) } }),
-				);
+				selectAfterPaint({ kind: "conversation", path }, () => {
+					cancelSessionOpen();
+					return navigate({ to: "/viewer/$path", params: { path: encodeURIComponent(path) } });
+				});
 				return;
 			}
 			selectAfterPaint({ kind: "conversation", path }, () => openInteractiveSession(cwd, path));
 		},
-		[navigate, openInteractiveSession, selectAfterPaint],
+		[cancelSessionOpen, navigate, openInteractiveSession, selectAfterPaint],
 	);
 
 	const selectSidebarSession = useCallback(
 		(cwd: string, session: SidebarConversationInfo) => {
 			if (session.kind === "agent-team") {
-				selectAfterPaint({ kind: "agent-team", sessionId: session.teamSessionId }, () =>
-					navigate({
+				selectAfterPaint({ kind: "agent-team", sessionId: session.teamSessionId }, () => {
+					cancelSessionOpen();
+					return navigate({
 						to: "/agent-teams/$teamId/sessions/$sessionId",
 						params: { teamId: session.teamId, sessionId: session.teamSessionId },
-					}),
-				);
+					});
+				});
 				return;
 			}
 			openSessionByTarget(cwd, session.path);
 		},
-		[navigate, openSessionByTarget, selectAfterPaint],
+		[cancelSessionOpen, navigate, openSessionByTarget, selectAfterPaint],
 	);
 
 	const selectBatchSession = useCallback(

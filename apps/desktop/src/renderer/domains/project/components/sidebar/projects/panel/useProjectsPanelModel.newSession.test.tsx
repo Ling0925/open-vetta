@@ -1,5 +1,9 @@
 // @vitest-environment jsdom
-import { defaultConversationFilterAtom, tagConversationFilter } from "@shared/store/atoms";
+import {
+	cancelSessionOpenFnRef,
+	defaultConversationFilterAtom,
+	tagConversationFilter,
+} from "@shared/store/atoms";
 import { renderHook } from "@testing-library/react";
 import { getDefaultStore } from "jotai";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -49,6 +53,7 @@ const { useProjectsPanelModel } = await import("./useProjectsPanelModel.js");
 describe("useProjectsPanelModel.defaultNewSession", () => {
 	beforeEach(() => {
 		navigateSpy.mockClear();
+		cancelSessionOpenFnRef.current = vi.fn();
 		getDefaultStore().set(defaultConversationFilterAtom, "conversation");
 	});
 
@@ -62,6 +67,7 @@ describe("useProjectsPanelModel.defaultNewSession", () => {
 		result.current.actions.defaultNewSession("/repo/a");
 
 		expect(store.get(defaultConversationFilterAtom)).toBe(tagConversationFilter("t1"));
+		expect(cancelSessionOpenFnRef.current).toHaveBeenCalledOnce();
 		expect(navigateSpy).toHaveBeenCalledWith({
 			to: "/new-session/$cwd",
 			params: { cwd: encodeURIComponent("/repo/a") },

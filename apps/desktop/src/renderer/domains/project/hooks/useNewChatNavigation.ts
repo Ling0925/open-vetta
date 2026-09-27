@@ -1,4 +1,10 @@
-import { activeSessionAtom, conversationBucketCwd, defaultConversationCwdAtom } from "@shared/store/atoms";
+import {
+	activeSessionAtom,
+	cancelSessionOpenFnRef,
+	conversationBucketCwd,
+	defaultConversationCwdAtom,
+	readSessionManagerFn,
+} from "@shared/store/atoms";
 import { useMatches, useNavigate } from "@tanstack/react-router";
 import { useAtomValue, useSetAtom } from "jotai";
 import { useCallback } from "react";
@@ -51,6 +57,7 @@ export function useNewChatNavigation(): () => void {
 				}
 			}
 			if (!targetCwd) return;
+			readSessionManagerFn(cancelSessionOpenFnRef, "cancelSessionOpen")?.();
 			void navigate({
 				to: "/new-session/$cwd",
 				params: { cwd: encodeURIComponent(targetCwd) },

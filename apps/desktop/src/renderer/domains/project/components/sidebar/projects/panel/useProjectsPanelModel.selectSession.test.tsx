@@ -1,5 +1,10 @@
 // @vitest-environment jsdom
-import { activeSessionAtom, pendingSessionOpenAtom, type SessionInfo } from "@shared/store/atoms";
+import {
+	activeSessionAtom,
+	cancelSessionOpenFnRef,
+	pendingSessionOpenAtom,
+	type SessionInfo,
+} from "@shared/store/atoms";
 import { act, renderHook } from "@testing-library/react";
 import { getDefaultStore } from "jotai";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -88,6 +93,7 @@ describe("useProjectsPanelModel.selectSession", () => {
 		useProjectsMock.mockReset();
 		getDefaultStore().set(activeSessionAtom, null);
 		getDefaultStore().set(pendingSessionOpenAtom, null);
+		cancelSessionOpenFnRef.current = vi.fn();
 	});
 
 	it("sessionsMap 换引用后 selectSession 身份不变", () => {
@@ -132,6 +138,7 @@ describe("useProjectsPanelModel.selectSession", () => {
 			await Promise.resolve();
 		});
 		expect(onOpenSession).not.toHaveBeenCalled();
+		expect(cancelSessionOpenFnRef.current).toHaveBeenCalledOnce();
 		expect(navigateSpy).toHaveBeenCalledWith({
 			to: "/viewer/$path",
 			params: { path: encodeURIComponent("s2") },
@@ -178,6 +185,7 @@ describe("useProjectsPanelModel.selectSession", () => {
 			await Promise.resolve();
 		});
 
+		expect(cancelSessionOpenFnRef.current).toHaveBeenCalledOnce();
 		expect(navigateSpy).toHaveBeenCalledWith({
 			to: "/agent-teams/$teamId/sessions/$sessionId",
 			params: { teamId: "team-1", sessionId: "team-session-1" },
