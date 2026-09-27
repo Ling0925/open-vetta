@@ -60,4 +60,31 @@ describe("Coding Agent Subagent child handle", () => {
 		void handle.dispose();
 		expect(listeners).toHaveLength(0);
 	});
+
+	it("forwards the subagent execution identity as the child Runtime inputId", async () => {
+		const prompt = vi.fn(async () => ({ status: "completed" as const }));
+		const session = {
+			sessionId: "child-1",
+			hasExtension: () => false,
+			subscribe: () => () => {},
+			readState: () => ({ isStreaming: false }),
+			readMessages: () => [],
+			prompt,
+			abort: async () => {},
+			dispose: async () => {},
+		} as unknown as RuntimeSession;
+		const handle = createCodingAgentSubagentChildHandle({
+			session,
+			appendContext: () => {},
+			deliverContext: async () => {},
+			disposeComposition: async () => {},
+		});
+
+		await handle.prompt("inspect", "subagent:child-1:g0:p0");
+
+		expect(prompt).toHaveBeenCalledWith({
+			text: "inspect",
+			inputId: "subagent:child-1:g0:p0",
+		});
+	});
 });

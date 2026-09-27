@@ -4,6 +4,7 @@ import { waitUntil } from "./wait.js";
 export class TestChild implements SubagentChildHandle {
 	readonly sessionFile: string;
 	readonly prompts: string[] = [];
+	readonly promptInputIds: Array<string | undefined> = [];
 	disposeCalls = 0;
 	private readonly listeners = new Set<(event: SubagentChildEvent) => void>();
 	private streaming = false;
@@ -14,8 +15,9 @@ export class TestChild implements SubagentChildHandle {
 		this.sessionFile = `.subagents/${sessionId}.conversation.jsonl`;
 	}
 
-	async prompt(text: string): Promise<void> {
+	async prompt(text: string, inputId?: string): Promise<void> {
 		this.prompts.push(text);
+		this.promptInputIds.push(inputId);
 		this.streaming = true;
 		this.emit({ type: "agent_start" });
 		await new Promise<void>((resolve) => {

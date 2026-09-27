@@ -252,7 +252,7 @@ export class SubagentRun<TProfile> {
 		try {
 			this.snapshot.status = "running";
 			this.options.hooks.onChanged();
-			await handle.prompt(message);
+			await handle.prompt(message, this.promptInputId());
 			if (this.isCurrent(epoch) && !handle.isStreaming() && this.snapshot.status === "running") {
 				await this.onChildAgentEnd(epoch);
 			}
@@ -333,6 +333,10 @@ export class SubagentRun<TProfile> {
 		this.snapshot.errorMessage = error;
 		this.snapshot.generation += 1;
 		this.options.hooks.onChanged();
+	}
+
+	private promptInputId(): string {
+		return `subagent:${this.snapshot.id}:g${this.snapshot.generation}:p${this.stopContinuationCount}`;
 	}
 
 	private updateUsage(): void {

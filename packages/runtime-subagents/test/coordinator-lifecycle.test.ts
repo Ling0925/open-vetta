@@ -21,6 +21,7 @@ describe("SubagentCoordinator lifecycle", () => {
 
 		await fixture.coordinator.spawn(request("lifecycle"));
 		expect(fixture.children[0]?.prompts[0]).toContain("policy: read-only");
+		expect(fixture.children[0]?.promptInputIds[0]).toBe("subagent:child-1:g0:p0");
 		fixture.children[0]?.complete("done");
 		await waitUntil(() => fixture.coordinator.get("lifecycle")?.status === "completed");
 
@@ -48,6 +49,9 @@ describe("SubagentCoordinator lifecycle", () => {
 
 		expect(stopCalls).toBe(9);
 		expect(fixture.children[0]?.prompts).toHaveLength(9);
+		expect(fixture.children[0]?.promptInputIds).toEqual(
+			Array.from({ length: 9 }, (_, index) => `subagent:child-1:g0:p${index}`),
+		);
 	});
 
 	it("does not overwrite an interrupt while beforeStop is in flight", async () => {

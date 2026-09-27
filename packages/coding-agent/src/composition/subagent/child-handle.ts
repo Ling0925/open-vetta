@@ -35,8 +35,8 @@ export function createCodingAgentSubagentChildHandle(
 	return {
 		sessionId: options.session.sessionId,
 		sessionFile: options.sessionFile,
-		prompt: async (text) => {
-			await options.session.prompt({ text });
+		prompt: async (text, inputId) => {
+			await options.session.prompt({ text, ...(inputId ? { inputId } : {}) });
 		},
 		sendMessage: async (text) => {
 			options.appendContext([contextRecord("subagent-message", text)]);

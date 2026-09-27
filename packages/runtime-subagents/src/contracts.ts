@@ -64,7 +64,8 @@ export interface SubagentChildEvent {
 export interface SubagentChildHandle {
 	readonly sessionId: string;
 	readonly sessionFile?: string;
-	prompt(text: string): Promise<void>;
+	/** Stable idempotency identity for one child model execution. */
+	prompt(text: string, inputId?: string): Promise<void>;
 	sendMessage(text: string): Promise<void>;
 	followUp(text: string): Promise<void>;
 	abort(): void | Promise<void>;
