@@ -29,7 +29,7 @@ export function codexConversationInput(request: Pick<TurnEngineRequest, "message
 	if (Buffer.byteLength(text) > MAX_CONTEXT_BYTES) {
 		throw new CodexRuntimeError(
 			"CONTEXT_TOO_LARGE",
-			"The conversation is too large for a lossless backend handoff; shorten its context explicitly",
+			"The Vetta-prepared context still exceeds the Codex handoff transport limit; compact or reduce the active context before retrying",
 		);
 	}
 	return text;

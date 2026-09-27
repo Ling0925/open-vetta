@@ -31,7 +31,6 @@ export class ConversationRuntimeBackendSelection {
 		return {
 			snapshotProvider: {
 				acquire: async (context) => {
-					this.options.assertReusable(context.sessionId);
 					const owner = this.find(context.sessionId);
 					if (owner?.closed || owner?.switching) throw new RuntimeBackendError("RUNTIME_SWITCHING");
 					const acquisition = native.snapshotProvider.acquire(context);
@@ -40,14 +39,18 @@ export class ConversationRuntimeBackendSelection {
 						const choice = readRuntimeBackendChoice(
 							await resources.conversationDocumentStore.readDocument(context.sessionId),
 						);
-						if (choice.backend === "codex" && context.reason !== "turn" && context.reason !== "preview") {
-							throw new RuntimeBackendError("CODEX_CONTEXT_MANAGED");
+						const executionAcquisition = context.reason === "turn" || context.reason === "preview";
+						if (choice.backend === "codex" && executionAcquisition) {
+							this.options.assertReusable(context.sessionId);
 						}
-						const snapshot = choice.backend === "codex" ? codexSnapshot(lease.snapshot) : lease.snapshot;
-						bindings.set(
-							context.operationId,
-							choice.backend === "codex" ? this.options.codex : native.turnEngine,
-						);
+						const snapshot =
+							choice.backend === "codex" ? codexExecutionSnapshot(lease.snapshot) : lease.snapshot;
+						if (executionAcquisition) {
+							bindings.set(
+								context.operationId,
+								choice.backend === "codex" ? this.options.codex : native.turnEngine,
+							);
+						}
 						return {
 							...lease,
 							snapshot,
@@ -252,9 +255,15 @@ export class ConversationRuntimeBackendSelection {
 	}
 }
 
-/** Keep the native model/input binding and canonical context projection, but do not
- * compose a second tool catalog, model loop, compactor or stop-hook continuation. */
-function codexSnapshot(snapshot: RuntimeSnapshot): RuntimeSnapshot {
+/**
+ * Codex replaces only the execution loop. Vetta keeps the Context Plane:
+ * conversation projection, context providers, budgets, transform/finalization,
+ * automatic/manual compaction, summaries, observers and composition reporting.
+ *
+ * The fields stripped below belong to the Native Agent loop itself. Keeping this
+ * boundary explicit lets future context policy changes apply to both backends.
+ */
+function codexExecutionSnapshot(snapshot: RuntimeSnapshot): RuntimeSnapshot {
 	return {
 		...snapshot,
 		tools: new Map(),
@@ -263,16 +272,5 @@ function codexSnapshot(snapshot: RuntimeSnapshot): RuntimeSnapshot {
 		modelCallFrameComposer: undefined,
 		agentRunPreparer: undefined,
 		continuationPolicy: undefined,
-		modelCallContextTransformer: undefined,
-		modelCallMessageFinalizer: undefined,
-		manualCompactionStrategy: undefined,
-		contextSummaryStrategy: undefined,
-		contextProviders: [],
-		contextStrategy: {
-			prepare: async (input, signal) => {
-				signal.throwIfAborted();
-				return { messages: input.messages, estimatedTokens: Math.ceil(JSON.stringify(input.messages).length / 4) };
-			},
-		},
 	};
 }

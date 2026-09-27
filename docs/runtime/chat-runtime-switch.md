@@ -19,11 +19,20 @@ Codex 使用安装包内置程序、独立托管数据目录和现有模型设�
 Codex 执行完整的模型/工具循环，Native AgentCore 不再执行该轮，也没有把 Codex 塞进 Native streamFn。
 工具和文本事件转为原 SessionEvent，消息只由原 Kernel 提交一次。未测得的用量不会记成真实零费用。
 
-当前切片为每一轮 Codex 指令建立并关闭独占进程/线程。新的 Codex 线程接收原会话当前可见的历史，
-历史工具调用被标为数据而不是重新执行指令；本轮生成的文本和工具结果回到原会话，切回 Native 可继续引用。
-这种方式避免两份可编辑历史之间静默漂移，但会增加进程启动和长历史输入成本，不是持久 Codex thread 的无损内部状态迁移。
-只交接原会话模型可见的文本/结构化记录，不交接模型隐状态；二进制附件明确不交接。
-超过 3 MiB 的历史交接明确失败，不偷偷截断；持久 Codex thread 增量同步和长历史压缩需后续单独设计。
+当前切片为每一轮 Codex 指令建立并关闭独占进程/线程。新的 Codex 线程只接收 **Vetta Context Plane 已准备好的**
+模型可见上下文；历史工具调用被标为数据而不是重新执行指令。本轮生成的文本和工具结果回到原 Conversation，
+切回 Native 继续使用同一份 journal、Context Strategy 与 compaction 边界。
+
+Vetta 是应用级上下文唯一 owner：Conversation 投影、Context Provider、token budget、自动/手动 compaction、
+Context Summary、model-call transient transform/finalization、压缩持久化和恢复都不随后端切换。Codex 仅替换执行 loop；
+进入 Codex loop 前会执行与 Native 首次模型调用一致的 Vetta context transform → model_call checkpoint/compaction →
+finalization，再把结果封装成 Codex handoff。这样后续调整压缩阈值、keep-tail、summary 结构或 Context Provider 时，
+Native 与 Codex 会同时生效，不需要维护两套策略。
+
+Codex 内部单个 Turn 的工具输出和后续模型调用仍属于该外部 loop 的瞬时状态，Vetta 暂不能逐次拦截 app-server 内部
+每一个模型调用；这些瞬时状态不会成为第二份应用历史。下一次 Vetta Turn 仍从 canonical Conversation/compaction
+重新准备上下文。只交接模型可见的文本/结构化记录，不交接模型隐状态；二进制附件明确不交接。
+3 MiB 仍作为 **Vetta 准备/压缩之后** 的 Codex handoff 硬传输上限，超过时 fail-closed，不偷偷截断。
 
 本轮后端绑定按 sessionId / operationId 固定，既有模型/snapshot 在异步读取之前同步捕获。
 切换记录以 custom metadata `desktop.runtime-backend` 保存，不改变原会话文件格式或 session ID。
@@ -50,6 +59,16 @@ ambiguous 一律 fail-closed，要求人工检查历史。
 目前形成的身份链为：
 `inputId → turnId → toolCallId → approval requestId`。其中 approval requestId 已绑定
 session/RPC/thread/turn/item，旧批准不能落到新的 Turn。
+
+## 统一 Context Plane
+
+后端开关不再切换 Context owner。无论当前执行的是 Native 还是 Codex，Session 的上下文控制面都来自同一套
+Runtime snapshot，因此手动压缩、Context Summary、自动压缩开关和 eligibility 在 Codex 模式下也继续可用。
+Codex 清理失败只阻止新的 Codex execution acquisition，不阻止用户读取历史或执行 Vetta 自己的手动压缩/摘要。
+
+为了避免“两个 loop = 两个上下文系统”，Codex snapshot 只移除 Native loop 专属的 instructions、tools、
+model-call contribution/frame、AgentRunPreparer 与 continuation policy；不会再移除 context providers、context strategy、
+manual/context-summary strategy、model-call context transformer/finalizer、budget 或 observers。
 
 ## Codex 工具可观察性
 

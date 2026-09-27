@@ -28,14 +28,16 @@ export class CodexConversationTurnEngine implements TurnEnginePort {
 
 	async *execute(request: TurnEngineRequest): AsyncGenerator<TurnEngineEvent> {
 		this.assertReusable(request.sessionId);
-		const text = codexConversationInput(request);
 		const consumer = new AbortController();
 		const signal = AbortSignal.any([request.signal, consumer.signal]);
-		const events = new CodexTurnEventBuffer();
-		const producer = this.produce({ ...request, signal }, text, events);
-		// Install the rejection handler immediately; the consumer may be awaiting persistence.
-		void producer.catch(() => undefined);
+		let producer: Promise<void> | undefined;
 		try {
+			const preparedRequest = await this.prepareVettaManagedContext(request, signal);
+			const text = codexConversationInput(preparedRequest);
+			const events = new CodexTurnEventBuffer();
+			producer = this.produce(preparedRequest, text, events);
+			// Install the rejection handler immediately; the consumer may be awaiting persistence.
+			void producer.catch(() => undefined);
 			while (true) {
 				const next = await events.next();
 				if (next.done) break;
@@ -46,6 +48,78 @@ export class CodexConversationTurnEngine implements TurnEnginePort {
 			consumer.abort();
 			await producer;
 		}
+	}
+
+	/**
+	 * Vetta owns durable context for every backend. Mirror the Native loop's first
+	 * model-call context sequence before handing the prepared transcript to Codex:
+	 * transient transform -> durable checkpoint/compaction -> finalization.
+	 *
+	 * Codex still owns transient context created by its internal tool/model loop
+	 * inside this Turn; those internals never become a second application history.
+	 */
+	private async prepareVettaManagedContext(
+		request: TurnEngineRequest,
+		signal: AbortSignal,
+	): Promise<TurnEngineRequest> {
+		signal.throwIfAborted();
+		let messages = [...request.messages];
+		let contextMessages = request.contextMessages;
+
+		if (request.snapshot.modelCallContextTransformer && request.modelBinding) {
+			messages = [
+				...(await request.snapshot.modelCallContextTransformer.transform(
+					{
+						sessionId: request.sessionId,
+						turnId: request.turnId,
+						messages,
+						...(contextMessages ? { messageEnvelopes: contextMessages } : {}),
+						modelBinding: request.modelBinding,
+					},
+					signal,
+				)),
+			];
+			signal.throwIfAborted();
+		}
+
+		const checkpoint = await request.checkpoint?.(
+			{
+				reason: "model_call",
+				messages,
+				modelCallIndex: 0,
+				recoveryAttempt: 0,
+			},
+			signal,
+		);
+		signal.throwIfAborted();
+		if (checkpoint) {
+			messages = [...checkpoint.messages];
+			if (checkpoint.contextMessageEnvelopes) contextMessages = checkpoint.contextMessageEnvelopes;
+		}
+
+		if (request.snapshot.modelCallMessageFinalizer && request.modelBinding) {
+			messages = [
+				...(await request.snapshot.modelCallMessageFinalizer.finalize(
+					{
+						sessionId: request.sessionId,
+						turnId: request.turnId,
+						messages,
+						modelBinding: request.modelBinding,
+					},
+					signal,
+				)),
+			];
+			signal.throwIfAborted();
+		}
+
+		return {
+			...request,
+			// A compaction continuation may have rebound the dynamic session identity.
+			sessionId: request.sessionId,
+			messages,
+			...(contextMessages ? { contextMessages } : {}),
+			signal,
+		};
 	}
 
 	private async produce(request: TurnEngineRequest, text: string, events: CodexTurnEventBuffer): Promise<void> {

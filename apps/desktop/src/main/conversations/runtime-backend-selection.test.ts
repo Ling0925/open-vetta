@@ -72,7 +72,7 @@ function fixture(validate: () => Promise<void> = async () => {}) {
 			busy = value;
 		},
 		counts: () => ({ dispatched, disposed, released }),
-		compose: () =>
+		compose: (snapshot?: RuntimeSnapshot) =>
 			selection.composeExecution(
 				// This unit fixture replaces only the document-store boundary read by the composer.
 				{ conversationDocumentStore: { readDocument: async () => document } } as unknown as RuntimeResources,
@@ -80,11 +80,13 @@ function fixture(validate: () => Promise<void> = async () => {}) {
 					turnEngine: native,
 					snapshotProvider: {
 						acquire: async () => ({
-							snapshot: {
-								tools: new Map(),
-								instructions: [],
-								contextProviders: [],
-							} as unknown as RuntimeSnapshot,
+							snapshot:
+								snapshot ??
+								({
+									tools: new Map(),
+									instructions: [],
+									contextProviders: [],
+								} as unknown as RuntimeSnapshot),
 							release: async () => {
 								released++;
 							},
@@ -169,6 +171,62 @@ describe("same-conversation backend ownership", () => {
 		assert.equal(f.readDocument().entries.length, 0);
 		assert.equal(f.counts().disposed, 1);
 	});
+	it("keeps Vetta context management when Codex is selected and permits manual compaction snapshots", async () => {
+		const f = fixture();
+		const session = await open(f);
+		await f.selection.select("same-session", "codex", "default");
+
+		const contextStrategy = { prepare: async (input: any) => ({ messages: input.messages, estimatedTokens: 1 }) };
+		const contextProvider = { id: "shared-context", provide: async () => [] };
+		const manualCompactionStrategy = { compactManual: async () => { throw new Error("not executed"); } };
+		const contextSummaryStrategy = { summarizeContext: async () => ({ summary: "fixture", tokensBefore: 1 }) };
+		const transformer = { transform: async (input: any) => input.messages };
+		const finalizer = { finalize: async (input: any) => input.messages };
+		const source = {
+			id: "source",
+			tools: new Map([["native-only", {}]]),
+			instructions: [{ id: "native-only", content: "native loop instruction" }],
+			modelCallProviders: [{ id: "native-provider" }],
+			modelCallFrameComposer: {},
+			agentRunPreparer: {},
+			continuationPolicy: {},
+			contextProviders: [contextProvider],
+			contextStrategy,
+			manualCompactionStrategy,
+			contextSummaryStrategy,
+			modelCallContextTransformer: transformer,
+			modelCallMessageFinalizer: finalizer,
+			toolPolicy: { authorize: async () => true },
+			tokenBudget: 8_000,
+			reservedOutputTokens: 1_000,
+			observers: [],
+		} as unknown as RuntimeSnapshot;
+		const composition = f.compose(source);
+		const lease = await composition.snapshotProvider.acquire({
+			sessionId: "same-session",
+			operationId: "same-session:manual-compaction",
+			reason: "manual_compaction",
+			signal: new AbortController().signal,
+		});
+		try {
+			assert.equal(lease.snapshot.contextStrategy, contextStrategy);
+			assert.equal(lease.snapshot.contextProviders[0], contextProvider);
+			assert.equal(lease.snapshot.manualCompactionStrategy, manualCompactionStrategy);
+			assert.equal(lease.snapshot.contextSummaryStrategy, contextSummaryStrategy);
+			assert.equal(lease.snapshot.modelCallContextTransformer, transformer);
+			assert.equal(lease.snapshot.modelCallMessageFinalizer, finalizer);
+			assert.equal(lease.snapshot.tools.size, 0);
+			assert.deepEqual(lease.snapshot.instructions, []);
+			assert.deepEqual(lease.snapshot.modelCallProviders, []);
+			assert.equal(lease.snapshot.modelCallFrameComposer, undefined);
+			assert.equal(lease.snapshot.agentRunPreparer, undefined);
+			assert.equal(lease.snapshot.continuationPolicy, undefined);
+		} finally {
+			await lease.release();
+			await session.lifecycle.dispose();
+		}
+	});
+
 	it("pins the selected engine by operation ID, even when the pipeline copies its snapshot", async () => {
 		const f = fixture();
 		const session = await open(f);
