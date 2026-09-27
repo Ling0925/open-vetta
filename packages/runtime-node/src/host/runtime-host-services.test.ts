@@ -30,6 +30,12 @@ describe("Node RuntimeHost services", () => {
 
 		await expect(nodeRuntimeQueueSidecarStore.read(sessionPath)).resolves.toEqual(snapshot);
 		expect(JSON.parse(await readFile(`${sessionPath}.queue.json`, "utf8"))).toEqual(snapshot);
+		await expect(stat(`${sessionPath}.queue.json.tmp`)).rejects.toMatchObject({ code: "ENOENT" });
+
+		const replacement = { paused: false, entries: [{ id: "queued-2" }] };
+		await nodeRuntimeQueueSidecarStore.write(sessionPath, replacement);
+		await expect(nodeRuntimeQueueSidecarStore.read(sessionPath)).resolves.toEqual(replacement);
+		await expect(stat(`${sessionPath}.queue.json.tmp`)).rejects.toMatchObject({ code: "ENOENT" });
 
 		await nodeRuntimeQueueSidecarStore.remove(sessionPath);
 		await expect(nodeRuntimeQueueSidecarStore.read(sessionPath)).rejects.toMatchObject({ code: "ENOENT" });
