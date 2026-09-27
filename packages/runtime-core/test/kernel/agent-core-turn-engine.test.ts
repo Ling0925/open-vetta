@@ -11,6 +11,7 @@ import { describe, expect, it } from "vitest";
 import type { ContextCompositionReport } from "../../src/context-composition/index.js";
 import {
 	AgentCoreTurnEngine,
+	createRuntimeTurnContextPlane,
 	type ContextCompositionPublisher,
 	type ContinuationPolicy,
 	type ModelCallContextTransformer,
@@ -165,6 +166,19 @@ function snapshot(options?: {
 	};
 }
 
+function contextPlane(
+	runtimeSnapshot: RuntimeSnapshot,
+	checkpoint?: Parameters<typeof createRuntimeTurnContextPlane>[0]["checkpoint"],
+) {
+	return createRuntimeTurnContextPlane({
+		getSessionId: () => "session-1",
+		turnId: "turn-1",
+		snapshot: runtimeSnapshot,
+		modelBinding: { model: model() },
+		checkpoint,
+	});
+}
+
 async function collect(
 	engine: AgentCoreTurnEngine,
 	runtimeSnapshot: RuntimeSnapshot,
@@ -177,6 +191,7 @@ async function collect(
 		turnId: "turn-1",
 		snapshot: runtimeSnapshot,
 		messages: [userMessage("hello")],
+		contextPlane: contextPlane(runtimeSnapshot),
 		signal,
 		inputQueue,
 	})) {
@@ -827,7 +842,10 @@ describe("AgentCoreTurnEngine", () => {
 				{ kind: "opaque", identity: { type: "hidden" }, timestamp: 2 },
 			],
 			signal: new AbortController().signal,
-			checkpoint: async (checkpointRequest) => ({ messages: checkpointRequest.messages }),
+			contextPlane: contextPlane(
+				runtimeSnapshot,
+				async (checkpointRequest) => ({ messages: checkpointRequest.messages }),
+			),
 		})) {
 			// Exhaust the engine stream.
 		}
@@ -876,10 +894,10 @@ describe("AgentCoreTurnEngine", () => {
 			snapshot: runtimeSnapshot,
 			messages: [userMessage("hello")],
 			signal: new AbortController().signal,
-			checkpoint: async (checkpointRequest) => {
+			contextPlane: contextPlane(runtimeSnapshot, async (checkpointRequest) => {
 				order.push(`checkpoint:${checkpointRequest.messages.map(({ role }) => role).join(",")}`);
 				return { messages: checkpointRequest.messages };
-			},
+			}),
 		})) {
 			if (event.type === "message") {
 				order.push(event.message.role);
@@ -897,6 +915,28 @@ describe("AgentCoreTurnEngine", () => {
 			"checkpoint:user,assistant,toolResult,assistant",
 			"completed",
 		]);
+	});
+
+	it("fails closed when Runtime context hooks are supplied without a Turn-bound Context Plane", async () => {
+		const engine = new AgentCoreTurnEngine({
+			model: model(),
+			streamFn: () => new RecordedAssistantStream(assistantMessage([{ type: "text", text: "unused" }])),
+		});
+		const runtimeSnapshot = snapshot({
+			modelCallContextTransformer: { transform: async (input) => input.messages },
+		});
+		const run = async () => {
+			for await (const _event of engine.execute({
+				sessionId: "session-1",
+				turnId: "turn-1",
+				snapshot: runtimeSnapshot,
+				messages: [userMessage("hello")],
+				signal: new AbortController().signal,
+			})) {
+				// Exhaust.
+			}
+		};
+		await expect(run()).rejects.toThrow("Runtime-managed context requires a Turn-bound Context Plane");
 	});
 
 	it("turns policy rejection into a tool error without calling the implementation", async () => {

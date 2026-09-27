@@ -45,10 +45,6 @@ import type {
 	TurnEngineRequest,
 } from "./contracts.js";
 import { KERNEL_ERROR_CODES, TurnExecutionError, turnProtocolError } from "./errors.js";
-import {
-	finalizeRuntimeModelCallMessages,
-	prepareRuntimeModelCallCheckpoint,
-} from "./model-call-context.js";
 import { withPromptCacheDiagnostics } from "./model-call-diagnostics.js";
 import { composeModelCallSystemPrompt, resolveModelCallFrame } from "./model-call-frame.js";
 import { consumeQueuedInputBatch } from "./queued-input-consumption.js";
@@ -63,6 +59,12 @@ export class StatelessAgentCoreTurnEngine implements TurnEnginePort {
 
 	async *execute(request: TurnEngineRequest): AsyncIterable<TurnEngineEvent> {
 		request.signal.throwIfAborted();
+		if (
+			!request.contextPlane &&
+			(request.checkpoint || request.snapshot.modelCallContextTransformer || request.snapshot.modelCallMessageFinalizer)
+		) {
+			throw turnProtocolError("Runtime-managed context requires a Turn-bound Context Plane");
+		}
 		const model = request.modelBinding?.model ?? this.options.model;
 		if (!model) throw turnProtocolError("Agent Core turn requires a model binding");
 
@@ -173,20 +175,7 @@ export class StatelessAgentCoreTurnEngine implements TurnEnginePort {
 				const frame = frames.get(modelCallIndex);
 				if (!frame) throw turnProtocolError(`Missing model-call frame at index ${modelCallIndex}`);
 				currentFrame = frame;
-				const runtimeMessages = toRuntimeMessages(callMessages, identities);
-				const finalizedMessages = request.contextPlane
-					? runtimeMessages
-					: await finalizeRuntimeModelCallMessages({
-							sessionId: request.sessionId,
-							turnId: request.turnId,
-							snapshot: request.snapshot,
-							modelBinding: request.modelBinding ?? {
-								model,
-								reasoning: this.options.streamOptions?.reasoning,
-							},
-							messages: runtimeMessages,
-							signal,
-						});
+				const finalizedMessages = toRuntimeMessages(callMessages, identities);
 				// instructionOverride 替换整段 Prompt，Frame 上算出的稳定前缀长度随即失效，必须丢弃。
 				const stableLength = request.instructionOverride ? 0 : frame.systemPromptStableLength;
 				const promptCacheSystemPromptBlocks = request.instructionOverride
@@ -267,51 +256,32 @@ export class StatelessAgentCoreTurnEngine implements TurnEnginePort {
 					if (!authorized) throw new Error(`Tool execution denied by policy: ${call.name}`);
 				},
 			},
-			checkpoint:
-				request.contextPlane || request.checkpoint || request.snapshot.modelCallContextTransformer
-					? async (checkpointRequest, signal) => {
-							await eventDelivery.waitForCurrentDelivery(signal);
-							const runtimeMessages = toRuntimeMessages(checkpointRequest.messages, identities);
-							const messageEnvelopes = toRuntimeMessageEnvelopes(checkpointRequest.messages, identities);
-							const result = request.contextPlane
-								? await request.contextPlane.prepareModelCall(
-										{
-											reason: checkpointRequest.reason,
-											messages: runtimeMessages,
-											messageEnvelopes,
-											modelCallIndex: checkpointRequest.modelCallIndex,
-											assistantMessage: checkpointRequest.assistantMessage,
-											recoveryAttempt: checkpointRequest.recoveryAttempt,
-										},
-										signal,
-									)
-								: await prepareRuntimeModelCallCheckpoint({
-										sessionId: request.sessionId,
-										turnId: request.turnId,
-										snapshot: request.snapshot,
-										modelBinding: request.modelBinding ?? {
-											model,
-											reasoning: this.options.streamOptions?.reasoning,
-										},
-										checkpoint: request.checkpoint,
-										messages: runtimeMessages,
-										messageEnvelopes,
-										reason: checkpointRequest.reason,
-										modelCallIndex: checkpointRequest.modelCallIndex,
-										assistantMessage: checkpointRequest.assistantMessage,
-										recoveryAttempt: checkpointRequest.recoveryAttempt,
-										signal,
-									});
-							if (!result) return undefined;
-							return {
-								messages: result.messages,
-								contextMessages: result.contextMessageEnvelopes
-									? hydrateMessages(result.contextMessageEnvelopes, identities)
-									: result.contextMessages,
-								retry: result.retry,
-							};
-						}
-					: undefined,
+			checkpoint: request.contextPlane
+				? async (checkpointRequest, signal) => {
+						await eventDelivery.waitForCurrentDelivery(signal);
+						const runtimeMessages = toRuntimeMessages(checkpointRequest.messages, identities);
+						const messageEnvelopes = toRuntimeMessageEnvelopes(checkpointRequest.messages, identities);
+						const result = await request.contextPlane.prepareModelCall(
+							{
+								reason: checkpointRequest.reason,
+								messages: runtimeMessages,
+								messageEnvelopes,
+								modelCallIndex: checkpointRequest.modelCallIndex,
+								assistantMessage: checkpointRequest.assistantMessage,
+								recoveryAttempt: checkpointRequest.recoveryAttempt,
+							},
+							signal,
+						);
+						if (!result) return undefined;
+						return {
+							messages: result.messages,
+							contextMessages: result.contextMessageEnvelopes
+								? hydrateMessages(result.contextMessageEnvelopes, identities)
+								: result.contextMessages,
+							retry: result.retry,
+						};
+					}
+				: undefined,
 			takeSteeringMessages: inputQueue
 				? async () =>
 						consumeQueuedInputBatch(
