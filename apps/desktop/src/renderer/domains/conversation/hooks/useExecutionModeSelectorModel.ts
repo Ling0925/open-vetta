@@ -6,7 +6,7 @@ import {
 } from "@shared/store/atoms";
 import { useSearch } from "@tanstack/react-router";
 import { isSshProjectUri } from "@vetta/ssh-transport/project-uri";
-import { useAtom, useAtomValue } from "jotai";
+import { getDefaultStore, useAtom, useAtomValue } from "jotai";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type {
@@ -41,14 +41,23 @@ export function useDefaultExecutionModeSelectorModel(): ExecutionModeSelectorVie
 	const onSelectMode = useCallback(
 		async (nextMode: SessionExecutionMode) => {
 			const previousMode = mode;
+			const targetRuntimeId = activeSession?.runtimeId;
 			setMode(nextMode);
-			localStorage.setItem("vetta-session-execution-mode", nextMode);
-			if (!activeSession) return;
+			if (!targetRuntimeId) {
+				localStorage.setItem("vetta-session-execution-mode", nextMode);
+				return;
+			}
 			try {
-				await window.vetta.session.setExecutionMode(activeSession.runtimeId, nextMode);
+				await window.vetta.session.setExecutionMode(targetRuntimeId, nextMode);
+				localStorage.setItem("vetta-session-execution-mode", nextMode);
 			} catch (error) {
-				setMode(previousMode);
 				localStorage.setItem("vetta-session-execution-mode", previousMode);
+				// The request belongs to the Session that initiated it. If the user already
+				// switched elsewhere, a late failure must not overwrite the new Session's
+				// hydrated mode in this global presentation atom.
+				if (getDefaultStore().get(activeSessionAtom)?.runtimeId === targetRuntimeId) {
+					setMode(previousMode);
+				}
 				console.error("[ExecutionModeSelector] failed to switch execution mode:", error);
 			}
 		},
