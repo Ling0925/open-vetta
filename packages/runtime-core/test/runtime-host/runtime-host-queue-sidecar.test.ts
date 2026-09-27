@@ -92,6 +92,38 @@ describe("RuntimeHostQueueSidecar", () => {
 		await expect(sidecar.flush("session.jsonl")).resolves.toBeUndefined();
 	});
 
+	it("drops restored request entries that already have a durable input identity", async () => {
+		const restoreQueue = vi.fn();
+		const queueController = { restoreQueue } as unknown as RuntimeSessionQueueController;
+		const snapshot = {
+			paused: false,
+			entries: [
+				{
+					id: "stale",
+					behavior: "followUp",
+					input: { request: { inputId: "input-done", payload: {}, displayText: "done" } },
+				},
+				{
+					id: "fresh",
+					behavior: "followUp",
+					input: { request: { inputId: "input-fresh", payload: {}, displayText: "fresh" } },
+				},
+			],
+		};
+		const sidecar = new RuntimeHostQueueSidecar({ store: createStore({ read: async () => snapshot }) });
+
+		await sidecar.restore(queueController, "session.jsonl", async (inputId) =>
+			inputId === "input-done"
+				? { status: "completed" }
+				: { status: "missing" },
+		);
+
+		expect(restoreQueue).toHaveBeenCalledWith({
+			paused: false,
+			entries: [snapshot.entries[1]],
+		});
+	});
+
 	it("restores a valid snapshot and ignores read failures", async () => {
 		const restoreQueue = vi.fn();
 		const queueController = { restoreQueue } as unknown as RuntimeSessionQueueController;

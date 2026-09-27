@@ -75,13 +75,57 @@ export class RuntimeHostQueueSidecar {
 		if (failures.length > 1) throw new AggregateError(failures, "Failed to persist Runtime queue sidecars");
 	}
 
-	async restore(queueController: RuntimeSessionQueueController, sessionPath: string | undefined): Promise<void> {
+	async restore(
+		queueController: RuntimeSessionQueueController,
+		sessionPath: string | undefined,
+		reconcileInput?: (inputId: string) => Promise<{ readonly status: string }>,
+	): Promise<void> {
 		if (!sessionPath || !this.store) return;
 		try {
 			const snapshot = await this.store.read(sessionPath);
-			if (snapshot !== undefined) queueController.restoreQueue(snapshot);
+			if (snapshot === undefined) return;
+			queueController.restoreQueue(await pruneDurablyAdmittedInputs(snapshot, reconcileInput));
 		} catch {
 			// Missing or damaged sidecars never invalidate durable conversation history.
 		}
 	}
+}
+
+
+async function pruneDurablyAdmittedInputs(
+	snapshot: unknown,
+	reconcileInput: ((inputId: string) => Promise<{ readonly status: string }>) | undefined,
+): Promise<unknown> {
+	if (!reconcileInput || !isRecord(snapshot) || !Array.isArray(snapshot.entries)) return snapshot;
+	const entries: unknown[] = [];
+	let changed = false;
+	for (const entry of snapshot.entries) {
+		const inputId = readQueuedRequestInputId(entry);
+		if (!inputId) {
+			entries.push(entry);
+			continue;
+		}
+		try {
+			const receipt = await reconcileInput(inputId);
+			if (receipt.status !== "missing") {
+				changed = true;
+				continue;
+			}
+		} catch {
+			// Reconciliation is an extra safety gate. On uncertainty retain the queue item;
+			// the normal admission gate will still prevent duplicate durable execution.
+		}
+		entries.push(entry);
+	}
+	return changed ? { ...snapshot, entries } : snapshot;
+}
+
+function readQueuedRequestInputId(entry: unknown): string | undefined {
+	if (!isRecord(entry) || !isRecord(entry.input) || !isRecord(entry.input.request)) return undefined;
+	const inputId = entry.input.request.inputId;
+	return typeof inputId === "string" && inputId.length > 0 ? inputId : undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
 }

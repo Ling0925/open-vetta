@@ -184,7 +184,13 @@ export class RuntimeHostSessionLifecycle {
 		try {
 			this.options.events.attach(sessionId, handle, handle.eventStream);
 			if (handle.queueController && sessionPath) {
-				await this.options.queueSidecar.restore(handle.queueController, handle.lifecycle.sessionPath);
+				await this.options.queueSidecar.restore(
+					handle.queueController,
+					handle.lifecycle.sessionPath,
+					handle.inputReconciliationView
+						? (inputId) => handle.inputReconciliationView!.reconcileInput(inputId)
+						: undefined,
+				);
 			}
 			if (sessionPath && !config.model) {
 				await this.restoreModelFromHistory(handle);
