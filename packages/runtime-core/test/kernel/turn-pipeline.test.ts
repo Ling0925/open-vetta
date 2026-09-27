@@ -17,6 +17,7 @@ import {
 	type EventSink,
 	type IdGenerator,
 	KERNEL_ERROR_CODES,
+	reconcileRuntimeInput,
 	type KernelEvent,
 	type PreparedContext,
 	type RuntimeSessionContextBuffer,
@@ -318,6 +319,32 @@ describe("greenfield runtime kernel", () => {
 		]);
 	});
 
+	it("persists a handled input identity without starting a model Turn", async () => {
+		const engine = new CompletingTurnEngine(assistantMessage("unused"));
+		const harness = await createHarness({ turnEngine: engine });
+		const request = { payload: { text: "ping" }, displayText: "ping", inputId: "input-handled" };
+		const preparer = { async prepare() { return { action: "handled" as const }; } };
+
+		await expect(
+			harness.pipeline.runRequest("session-1", request, new AbortController().signal, undefined, preparer),
+		).resolves.toEqual({ status: "handled", sessionId: "session-1" });
+		const conversation = await harness.repository.load("session-1");
+		expect(conversation.events).toContainEqual(
+			expect.objectContaining({
+				type: "context.recorded",
+				record: expect.objectContaining({
+					type: "runtime.input.identity",
+					metadata: { inputId: "input-handled", disposition: "handled" },
+				}),
+			}),
+		);
+		expect(conversation.events.some((event) => event.type === "turn.started")).toBe(false);
+		expect(engine.requests).toHaveLength(0);
+		await expect(
+			harness.pipeline.runRequest("session-1", request, new AbortController().signal, undefined, preparer),
+		).rejects.toMatchObject({ code: KERNEL_ERROR_CODES.INPUT_ALREADY_ADMITTED });
+	});
+
 	it("binds inputId to one durable turn and refuses a replay before engine execution", async () => {
 		const engine = new CompletingTurnEngine(assistantMessage("done"));
 		const harness = await createHarness({ turnEngine: engine });
@@ -425,7 +452,7 @@ describe("greenfield runtime kernel", () => {
 		const engine: TurnEnginePort = {
 			async *execute(request) {
 				await request.admitQueuedInputs?.({
-					inputIds: ["queued-input"],
+					admissions: [{ inputId: "queued-input", disposition: "turn" }],
 					context: [queuedContext],
 				});
 				yield { type: "message", message: assistantMessage("done") };
@@ -453,6 +480,26 @@ describe("greenfield runtime kernel", () => {
 			),
 		).toMatchObject({ type: "context.appended", turnId: "turn-1", record: queuedContext });
 		expect(conversation.events.at(-1)).toMatchObject({ type: "turn.completed", turnId: "turn-1" });
+	});
+
+	it("persists queued handled identity as Session-level state independent of the current Turn terminal", async () => {
+		const engine: TurnEnginePort = {
+			async *execute(request) {
+				await request.admitQueuedInputs?.({
+					admissions: [{ inputId: "queued-handled", disposition: "handled" }],
+					context: [],
+				});
+				yield { type: "message", message: assistantMessage("current turn fails") };
+				yield { type: "completed", stopReason: "stop" };
+			},
+		};
+		const harness = await createHarness({ turnEngine: engine });
+		await harness.session.send({ message: userMessage("initial") });
+		const conversation = await harness.repository.load("session-1");
+		expect(reconcileRuntimeInput(conversation, "queued-handled")).toMatchObject({
+			status: "handled",
+			inputId: "queued-handled",
+		});
 	});
 
 	it("assembles provider context before the current input and binds one snapshot", async () => {

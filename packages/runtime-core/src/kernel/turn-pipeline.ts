@@ -285,6 +285,7 @@ export class TurnPipeline {
 				});
 				signal.throwIfAborted();
 				if (preparedRequest.action === "handled") {
+					if (inputId) await this.recordHandledInputIdentity(state.sessionId, inputId);
 					return { status: "handled", sessionId: state.sessionId };
 				}
 				input = preparedRequest.input;
@@ -568,8 +569,12 @@ export class TurnPipeline {
 				inputQueue,
 				input,
 				contextPlane,
-				admitQueuedInputs: async ({ inputIds, context }) => {
-					const normalizedInputIds = inputIds.map((value) => normalizeInputId(value) as string);
+				admitQueuedInputs: async ({ admissions, context }) => {
+					const normalizedAdmissions = admissions.map(({ inputId: value, disposition }) => ({
+						inputId: normalizeInputId(value) as string,
+						disposition,
+					}));
+					const normalizedInputIds = normalizedAdmissions.map(({ inputId: value }) => value);
 					if (new Set(normalizedInputIds).size !== normalizedInputIds.length) {
 						throw inputAlreadyAdmittedError();
 					}
@@ -582,24 +587,36 @@ export class TurnPipeline {
 						state.version = latest.version;
 					}
 					const timestamp = this.clock.now();
-					const records: readonly SessionContextRecord[] = [
-						...normalizedInputIds.map((queuedInputId) =>
-							createRuntimeInputIdentityRecord(queuedInputId, turnId),
+					const events: StoredSessionEvent[] = [
+						...normalizedAdmissions.map(({ inputId: queuedInputId, disposition }) =>
+							disposition === "handled"
+								? ({
+										type: "context.recorded",
+										sessionId: state.sessionId,
+										record: createHandledInputIdentityRecord(queuedInputId),
+										timestamp,
+									} satisfies StoredSessionEvent)
+								: ({
+										type: "context.appended",
+										sessionId: state.sessionId,
+										turnId,
+										record: createRuntimeInputIdentityRecord(queuedInputId, turnId),
+										timestamp,
+									} satisfies StoredSessionEvent),
 						),
-						...context,
+						...context.map(
+							(record) =>
+								({
+									type: "context.appended",
+									sessionId: state.sessionId,
+									turnId,
+									record,
+									timestamp: record.timestamp ?? timestamp,
+								}) satisfies StoredSessionEvent,
+						),
 					];
-					if (records.length === 0) return;
-					await this.append(
-						state,
-						signal,
-						records.map((record) => ({
-							type: "context.appended" as const,
-							sessionId: state.sessionId,
-							turnId,
-							record,
-							timestamp: record.timestamp ?? timestamp,
-						})),
-					);
+					if (events.length === 0) return;
+					await this.append(state, signal, events);
 				},
 				appendQueuedContext: async (records) => {
 					const timestamp = this.clock.now();
@@ -1183,6 +1200,31 @@ export class TurnPipeline {
 		}
 	}
 
+	private async recordHandledInputIdentity(sessionId: string, inputId: string): Promise<void> {
+		for (let attempt = 0; attempt < 2; attempt += 1) {
+			const conversation = await this.repository.load(sessionId);
+			const document = await this.conversationDocumentReader?.readDocument(sessionId);
+			assertInputNotAdmitted(conversation, inputId, document);
+			const event: StoredSessionEvent = {
+				type: "context.recorded",
+				sessionId,
+				record: createHandledInputIdentityRecord(inputId),
+				timestamp: this.clock.now(),
+			};
+			try {
+				await this.repository.append(sessionId, conversation.version, [event]);
+				await this.publishSafely(event);
+				return;
+			} catch (error) {
+				if (attempt === 0) continue;
+				const latest = await this.repository.load(sessionId);
+				const latestDocument = await this.conversationDocumentReader?.readDocument(sessionId);
+				assertInputNotAdmitted(latest, inputId, latestDocument);
+				throw error;
+			}
+		}
+	}
+
 	private async releaseSnapshotSafely(
 		lease: RuntimeSnapshotLease | undefined,
 		sessionId: string,
@@ -1202,6 +1244,16 @@ export class TurnPipeline {
 			});
 		}
 	}
+}
+
+function createHandledInputIdentityRecord(inputId: string): SessionContextRecord {
+	return {
+		type: "runtime.input.identity",
+		content: "",
+		modelVisible: false,
+		display: false,
+		metadata: { inputId, disposition: "handled" },
+	};
 }
 
 function createRuntimeInputIdentityRecord(inputId: string, turnId: string): SessionContextRecord {

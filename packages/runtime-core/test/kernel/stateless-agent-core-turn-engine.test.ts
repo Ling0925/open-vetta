@@ -217,7 +217,10 @@ describe("StatelessAgentCoreTurnEngine", () => {
 				return recordedStream(response);
 			},
 		});
-		const admissions: Array<{ inputIds: readonly string[]; context: readonly SessionContextRecord[] }> = [];
+		const admissions: Array<{
+			admissions: readonly { inputId: string; disposition: "turn" | "handled" }[];
+			context: readonly SessionContextRecord[];
+		}> = [];
 		for await (const _event of engine.execute({
 			sessionId: "session-1",
 			turnId: "turn-1",
@@ -231,7 +234,51 @@ describe("StatelessAgentCoreTurnEngine", () => {
 		})) {
 			// Exhaust the loop.
 		}
-		expect(admissions).toEqual([{ inputIds: ["input-queued"], context: [record] }]);
+		expect(admissions).toEqual([
+			{ admissions: [{ inputId: "input-queued", disposition: "turn" }], context: [record] },
+		]);
+		expect(queue.pendingCount).toBe(0);
+	});
+
+	it("marks an extension-handled queued request as handled rather than turn-bound", async () => {
+		const queue = new SessionInputQueue();
+		queue.enqueueRequestWithId("followUp", {
+			payload: { text: "ping" },
+			displayText: "ping",
+			inputId: "input-handled",
+		});
+		const runtimeSnapshot: RuntimeSnapshot = {
+			...snapshot(),
+			inputRequestPreparer: {
+				async prepare() {
+					return { action: "handled" as const };
+				},
+			},
+		};
+		const responses = [assistant([{ type: "text", text: "first" }]), assistant([{ type: "text", text: "second" }])];
+		let responseIndex = 0;
+		const engine = new StatelessAgentCoreTurnEngine({
+			model: model(),
+			streamFn: () => recordedStream(responses[responseIndex++]!),
+		});
+		const admissions: unknown[] = [];
+		for await (const _event of engine.execute({
+			sessionId: "session-1",
+			turnId: "turn-1",
+			snapshot: runtimeSnapshot,
+			messages: [user("hello")],
+			signal: new AbortController().signal,
+			inputQueue: queue,
+			admitQueuedInputs: async (input) => {
+				admissions.push(input);
+			},
+		})) {
+			// Exhaust.
+		}
+		expect(admissions).toContainEqual({
+			admissions: [{ inputId: "input-handled", disposition: "handled" }],
+			context: [],
+		});
 		expect(queue.pendingCount).toBe(0);
 	});
 

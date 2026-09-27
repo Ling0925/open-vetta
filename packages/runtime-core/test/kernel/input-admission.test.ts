@@ -34,6 +34,46 @@ describe("runtime input admission lookup", () => {
 		).toEqual({ state: "admitted", inputId: "input-1", turnId: "turn-1", terminal: "completed" });
 	});
 
+	it("reconciles a Session-level handled input without inventing a Turn", () => {
+		const receipt = reconcileRuntimeInput(
+			conversation([
+				{
+					type: "context.recorded",
+					sessionId: "session",
+					record: {
+						type: "runtime.input.identity",
+						content: "",
+						modelVisible: false,
+						display: false,
+						metadata: { inputId: "input-handled", disposition: "handled" },
+					},
+					timestamp: 3,
+				},
+			]),
+			"input-handled",
+		);
+		expect(receipt).toEqual({ status: "handled", inputId: "input-handled", timestamp: 3 });
+		expect(
+			lookupRuntimeInputAdmission(
+				conversation([
+					{
+						type: "context.recorded",
+						sessionId: "session",
+						record: {
+							type: "runtime.input.identity",
+							content: "",
+							modelVisible: false,
+							display: false,
+							metadata: { inputId: "input-handled", disposition: "handled" },
+						},
+						timestamp: 3,
+					},
+				]),
+				"input-handled",
+			),
+		).toEqual({ state: "admitted", inputId: "input-handled", terminal: "handled" });
+	});
+
 	it("reports an admitted input without a terminal record as active", () => {
 		expect(lookupRuntimeInputAdmission(conversation([identity("turn-1", "input-1")]), "input-1")).toEqual({
 			state: "admitted",

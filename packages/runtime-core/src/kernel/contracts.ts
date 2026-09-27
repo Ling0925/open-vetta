@@ -992,7 +992,10 @@ export interface TurnEngineRequest {
 	 * before the queue reservation becomes consumable/model-visible.
 	 */
 	admitQueuedInputs?(input: {
-		readonly inputIds: readonly string[];
+		readonly admissions: readonly {
+			readonly inputId: string;
+			readonly disposition: "turn" | "handled";
+		}[];
 		readonly context: readonly SessionContextRecord[];
 	}): Promise<void>;
 	/** Legacy context-only persistence port for older TurnEngine implementations. */

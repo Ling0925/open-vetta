@@ -3,10 +3,11 @@ import type { StoredConversation } from "./contracts.js";
 
 export const RUNTIME_INPUT_IDENTITY_CONTEXT_TYPE = "runtime.input.identity";
 
-export type RuntimeInputTerminalState = "active" | "completed" | "cancelled" | "failed" | "transferred";
+export type RuntimeInputTerminalState = "handled" | "active" | "completed" | "cancelled" | "failed" | "transferred";
 
 export type RuntimeDurableInputReconciliation =
 	| { readonly status: "missing"; readonly inputId: string }
+	| { readonly status: "handled"; readonly inputId: string; readonly timestamp: number }
 	| {
 			readonly status: "active";
 			readonly inputId: string;
@@ -45,7 +46,11 @@ export type RuntimeDurableInputReconciliation =
 			readonly status: "ambiguous";
 			readonly inputId: string;
 			readonly turnIds: readonly string[];
-			readonly reason: "multiple_turns" | "multiple_terminal_records";
+			readonly reason:
+				| "multiple_turns"
+				| "multiple_terminal_records"
+				| "multiple_handled_records"
+				| "handled_and_turn";
 	  };
 
 export type RuntimeInputReconciliation =
@@ -62,7 +67,7 @@ export type RuntimeInputAdmissionLookup =
 	| {
 			readonly state: "admitted";
 			readonly inputId: string;
-			readonly turnId: string;
+			readonly turnId?: string;
 			readonly terminal: RuntimeInputTerminalState;
 	  }
 	| {
@@ -76,7 +81,17 @@ export function reconcileRuntimeInput(
 	inputId: string,
 	document?: Pick<ConversationDocument, "entries">,
 ): RuntimeDurableInputReconciliation {
+	const handledTimestamps = collectHandledTimestamps(conversation, document, inputId);
 	const turnIds = collectTurnIds(conversation, document, inputId);
+	if (handledTimestamps.length > 0 && turnIds.size > 0) {
+		return { status: "ambiguous", inputId, turnIds: [...turnIds].sort(), reason: "handled_and_turn" };
+	}
+	if (handledTimestamps.length > 1) {
+		return { status: "ambiguous", inputId, turnIds: [], reason: "multiple_handled_records" };
+	}
+	if (handledTimestamps.length === 1) {
+		return { status: "handled", inputId, timestamp: handledTimestamps[0]! };
+	}
 	if (turnIds.size === 0) return { status: "missing", inputId };
 	if (turnIds.size > 1) {
 		return { status: "ambiguous", inputId, turnIds: [...turnIds].sort(), reason: "multiple_turns" };
@@ -143,7 +158,7 @@ export function lookupRuntimeInputAdmission(
 	return {
 		state: "admitted",
 		inputId,
-		turnId: receipt.turnId,
+		...("turnId" in receipt ? { turnId: receipt.turnId } : {}),
 		terminal: receipt.status,
 	};
 }
@@ -166,6 +181,27 @@ function collectTurnIds(
 		turnIds.add(details.turnId);
 	}
 	return turnIds;
+}
+
+function collectHandledTimestamps(
+	conversation: Pick<StoredConversation, "events">,
+	document: Pick<ConversationDocument, "entries"> | undefined,
+	inputId: string,
+): number[] {
+	const timestamps: number[] = [];
+	for (const event of conversation.events) {
+		if (event.type !== "context.recorded" || event.record.type !== RUNTIME_INPUT_IDENTITY_CONTEXT_TYPE) continue;
+		const metadata = readRecord(event.record.metadata);
+		if (metadata?.inputId === inputId && metadata.disposition === "handled") timestamps.push(event.timestamp);
+	}
+	for (const entry of document?.entries ?? []) {
+		if (entry.type !== "custom_message" || entry.customType !== RUNTIME_INPUT_IDENTITY_CONTEXT_TYPE) continue;
+		const details = readRecord(entry.details);
+		if (details?.inputId !== inputId || details.disposition !== "handled") continue;
+		const timestamp = Date.parse(entry.timestamp);
+		if (Number.isFinite(timestamp)) timestamps.push(timestamp);
+	}
+	return [...new Set(timestamps)];
 }
 
 function readRecord(value: unknown): Record<string, unknown> | undefined {

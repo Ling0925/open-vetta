@@ -3,6 +3,7 @@ import type { RuntimeInputReconciliation } from "@vetta/runtime-core";
 export type PromptDeliveryReconciliation =
 	| { readonly kind: "missing" }
 	| { readonly kind: "queued"; readonly queueItemId: string; readonly behavior: "steer" | "followUp" }
+	| { readonly kind: "handled" }
 	| { readonly kind: "running"; readonly turnId: string }
 	| { readonly kind: "completed"; readonly turnId: string }
 	| { readonly kind: "failed"; readonly turnId: string; readonly message: string }
@@ -18,6 +19,8 @@ export function classifyPromptDeliveryReconciliation(
 			return { kind: "missing" };
 		case "queued":
 			return { kind: "queued", queueItemId: receipt.queueItemId, behavior: receipt.behavior };
+		case "handled":
+			return { kind: "handled" };
 		case "active":
 			return { kind: "running", turnId: receipt.turnId };
 		case "completed":

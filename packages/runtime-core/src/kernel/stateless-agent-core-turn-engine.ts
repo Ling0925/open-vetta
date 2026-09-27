@@ -332,7 +332,7 @@ export class StatelessAgentCoreTurnEngine implements TurnEnginePort {
 		identities: WeakMap<object, RuntimeMessageEnvelope>,
 	): Promise<Message[]> {
 		const admittedInputs: QueuedSessionInput[] = [];
-		const admittedInputIds: string[] = [];
+		const admissions: Array<{ inputId: string; disposition: "turn" | "handled" }> = [];
 		// Do not leave sibling preparations running after one request fails.
 		for (const input of inputs) {
 			request.signal.throwIfAborted();
@@ -350,12 +350,17 @@ export class StatelessAgentCoreTurnEngine implements TurnEnginePort {
 				modelBinding: request.modelBinding,
 			});
 			request.signal.throwIfAborted();
-			if (input.request.inputId) admittedInputIds.push(input.request.inputId);
+			if (input.request.inputId) {
+				admissions.push({
+					inputId: input.request.inputId,
+					disposition: prepared.action === "handled" ? "handled" : "turn",
+				});
+			}
 			if (prepared.action === "continue") admittedInputs.push(prepared.input);
 		}
 		const context = admittedInputs.flatMap((input) => input.context ?? []);
 		if (request.admitQueuedInputs) {
-			await request.admitQueuedInputs({ inputIds: admittedInputIds, context });
+			await request.admitQueuedInputs({ admissions, context });
 		} else if (context.length > 0) {
 			await request.appendQueuedContext?.(context);
 		}
