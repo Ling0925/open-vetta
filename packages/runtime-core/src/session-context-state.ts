@@ -1,6 +1,26 @@
 import type { ContextCompositionReport } from "./context-composition/contracts.js";
 import type { SessionEventBase } from "./contracts.js";
 
+/**
+ * Backend-neutral Vetta Context policy snapshot.
+ *
+ * It belongs to the Session Context Plane, not to Native or Codex execution loops.
+ */
+export interface RuntimeContextCompactionPolicy {
+	readonly enabled: boolean;
+	/** Context usage percentage at which automatic compaction becomes eligible. */
+	readonly thresholdPercent: number;
+	/** Output/recovery headroom kept outside compactable context. */
+	readonly reserveTokens: number;
+	/** Recent context retained verbatim after compaction. */
+	readonly keepRecentTokens: number;
+}
+
+export interface RuntimeContextPolicySnapshot {
+	readonly schemaVersion: 1;
+	readonly compaction: RuntimeContextCompactionPolicy;
+}
+
 /** A preflight over history, not a guarantee that a later provider call will succeed. */
 export type ContextCompactionEligibility =
 	| { readonly status: "eligible" }
@@ -23,6 +43,8 @@ export interface SessionContextState {
 	readonly compaction: {
 		readonly status: "idle" | "queued" | "running" | "completed" | "failed" | "cancelled";
 		readonly eligibility: ContextCompactionEligibility;
+		/** Effective Session policy shared by every execution backend. */
+		readonly policy?: RuntimeContextCompactionPolicy;
 		readonly queueId?: string;
 		readonly errorMessage?: string;
 	};

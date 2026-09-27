@@ -23,7 +23,10 @@ import type {
 	RuntimeMessageEnvelope,
 	RuntimeMessageOrigin,
 } from "../runtime-execution-observation.js";
-import type { ContextCompactionEligibility } from "../session-context-state.js";
+import type {
+	ContextCompactionEligibility,
+	RuntimeContextPolicySnapshot,
+} from "../session-context-state.js";
 import type { RuntimeSessionObservationEvent } from "../session-observation.js";
 
 export type AgentSessionState = "idle" | "running" | "cancelling" | "closing" | "recovery_required" | "closed";
@@ -349,6 +352,8 @@ export interface ManualContextCompactionStrategy {
 /** Session controls remain live; manual execution uses the admitted snapshot strategy. */
 export interface ManualContextCompactionRuntime extends ManualContextCompactionStrategy {
 	readCompactionEligibility?(document: ConversationDocument): ContextCompactionEligibility;
+	/** Effective Vetta Context policy for this Session. */
+	readContextPolicy?(): RuntimeContextPolicySnapshot;
 	readAutoCompactionEnabled(): boolean;
 	setAutoCompactionEnabled(enabled: boolean): void;
 }

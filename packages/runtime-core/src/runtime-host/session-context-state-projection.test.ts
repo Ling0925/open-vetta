@@ -1,13 +1,28 @@
 import { describe, expect, it } from "vitest";
 import { SessionContextStateProjection } from "./session-context-state-projection.js";
 
-const dynamic = { contextPercent: 6, contextTokens: 60, contextWindow: 100, activeToolNames: [] };
+const dynamic = {
+	contextPercent: 6,
+	contextTokens: 60,
+	contextWindow: 100,
+	activeToolNames: [],
+	contextPolicy: {
+		schemaVersion: 1 as const,
+		compaction: {
+			enabled: true,
+			thresholdPercent: 80,
+			reserveTokens: 36,
+			keepRecentTokens: 20,
+		},
+	},
+};
 
 describe("SessionContextStateProjection", () => {
 	it("publishes queued, running and completed state from session events", () => {
 		const projection = new SessionContextStateProjection();
 		const initial = projection.update("s1", dynamic, { status: "eligible" });
 		expect(initial?.compaction.status).toBe("idle");
+		expect(initial?.compaction.policy).toEqual(dynamic.contextPolicy.compaction);
 
 		const queued = projection.update(
 			"s1",

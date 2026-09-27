@@ -1,6 +1,7 @@
 import type { ThinkingLevel } from "@vetta/agent-core";
 import type { Api, Message, Model } from "@vetta/ai";
 import type { ContextCompositionReport } from "../context-composition/contracts.js";
+import type { RuntimeContextPolicySnapshot } from "../session-context-state.js";
 import type {
 	HistoryEntry,
 	PromptRequest,
@@ -268,6 +269,8 @@ export interface RuntimeContextSummaryResult {
 export interface RuntimeContextCompactionState {
 	readonly isCompacting: boolean;
 	readonly autoCompactionEnabled: boolean;
+	/** Effective Session policy shared by Native, Codex and future loops. */
+	readonly policy?: RuntimeContextPolicySnapshot;
 }
 
 /** Session 级上下文控制；不暴露具体摘要算法、Extension 或存储实现。 */

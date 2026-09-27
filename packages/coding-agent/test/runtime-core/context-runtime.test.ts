@@ -32,6 +32,30 @@ import type {
 } from "../../src/runtime-contracts/index.js";
 
 describe("DefaultCodingAgentContextRuntime", () => {
+	it("projects one backend-neutral Vetta context policy and reflects the session override", () => {
+		const runtime = new CodingAgentContextRuntime({
+			hookRuntime: createHookRuntime(),
+			resolveApiKey: () => "key",
+			resolveSettings: () => ({
+				enabled: true,
+				reserveTokens: 36_000,
+				minFreePercent: 20,
+				keepRecentTokens: 20_000,
+			}),
+		});
+		expect(runtime.readContextPolicy()).toEqual({
+			schemaVersion: 1,
+			compaction: {
+				enabled: true,
+				thresholdPercent: 80,
+				reserveTokens: 36_000,
+				keepRecentTokens: 20_000,
+			},
+		});
+		runtime.setAutoCompactionEnabled(false);
+		expect(runtime.readContextPolicy().compaction.enabled).toBe(false);
+	});
+
 	it("rebuilds the active compaction source from the latest summary, its kept tail, and later growth", () => {
 		let document = documentFromMessages([
 			userMessage("discarded", 1),

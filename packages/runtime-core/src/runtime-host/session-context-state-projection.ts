@@ -58,6 +58,7 @@ export class SessionContextStateProjection {
 						? ("queued" as const)
 						: (this.result ?? ("idle" as const)),
 				eligibility,
+				...(dynamic.contextPolicy ? { policy: dynamic.contextPolicy.compaction } : {}),
 				...(this.queueId ? { queueId: this.queueId } : {}),
 				...(this.errorMessage ? { errorMessage: this.errorMessage } : {}),
 			},

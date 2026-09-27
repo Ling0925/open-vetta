@@ -181,6 +181,7 @@ function readSessionState(
 		contextTokens: contextUsage.tokens,
 		contextPercent: contextUsage.percent,
 		contextWindow,
+		contextPolicy: options.contextRuntime.readContextPolicy?.(),
 		...(contextUsage.composition ? { contextComposition: contextUsage.composition } : {}),
 		activeToolNames: override
 			? override.filter((toolName) => options.turnCapabilityAssembly.readAvailableTools().has(toolName))

@@ -38,6 +38,7 @@ import {
 	DEFAULT_COMPACTION_SETTINGS,
 	estimateContextTokens,
 	prepareCompaction,
+	toRuntimeContextCompactionPolicy,
 } from "../index.js";
 import { CodingAgentAutomaticCompactionStrategy } from "./automatic-compaction-strategy.js";
 import { CodingAgentCompactionCommitLifecycle } from "./compaction-commit-lifecycle.js";
@@ -247,6 +248,13 @@ export class DefaultCodingAgentContextRuntime
 		document?: ConversationDocument,
 	): Promise<void> {
 		await this.commitLifecycle.onManualCommitted(record, signal, document, this.extensionRuntime);
+	}
+
+	readContextPolicy() {
+		return Object.freeze({
+			schemaVersion: 1 as const,
+			compaction: toRuntimeContextCompactionPolicy(this.readSettings()),
+		});
 	}
 
 	readAutoCompactionEnabled(): boolean {

@@ -265,6 +265,8 @@ export {
 } from "./runtime-host/index.js";
 export type {
 	ContextCompactionEligibility,
+	RuntimeContextCompactionPolicy,
+	RuntimeContextPolicySnapshot,
 	SessionContextState,
 	SessionContextStateEvent,
 } from "./session-context-state.js";

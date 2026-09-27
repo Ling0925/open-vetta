@@ -35,9 +35,11 @@ export class KernelRuntimeSessionContextController implements RuntimeSessionCont
 	}
 
 	readState(): RuntimeContextCompactionState {
+		const policy = this.options.contextRuntime.readContextPolicy?.();
 		return {
 			isCompacting: this.activeController !== undefined,
 			autoCompactionEnabled: this.options.contextRuntime.readAutoCompactionEnabled(),
+			...(policy ? { policy } : {}),
 		};
 	}
 

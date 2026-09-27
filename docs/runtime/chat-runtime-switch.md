@@ -23,7 +23,8 @@ Codex 执行完整的模型/工具循环，Native AgentCore 不再执行该轮�
 模型可见上下文；历史工具调用被标为数据而不是重新执行指令。本轮生成的文本和工具结果回到原 Conversation，
 切回 Native 继续使用同一份 journal、Context Strategy 与 compaction 边界。
 
-Vetta 是应用级上下文唯一 owner：Conversation 投影、Context Provider、token budget、自动/手动 compaction、
+Vetta 是应用级上下文唯一 owner：Conversation 投影、Context Provider、token budget、统一 Context Policy、
+自动/手动 compaction、
 Context Summary、model-call transient transform/finalization、压缩持久化和恢复都不随后端切换。Codex 仅替换执行 loop；
 进入 Codex loop 前会执行与 Native 首次模型调用一致的 Vetta context transform → model_call checkpoint/compaction →
 finalization，再把结果封装成 Codex handoff。这样后续调整压缩阈值、keep-tail、summary 结构或 Context Provider 时，

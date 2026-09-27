@@ -20,6 +20,7 @@ Native 受 Vetta 的预算/压缩控制，Codex 只得到旁路历史。
 
 统一 Context Plane 包括：
 
+- Session 级 Context Policy snapshot（压缩启停、触发阈值、reserve、keep-tail）；
 - canonical Conversation / active branch 投影；
 - Context Provider 与模型可见临时上下文；
 - token budget 与 reserved output budget；
@@ -67,6 +68,8 @@ Codex handoff 的 3 MiB 上限是 transport safety guard，发生在 Vetta trans
 
 ## 后果
 
+- Runtime state 暴露 backend-neutral Context Policy snapshot；UI、Workflow/Subagent 与后续 Advisor 可以读取同一策略，
+  不需要知道当前执行 loop 是 Native 还是 Codex。
 - 调整 Vetta compaction settings、keep-tail、summary format、Context Provider 或长期记忆策略时，Native 与 Codex
   同时获得变化。
 - 后端切换不会切换上下文事实源，已有 `context.compacted` 对两个 loop 都有效。
