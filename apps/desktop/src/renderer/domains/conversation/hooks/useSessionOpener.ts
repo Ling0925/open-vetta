@@ -276,10 +276,11 @@ export function useSessionOpener(): SessionOpenerController {
 			// capabilities, state and the live subscription begin restoring.
 			// Runtime hydration below remains canonical and will reconcile streaming drafts.
 			let previewMessagesSnapshot: ReturnType<typeof fullHistoryToChat> | undefined;
-			let previewPresentation: Promise<void> | undefined;
+			let previewRuntimeId: string | undefined;
+			let runtimePresentationCommitted = false;
 			if (stageExistingSessionOpen) {
 				markSessionSwitch("session-preview-history-start");
-				previewPresentation = window.vetta.session
+				void window.vetta.session
 					.openViewer(sessionPath, { tailTurns: 2 })
 					.then(async (snapshot) => {
 						markSessionSwitch("session-preview-history-loaded");
@@ -288,13 +289,21 @@ export function useSessionOpener(): SessionOpenerController {
 							return;
 						}
 						const previewMessages = fullHistoryToChat(snapshot.history);
-						previewMessagesSnapshot = previewMessages;
+						previewMessagesSnapshot = previewRuntimeId
+							? reconcileOptimisticUserMessages(previewRuntimeId, previewMessages)
+							: previewMessages;
 						markSessionSwitch("session-preview-history-mapped");
 						if (myOpenToken !== getOpenSessionToken()) {
 							markSessionSwitch("session-preview-history-superseded");
 							return;
 						}
-						setChatMessages(previewMessages);
+						// Preview is presentation-only. Once Runtime hydration starts committing
+						// canonical state, a late Viewer result must not replace newer live content.
+						if (runtimePresentationCommitted) {
+							markSessionSwitch("session-preview-history-skipped-runtime-ready");
+							return;
+						}
+						setChatMessages(previewMessagesSnapshot);
 						markSessionSwitch("session-preview-history-committed");
 						const paintBarrierResult = await waitForCommittedPaint();
 						if (myOpenToken === getOpenSessionToken()) {
@@ -313,13 +322,6 @@ export function useSessionOpener(): SessionOpenerController {
 						if (myOpenToken === getOpenSessionToken()) previewMessagesSnapshot = [];
 						markSessionSwitch("session-preview-history-failed");
 					});
-			}
-			if (previewPresentation) {
-				await previewPresentation;
-				if (myOpenToken !== getOpenSessionToken()) {
-					finishCancelledOpen();
-					return;
-				}
 			}
 
 			const isBatchSession =
@@ -396,6 +398,7 @@ export function useSessionOpener(): SessionOpenerController {
 				return;
 			}
 			const { sessionId } = createResult;
+			previewRuntimeId = sessionId;
 			if (myOpenToken !== getOpenSessionToken()) {
 				markSessionSwitch("session-create-superseded");
 				finishCancelledOpen();
@@ -535,6 +538,7 @@ export function useSessionOpener(): SessionOpenerController {
 
 			perfSendMark("session-state-loaded", interactionId);
 			markSessionSwitch("session-state-loaded");
+			runtimePresentationCommitted = true;
 			const contextComposition = resolveSessionContextComposition(resolvedSessionPath, state.contextComposition);
 			// Fork lineage from session header (parentSession / parentEntryId).
 			const parentSessionPath = state.parentSessionPath;

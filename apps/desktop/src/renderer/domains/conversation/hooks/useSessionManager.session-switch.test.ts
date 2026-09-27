@@ -493,7 +493,7 @@ it("新会话先导航并完成一帧绘制，再创建 runtime，同时保留�
 	expect(store.get(chatMessagesAtom)).toEqual([stagedUser]);
 });
 
-it("已有会话先提交加载态，快速切换时只有最后一次打开可以提交", { timeout: 10_000 }, async () => {
+it("已有会话先提交加载态，预览与 Runtime 并行恢复且快速切换只提交最后一次", { timeout: 10_000 }, async () => {
 	const { activeSessionAtom, chatMessagesAtom, pendingSessionOpenAtom } = await import("@shared/store/atoms");
 	const { useSessionManager } = await import("./useSessionManager");
 	const store = getDefaultStore();
@@ -569,7 +569,12 @@ it("已有会话先提交加载态，快速切换时只有最后一次打开可�
 	});
 	expect(store.get(activeSessionAtom)).toBeNull();
 	expect(store.get(chatMessagesAtom)).toEqual([]);
-	expect(sessionApi.create).not.toHaveBeenCalled();
+	expect(sessionApi.create).toHaveBeenCalledOnce();
+	expect(sessionApi.create).toHaveBeenCalledWith(
+		expect.objectContaining({ sessionPath: firstSessionPath }),
+		"conversation",
+		{ interactionId: "open-first" },
+	);
 	expect(sessionApi.openViewer).toHaveBeenCalledWith(firstSessionPath, { tailTurns: 2 });
 
 	let secondOpening: Promise<void> | undefined;
@@ -587,8 +592,12 @@ it("已有会话先提交加载态，快速切换时只有最后一次打开可�
 	expect(store.get(activeSessionAtom)).toBeNull();
 	expect(visibleTexts(store.get(chatMessagesAtom))).toEqual(["second preview"]);
 	expect(mocks.perfSessionSwitchMark).toHaveBeenCalledWith("session-preview-history-committed", "open-second");
-	expect(mocks.perfSessionSwitchMark).not.toHaveBeenCalledWith("session-create-end", "open-second");
-	expect(sessionApi.create).not.toHaveBeenCalled();
+	expect(sessionApi.create).toHaveBeenCalledTimes(2);
+	expect(sessionApi.create).toHaveBeenLastCalledWith(
+		expect.objectContaining({ sessionPath: secondSessionPath }),
+		"conversation",
+		{ interactionId: "open-second" },
+	);
 	const previewMessages = store.get(chatMessagesAtom);
 
 	await act(async () => {
@@ -596,12 +605,6 @@ it("已有会话先提交加载态，快速切换时只有最后一次打开可�
 		frames.shift()?.(16);
 		await Promise.resolve();
 	});
-	expect(sessionApi.create).toHaveBeenCalledOnce();
-	expect(sessionApi.create).toHaveBeenCalledWith(
-		expect.objectContaining({ sessionPath: secondSessionPath }),
-		"conversation",
-		{ interactionId: "open-second" },
-	);
 
 	await act(async () => {
 		secondCreate.resolve({ cwd, sessionId: "runtime-second", sessionPath: secondSessionPath });
