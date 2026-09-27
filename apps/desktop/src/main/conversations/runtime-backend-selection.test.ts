@@ -176,12 +176,18 @@ describe("same-conversation backend ownership", () => {
 		const session = await open(f);
 		await f.selection.select("same-session", "codex", "default");
 
-		const contextStrategy = { prepare: async (input: any) => ({ messages: input.messages, estimatedTokens: 1 }) };
+		const contextStrategy: RuntimeSnapshot["contextStrategy"] = {
+			prepare: async (input) => ({ messages: input.messages, estimatedTokens: 1 }),
+		};
 		const contextProvider = { id: "shared-context", provide: async () => [] };
 		const manualCompactionStrategy = { compactManual: async () => { throw new Error("not executed"); } };
 		const contextSummaryStrategy = { summarizeContext: async () => ({ summary: "fixture", tokensBefore: 1 }) };
-		const transformer = { transform: async (input: any) => input.messages };
-		const finalizer = { finalize: async (input: any) => input.messages };
+		const transformer: NonNullable<RuntimeSnapshot["modelCallContextTransformer"]> = {
+			transform: async (input) => input.messages,
+		};
+		const finalizer: NonNullable<RuntimeSnapshot["modelCallMessageFinalizer"]> = {
+			finalize: async (input) => input.messages,
+		};
 		const source = {
 			id: "source",
 			tools: new Map([["native-only", {}]]),
