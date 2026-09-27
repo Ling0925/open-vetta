@@ -3,6 +3,7 @@ import {
 	cancelSessionOpenFnRef,
 	conversationBucketCwd,
 	defaultConversationCwdAtom,
+	pendingSessionOpenAtom,
 	readSessionManagerFn,
 } from "@shared/store/atoms";
 import { useMatches, useNavigate } from "@tanstack/react-router";
@@ -19,6 +20,7 @@ export function useNewChatNavigation(): () => void {
 	const lastMatch = matches[matches.length - 1];
 	const currentPath = lastMatch?.pathname ?? "/";
 	const activeSession = useAtomValue(activeSessionAtom);
+	const pendingSessionOpen = useAtomValue(pendingSessionOpenAtom);
 	const defaultConversationCwd = useAtomValue(defaultConversationCwdAtom);
 	const setDefaultConversationCwd = useSetAtom(defaultConversationCwdAtom);
 
@@ -37,6 +39,9 @@ export function useNewChatNavigation(): () => void {
 			} catch {
 				return params.cwd;
 			}
+		}
+		if (currentPath === "/" && pendingSessionOpen?.cwd) {
+			return conversationBucketCwd(pendingSessionOpen.cwd, defaultConversationCwd);
 		}
 		if (currentPath === "/" && activeSession?.cwd) {
 			return conversationBucketCwd(activeSession.cwd, defaultConversationCwd);
