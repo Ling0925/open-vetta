@@ -112,7 +112,7 @@ export class CodexConversationTurnEngine implements TurnEnginePort {
 			const emitted = new Map<string, string>();
 			const emitMessage = (id: string, message: Message) => {
 				if (message.role === "user") return;
-				message = canonicalToolNames(message);
+				message = bindTurnModelIdentity(canonicalToolNames(message), request.modelBinding);
 				// Timestamps may become authoritative on refresh; semantic contents must agree.
 				const signature = JSON.stringify({ role: message.role, content: message.content });
 				const previous = emitted.get(id);
@@ -256,6 +256,22 @@ function safeToolName(name: string): string {
 }
 /** Original conversations can later be sent through other model protocols. Historical
  * tool names must remain valid identifiers, not preview-only dotted display labels. */
+/** Codex's display projection uses placeholder provider/model ids. Before a projected
+ * assistant message enters Vetta's canonical conversation, restore the immutable model
+ * identity bound at Turn admission. This keeps history/UI model-switch detection tied
+ * to the user's actual model selection instead of the execution backend. */
+function bindTurnModelIdentity(
+	message: Message,
+	modelBinding: TurnEngineRequest["modelBinding"],
+): Message {
+	if (message.role !== "assistant" || !modelBinding) return message;
+	return {
+		...message,
+		provider: modelBinding.model.provider,
+		model: modelBinding.model.id,
+	};
+}
+
 function canonicalToolNames(message: Message): Message {
 	if (message.role === "assistant")
 		return {

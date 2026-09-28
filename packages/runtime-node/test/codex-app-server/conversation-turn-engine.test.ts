@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import type { Message, UserMessage } from "@vetta/ai";
+import type { Api, Message, Model, UserMessage } from "@vetta/ai";
 import type { TurnEngineEvent, TurnEngineRequest } from "@vetta/runtime-core/kernel";
 import { describe, it } from "vitest";
 import { codexConversationInput } from "../../src/codex-app-server/conversation-context.js";
@@ -12,6 +12,18 @@ import type { JsonObject } from "../../src/codex-app-server/types.js";
 import { MemoryTransport } from "./helpers.js";
 
 const user = (text: string): UserMessage => ({ role: "user", content: text, timestamp: 1 });
+const SELECTED_MODEL: Model<Api> = {
+	id: "gpt-6-luna",
+	name: "GPT 6 Luna",
+	api: "openai-responses",
+	provider: "openai",
+	baseUrl: "https://example.test",
+	reasoning: true,
+	input: ["text"],
+	cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+	contextWindow: 128_000,
+	maxTokens: 8_000,
+};
 function request(signal = new AbortController().signal): TurnEngineRequest {
 	const message = user("Continue without repeating previous commands");
 	return {
@@ -128,6 +140,23 @@ describe("Codex in the original conversation pipeline", () => {
 			await f.connection.session.close();
 		}
 	});
+
+	it("persists the Turn-bound model identity instead of Codex placeholder ids", async () => {
+		const f = await fixture();
+		try {
+			const value: TurnEngineRequest = { ...request(), modelBinding: { model: SELECTED_MODEL } };
+			const events = await collect(new CodexConversationTurnEngine(async () => f.connection), value);
+			const canonical = events.find((event) => event.type === "message");
+			assert.ok(canonical && canonical.type === "message");
+			assert.equal(canonical.message.role, "assistant");
+			if (canonical.message.role !== "assistant") assert.fail("expected assistant message");
+			assert.equal(canonical.message.provider, SELECTED_MODEL.provider);
+			assert.equal(canonical.message.model, SELECTED_MODEL.id);
+		} finally {
+			await f.connection.session.close();
+		}
+	});
+
 	it("consumes exactly the Vetta-prepared Context Plane result before entering the Codex loop", async () => {
 		const f = await fixture();
 		const current = user("Current request");
