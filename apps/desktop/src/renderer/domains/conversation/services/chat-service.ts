@@ -554,6 +554,18 @@ export function historyToChat(
 	return messages;
 }
 
+function historyModelIdentity(
+	provider: string | undefined,
+	model: string | undefined,
+): { provider: string; id: string } | undefined {
+	if (!provider || !model) return undefined;
+	// Older Codex projections persisted display-only placeholders. They describe the
+	// execution backend, not the model selected by the user, so never surface them as
+	// model identity or they create a false switch banner on every following Turn.
+	if (provider === "codex-runtime" && model === "codex-managed") return undefined;
+	return { provider, id: model };
+}
+
 /**
  * Convert full history entries (including compaction boundaries) into ChatMessages.
  * Unlike historyToChat, this preserves the complete conversation across compactions.
@@ -748,11 +760,12 @@ export function fullHistoryToChat(entries: HistoryEntry[]): ChatConversationItem
 				});
 			}
 			// 回填本轮 user 消息实际使用的模型：从末尾向前找到第一条尚未标注 model 的 user 消息。
-			if (m.provider && m.model) {
+			const modelIdentity = historyModelIdentity(m.provider, m.model);
+			if (modelIdentity) {
 				for (let i = messages.length - 1; i >= 0; i--) {
 					const message = messages[i];
 					if (message.kind === "user" && message.model === undefined) {
-						messages[i] = { ...message, model: { provider: m.provider, id: m.model } };
+						messages[i] = { ...message, model: modelIdentity };
 						break;
 					}
 				}

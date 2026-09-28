@@ -64,7 +64,23 @@ describe("chat message usage projection", () => {
 		expect(messages[1]).toMatchObject({ kind: "agent", usages: [first, second] });
 	});
 
-	it("projects persisted full history and live final messages with the same usage shape", () => {
+	it("ignores legacy Codex placeholder ids when projecting a user model", () => {
+		const legacyCodex: AssistantMessage = {
+			...assistant("done", usage({})),
+			provider: "codex-runtime",
+			model: "codex-managed",
+		};
+		const projected = fullHistoryToChat([
+			{ type: "message", entryId: "user-1", message: { role: "user", content: "hello", timestamp: 1 } },
+			{ type: "message", entryId: "assistant-1", message: legacyCodex },
+		]);
+
+		expect(projected[0]?.kind).toBe("user");
+		if (projected[0]?.kind !== "user") throw new Error("expected user message");
+		expect(projected[0].model).toBeUndefined();
+	});
+
+		it("projects persisted full history and live final messages with the same usage shape", () => {
 		const first = usage({ input: 20, cacheRead: 70, cacheWrite: 10, cacheUsageReporting: "read-write" });
 		const second = usage({ input: 50, cacheRead: 50, cacheUsageReporting: "read-only" });
 		const entries: HistoryEntry[] = [

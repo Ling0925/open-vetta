@@ -254,8 +254,6 @@ function mapObservation(event: CodexHostEvent): RuntimeSessionObservationEvent |
 function safeToolName(name: string): string {
 	return name.replace(/[^a-zA-Z0-9_-]/g, "_");
 }
-/** Original conversations can later be sent through other model protocols. Historical
- * tool names must remain valid identifiers, not preview-only dotted display labels. */
 /** Codex's display projection uses placeholder provider/model ids. Before a projected
  * assistant message enters Vetta's canonical conversation, restore the immutable model
  * identity bound at Turn admission. This keeps history/UI model-switch detection tied
@@ -272,6 +270,8 @@ function bindTurnModelIdentity(
 	};
 }
 
+/** Original conversations can later be sent through other model protocols. Historical
+ * tool names must remain valid identifiers, not preview-only dotted display labels. */
 function canonicalToolNames(message: Message): Message {
 	if (message.role === "assistant")
 		return {
