@@ -99,7 +99,13 @@ export function reconcileRuntimeInput(
 	}
 	const turnId = [...turnIds][0];
 	const terminalEvents = conversation.events.filter(
-		(event) =>
+		(
+			event,
+		): event is
+			| Extract<StoredConversation["events"][number], { type: "turn.completed" }>
+			| Extract<StoredConversation["events"][number], { type: "turn.cancelled" }>
+			| Extract<StoredConversation["events"][number], { type: "turn.failed" }>
+			| Extract<StoredConversation["events"][number], { type: "turn.transferred" }> =>
 			"turnId" in event &&
 			event.turnId === turnId &&
 			(event.type === "turn.completed" ||

@@ -128,6 +128,7 @@ export class StatelessAgentCoreTurnEngine implements TurnEnginePort {
 		let initialFrame = request.initialModelCallFrame;
 		let currentFrame = initialFrame;
 		const inputQueue = request.inputQueue;
+		const contextPlane = request.contextPlane;
 		const frames = new Map<number, ModelCallFrame>();
 		const lifecycle = request.snapshot.contextCompositionPublisher
 			? createContextCompositionLifecycle({
@@ -256,12 +257,12 @@ export class StatelessAgentCoreTurnEngine implements TurnEnginePort {
 					if (!authorized) throw new Error(`Tool execution denied by policy: ${call.name}`);
 				},
 			},
-			checkpoint: request.contextPlane
+			checkpoint: contextPlane
 				? async (checkpointRequest, signal) => {
 						await eventDelivery.waitForCurrentDelivery(signal);
 						const runtimeMessages = toRuntimeMessages(checkpointRequest.messages, identities);
 						const messageEnvelopes = toRuntimeMessageEnvelopes(checkpointRequest.messages, identities);
-						const result = await request.contextPlane.prepareModelCall(
+						const result = await contextPlane.prepareModelCall(
 							{
 								reason: checkpointRequest.reason,
 								messages: runtimeMessages,
