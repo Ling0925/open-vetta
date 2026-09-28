@@ -3,6 +3,11 @@ import type { AssistantMessage, Message, ToolResultMessage } from "@vetta/ai";
 import type { HistoryEntry, SessionEvent, SessionEventBase } from "@vetta/runtime-core";
 import type { CodexHostEvent } from "./host-contracts.js";
 import { object, readTurn, text } from "./protocol.js";
+import {
+	boundedTextPreview,
+	CODEX_LIVE_TOOL_OUTPUT_CHARS,
+	CODEX_PERSISTED_TOOL_OUTPUT_CHARS,
+} from "./output-limits.js";
 import { CodexRuntimeError, type CodexSessionEvent, type CodexThread, type CodexTurn, type JsonObject } from "./types.js";
 
 interface ItemState {
@@ -112,9 +117,11 @@ export class CodexHostProjection {
 			const id = text(params.itemId, "itemId");
 			const slot = turn.items.get(id);
 			if (!slot || slot.final || slot.value.type !== "commandExecution") return [];
-			slot.value = { ...slot.value, aggregatedOutput: plain(slot.value.aggregatedOutput) + plain(params.delta) };
+			const aggregatedOutput = plain(slot.value.aggregatedOutput) + plain(params.delta);
+			slot.value = { ...slot.value, aggregatedOutput };
+			const preview = boundedTextPreview(aggregatedOutput, CODEX_LIVE_TOOL_OUTPUT_CHARS);
 			return [this.event({ type: "tool.update", toolCallId: id, toolName: toolName(slot.value),
-				partialResult: { content: [{ type: "text", text: plain(slot.value.aggregatedOutput) }] } }, turn.id, id)];
+				partialResult: { content: [{ type: "text", text: preview.text }] } }, turn.id, id)];
 		}
 		return [];
 	}
@@ -233,7 +240,7 @@ export class CodexHostProjection {
 			return [wrap(assistant([{ type: "thinking", thinking: summary }], turn.timestamp))];
 		}
 		if (TOOL_TYPES.has(String(item.type))) {
-			const call = assistant([{ type: "toolCall", id, name: toolName(item), arguments: { ...item } }], turn.timestamp);
+			const call = assistant([{ type: "toolCall", id, name: toolName(item), arguments: this.toolCallArguments(item) }], turn.timestamp);
 			call.stopReason = "toolUse";
 			const entries: HistoryEntry[] = [{ type: "message", entryId: `${entryId}:call`, message: call }];
 			if (slot.final) entries.push({ type: "message", entryId: `${entryId}:result`, message: this.toolResult(slot) });
@@ -243,13 +250,41 @@ export class CodexHostProjection {
 			turnId: turn.id, item: structuredClone(item), final: slot.final }, timestamp: new Date(turn.timestamp).toISOString() }];
 	}
 
+	private toolCallArguments(item: JsonObject): JsonObject {
+		const { aggregatedOutput: _aggregatedOutput, ...withoutOutput } = item;
+		return structuredClone(withoutOutput) as JsonObject;
+	}
+
+	private toolResultDetailsItem(item: JsonObject): JsonObject {
+		const { aggregatedOutput: _aggregatedOutput, ...withoutOutput } = item;
+		return structuredClone(withoutOutput) as JsonObject;
+	}
+
 	private toolResult(slot: ItemState): ToolResultMessage {
 		const item = slot.value;
 		const success = item.status === "completed" && item.error == null && item.success !== false &&
 			(item.type !== "commandExecution" || item.exitCode === 0);
-		return { role: "toolResult", toolCallId: String(item.id), toolName: toolName(item), timestamp: slot.startedAt,
-			content: [{ type: "text", text: typeof item.aggregatedOutput === "string" ? item.aggregatedOutput : JSON.stringify(item) }],
-			details: { runtime: "codex-app-server", item: structuredClone(item), outcome: success ? "completed" : "failed-or-unknown" }, isError: !success };
+		const rawOutput = typeof item.aggregatedOutput === "string" ? item.aggregatedOutput : JSON.stringify(item);
+		const output = boundedTextPreview(rawOutput, CODEX_PERSISTED_TOOL_OUTPUT_CHARS);
+		return {
+			role: "toolResult",
+			toolCallId: String(item.id),
+			toolName: toolName(item),
+			timestamp: slot.startedAt,
+			content: [{ type: "text", text: output.text }],
+			details: {
+				runtime: "codex-app-server",
+				item: this.toolResultDetailsItem(item),
+				outcome: success ? "completed" : "failed-or-unknown",
+				output: {
+					truncated: output.truncated,
+					originalChars: output.originalChars,
+					persistedChars: output.text.length,
+					omittedChars: output.omittedChars,
+				},
+			},
+			isError: !success,
+		};
 	}
 
 	private lifecycle(phase: "agent_start" | "turn_start" | "turn_end" | "agent_end" | "aborted", turnId?: string): CodexHostEvent {

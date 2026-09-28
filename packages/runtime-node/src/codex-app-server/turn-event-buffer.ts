@@ -2,6 +2,9 @@ import type { TurnEngineEvent } from "@vetta/runtime-core/kernel";
 import { deferred } from "./protocol.js";
 import { CodexRuntimeError } from "./types.js";
 
+const MAX_EVENTS = 512;
+const MAX_BYTES = 4 * 1024 * 1024;
+
 /** Bounded producer/consumer boundary between stdio notifications and journal writes. */
 export class CodexTurnEventBuffer {
 	private readonly events: TurnEngineEvent[] = [];
@@ -11,10 +14,20 @@ export class CodexTurnEventBuffer {
 	private failure: unknown;
 	push(event: TurnEngineEvent): void {
 		if (this.ended) return;
-		const size = Buffer.byteLength(JSON.stringify(event));
-		if (this.events.length >= 512 || this.bytes + size > 4 * 1024 * 1024) {
-			throw new CodexRuntimeError("EVENT_BACKPRESSURE", "Codex output exceeded the host persistence buffer");
+		const size = eventSize(event);
+		const updateId = toolUpdateId(event);
+		const lastIndex = this.events.length - 1;
+		const previous = lastIndex >= 0 ? this.events[lastIndex] : undefined;
+		if (updateId && previous && toolUpdateId(previous) === updateId) {
+			const previousSize = eventSize(previous);
+			const nextBytes = this.bytes - previousSize + size;
+			if (nextBytes > MAX_BYTES) throw backpressure();
+			this.events[lastIndex] = event;
+			this.bytes = nextBytes;
+			this.wake();
+			return;
 		}
+		if (this.events.length >= MAX_EVENTS || this.bytes + size > MAX_BYTES) throw backpressure();
 		this.events.push(event);
 		this.bytes += size;
 		this.wake();
@@ -29,7 +42,7 @@ export class CodexTurnEventBuffer {
 		while (true) {
 			const event = this.events.shift();
 			if (event) {
-				this.bytes -= Buffer.byteLength(JSON.stringify(event));
+				this.bytes -= eventSize(event);
 				return { done: false, value: event };
 			}
 			if (this.ended) {
@@ -44,4 +57,18 @@ export class CodexTurnEventBuffer {
 		this.changed = deferred<void>();
 		previous.resolve();
 	}
+}
+
+function eventSize(event: TurnEngineEvent): number {
+	return Buffer.byteLength(JSON.stringify(event));
+}
+
+function toolUpdateId(event: TurnEngineEvent): string | undefined {
+	return event.type === "observation" && event.observation.type === "tool.update"
+		? event.observation.toolCallId
+		: undefined;
+}
+
+function backpressure(): CodexRuntimeError {
+	return new CodexRuntimeError("EVENT_BACKPRESSURE", "Codex output exceeded the host persistence buffer");
 }

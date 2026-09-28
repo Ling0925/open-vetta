@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "vitest";
 import { CodexHostProjection } from "../../src/codex-app-server/host-projection.js";
+import {
+	CODEX_LIVE_TOOL_OUTPUT_CHARS,
+	CODEX_PERSISTED_TOOL_OUTPUT_CHARS,
+} from "../../src/codex-app-server/output-limits.js";
 import type { CodexSessionEvent, JsonObject } from "../../src/codex-app-server/types.js";
 
 function fixture() {
@@ -97,6 +101,53 @@ describe("Codex item identity and authoritative history", () => {
 			assert.equal(messages.length, 2); assert.equal(messages[0].role, "assistant"); assert.equal(messages[1].role, "toolResult");
 		}
 	});
+	it("bounds large command output before live events or canonical persistence", () => {
+		const f = fixture();
+		const large = `HEAD\n${"x".repeat(2 * 1024 * 1024)}\nTAIL`;
+		f.send("item/started", { turnId: "turn", item: {
+			id: "tool", type: "commandExecution", status: "inProgress", command: "fixture", exitCode: null, aggregatedOutput: "",
+		} });
+		const updates = f.send("item/commandExecution/outputDelta", { turnId: "turn", itemId: "tool", delta: large });
+		const update = updates.find((event) => event.type === "tool.update");
+		assert.ok(update && update.type === "tool.update");
+		const liveText = ((update.partialResult as { content: Array<{ text: string }> }).content[0]).text;
+		assert.ok(liveText.length <= CODEX_LIVE_TOOL_OUTPUT_CHARS);
+		assert.ok(liveText.startsWith("HEAD"));
+		assert.ok(liveText.endsWith("TAIL"));
+
+		const completed = {
+			id: "tool", type: "commandExecution", status: "completed", command: "fixture",
+			exitCode: 0, aggregatedOutput: large,
+		};
+		const events = f.send("item/completed", { turnId: "turn", item: completed });
+		const end = events.find((event) => event.type === "tool.end");
+		assert.ok(end && end.type === "tool.end");
+		const endResult = end.result as {
+			content: Array<{ text: string }>;
+			details: { item: Record<string, unknown>; output: { truncated: boolean; originalChars: number } };
+		};
+		assert.ok(endResult.content[0].text.length <= CODEX_PERSISTED_TOOL_OUTPUT_CHARS);
+		assert.match(endResult.content[0].text, /Vetta truncated output/);
+		assert.ok(endResult.content[0].text.startsWith("HEAD"));
+		assert.ok(endResult.content[0].text.endsWith("TAIL"));
+		assert.equal(endResult.details.output.truncated, true);
+		assert.equal(endResult.details.output.originalChars, large.length);
+		assert.equal("aggregatedOutput" in endResult.details.item, false);
+
+		const messages = f.projection.readMessages();
+		assert.equal(messages.length, 2);
+		const call = messages[0];
+		assert.equal(call.role, "assistant");
+		if (call.role !== "assistant") assert.fail("expected assistant tool call");
+		const toolCall = call.content.find((block) => block.type === "toolCall");
+		assert.ok(toolCall && toolCall.type === "toolCall");
+		assert.equal("aggregatedOutput" in toolCall.arguments, false);
+		const result = messages[1];
+		assert.equal(result.role, "toolResult");
+		if (result.role !== "toolResult") assert.fail("expected tool result");
+		assert.ok(result.content[0]?.type === "text" && result.content[0].text.length <= CODEX_PERSISTED_TOOL_OUTPUT_CHARS);
+	});
+
 	it("retains unknown Codex items without treating them as executable Native tools", () => {
 		const f = fixture();
 		f.send("item/completed", { turnId: "turn", item: { id: "unknown", type: "futureItem", payload: "opaque" } });

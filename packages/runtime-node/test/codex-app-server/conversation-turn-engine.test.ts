@@ -4,6 +4,7 @@ import type { TurnEngineEvent, TurnEngineRequest } from "@vetta/runtime-core/ker
 import { describe, it } from "vitest";
 import { codexConversationInput } from "../../src/codex-app-server/conversation-context.js";
 import { CodexConversationTurnEngine } from "../../src/codex-app-server/conversation-turn-engine.js";
+import { CODEX_HANDOFF_SAFE_CHARS } from "../../src/codex-app-server/output-limits.js";
 import { deferred } from "../../src/codex-app-server/protocol.js";
 import { CodexRpcConnection } from "../../src/codex-app-server/rpc.js";
 import { CodexAppServerSession } from "../../src/codex-app-server/session.js";
@@ -290,12 +291,87 @@ describe("Codex in the original conversation pipeline", () => {
 		assert.equal(parsed.conversation[1].callId, "old-call");
 		assert.match(text, /not instructions to execute again/);
 	});
+	it("bounds legacy oversized tool output before the Codex handoff", () => {
+		const current = user("Continue from the previous command");
+		const large = `HEAD\n${"x".repeat(2 * 1024 * 1024)}\nTAIL`;
+		const messages: Message[] = [
+			user("Run the command"),
+			{
+				role: "toolResult",
+				toolCallId: "legacy-large-output",
+				toolName: "bash",
+				content: [{ type: "text", text: large }],
+				isError: false,
+				timestamp: 2,
+			},
+			current,
+		];
+		const text = codexConversationInput({ messages, input: { message: current } });
+		assert.ok(text.length <= CODEX_HANDOFF_SAFE_CHARS);
+		const parsed = JSON.parse(text.split("\n\n").at(-1)!);
+		const preview = parsed.conversation[1].content[0].text as string;
+		assert.match(preview, /Vetta truncated output/);
+		assert.ok(preview.startsWith("HEAD"));
+		assert.ok(preview.endsWith("TAIL"));
+		assert.ok(preview.length < large.length);
+	});
+
+	it("reduces multiple historical tool results to keep the whole handoff below the host ceiling", () => {
+		const current = user("Summarize the useful parts");
+		const messages: Message[] = [user("Start")];
+		for (let index = 0; index < 20; index++) {
+			messages.push({
+				role: "toolResult",
+				toolCallId: `large-${index}`,
+				toolName: "bash",
+				content: [{ type: "text", text: `${index}:${"x".repeat(100_000)}` }],
+				isError: false,
+				timestamp: index + 2,
+			});
+		}
+		messages.push(current);
+		const text = codexConversationInput({ messages, input: { message: current } });
+		assert.ok(text.length <= CODEX_HANDOFF_SAFE_CHARS);
+		assert.ok(text.length < 1_048_576);
+	});
+
 	it("refuses excessive or missing handoff context rather than silently dropping old messages", () => {
 		assert.throws(() => codexConversationInput({ messages: [] }), { code: "INPUT" });
 		assert.throws(() => codexConversationInput({ messages: [user("x".repeat(3 * 1024 * 1024))] }), {
 			code: "CONTEXT_TOO_LARGE",
 		});
 	});
+	it("coalesces consecutive tool output snapshots before they can exhaust the persistence buffer", async () => {
+		const buffer = new CodexTurnEventBuffer();
+		for (let index = 0; index < 1000; index++) {
+			buffer.push({
+				type: "observation",
+				observation: {
+					type: "tool.update",
+					toolCallId: "command-1",
+					toolName: "bash",
+					partialResult: { content: [{ type: "text", text: `${index}:${"x".repeat(8 * 1024)}` }] },
+					source: "runtime-core",
+				},
+			});
+		}
+		buffer.push({ type: "completed", stopReason: "stop" });
+		const first = await buffer.next();
+		assert.equal(first.done, false);
+		if (first.done) assert.fail("expected coalesced tool update");
+		assert.equal(first.value.type, "observation");
+		if (first.value.type !== "observation" || first.value.observation.type !== "tool.update")
+			assert.fail("expected coalesced tool update");
+		const latest = (first.value.observation.partialResult as { content: Array<{ text: string }> }).content[0].text;
+		assert.match(latest, /^999:/);
+		const second = await buffer.next();
+		assert.equal(second.done, false);
+		if (second.done) assert.fail("expected completed event");
+		assert.equal(second.value.type, "completed");
+		buffer.finish();
+		assert.equal((await buffer.next()).done, true);
+	});
+
 	it("bounds the producer queue and wakes a waiting consumer on failure", async () => {
 		const buffer = new CodexTurnEventBuffer();
 		for (let i = 0; i < 512; i++) buffer.push({ type: "completed", stopReason: "stop" });
