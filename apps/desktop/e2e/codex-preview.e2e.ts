@@ -14,13 +14,25 @@ installedCodex("installed conversation runtime switch", () => {
 		await codex.waitForDisplayed({ timeout: 60000 }); await codex.waitForEnabled({ timeout: 60000 });
 		expect(await native.getAttribute("aria-pressed")).toBe("true");
 		const originalUrl = await browser.getUrl();
-		await codex.click();
+		await browser.execute(() => {
+			const button = [...document.querySelectorAll<HTMLButtonElement>("button")].find(
+				(candidate) => candidate.textContent?.trim() === "Codex",
+			);
+			if (!button) throw new Error("Codex backend button not found");
+			button.click();
+		});
 		await browser.waitUntil(async () => (await codex.getAttribute("aria-pressed")) === "true", { timeout: 15000 });
 		expect(await browser.getUrl()).toBe(originalUrl);
 		expect(await $("#codex-executable").isExisting()).toBe(false);
 		expect(await $("#codex-codexHome").isExisting()).toBe(false);
 		expect(await $("#codex-prompt").isExisting()).toBe(false);
-		await native.click();
+		await browser.execute(() => {
+			const button = [...document.querySelectorAll<HTMLButtonElement>("button")].find(
+				(candidate) => candidate.textContent?.trim() === "Native",
+			);
+			if (!button) throw new Error("Native backend button not found");
+			button.click();
+		});
 		await browser.waitUntil(async () => (await native.getAttribute("aria-pressed")) === "true", { timeout: 15000 });
 		expect(await browser.getUrl()).toBe(originalUrl);
 		const installed = await browser.electron.execute(electron => ({ packaged: electron.app.isPackaged,
