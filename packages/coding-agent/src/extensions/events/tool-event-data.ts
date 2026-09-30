@@ -3,6 +3,7 @@ export interface ToolEventInputBase {
 }
 
 export interface BashToolInput extends ToolEventInputBase {
+	interactive?: boolean;
 	command: string;
 	timeout?: number;
 	run_in_background?: boolean;
@@ -90,6 +91,8 @@ export interface BashToolDetails {
 	pathCorrections?: Array<{ original: string; corrected: string }>;
 	backgroundTaskId?: string;
 	autoPromoted?: boolean;
+	interactive?: boolean;
+	transport?: "pipe";
 }
 
 export interface ReadToolDetails {

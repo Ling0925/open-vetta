@@ -41,6 +41,9 @@ export function createForegroundCommandToolExecutor(options: ForegroundCommandEx
 	const blockUntilSec = options.blockUntilSec ?? DEFAULT_COMMAND_BLOCK_UNTIL_SEC;
 	return {
 		async execute(request) {
+			request.signal.throwIfAborted();
+			if (request.input.interactive)
+				throw new Error("Interactive pipe input is not available in this execution environment.");
 			if (request.input.run_in_background) {
 				throw new Error(
 					"Background execution is not available in this session. Run the command without run_in_background.",

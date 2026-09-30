@@ -2,7 +2,11 @@ import { createServer, type ServerResponse } from "node:http";
 
 type JsonObject = Record<string, unknown>;
 export type ResponsesStep =
-	| { readonly type: "tool"; readonly name: string; readonly arguments: JsonObject }
+	| {
+			readonly type: "tool";
+			readonly name: string;
+			readonly arguments: JsonObject | ((request: JsonObject) => JsonObject);
+	  }
 	| { readonly type: "text"; readonly text: string }
 	| { readonly type: "hold" };
 
@@ -70,7 +74,9 @@ export async function startScriptedResponsesServer(steps: readonly ResponsesStep
 								type: "function_call",
 								call_id: `call_${index}`,
 								name: step.name,
-								arguments: JSON.stringify(step.arguments),
+								arguments: JSON.stringify(
+									typeof step.arguments === "function" ? step.arguments(body) : step.arguments,
+								),
 								status: "completed",
 							}
 						: {

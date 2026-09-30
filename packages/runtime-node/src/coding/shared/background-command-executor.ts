@@ -27,6 +27,8 @@ export interface BackgroundCommandToolDetails {
 	readonly fullOutputPath?: string;
 	readonly backgroundTaskId?: string;
 	readonly autoPromoted?: boolean;
+	readonly interactive?: boolean;
+	readonly transport?: "pipe";
 	readonly pathCorrections?: readonly PathLiteralCorrection[];
 }
 
@@ -34,7 +36,8 @@ export function createBackgroundCommandToolExecutor(options: BackgroundCommandEx
 	const blockUntilSec = options.blockUntilSec ?? DEFAULT_COMMAND_BLOCK_UNTIL_SEC;
 	return {
 		async execute(request) {
-			if (!request.input.run_in_background && request.input.timeout !== undefined) {
+			request.signal.throwIfAborted();
+			if (!request.input.interactive && !request.input.run_in_background && request.input.timeout !== undefined) {
 				return options.foregroundExecutor.execute(request);
 			}
 
@@ -43,6 +46,41 @@ export function createBackgroundCommandToolExecutor(options: BackgroundCommandEx
 				request.cwd,
 				options,
 			);
+
+			if (request.input.interactive) {
+				const task = options.backgroundService.spawn({
+					command: spawnContext.command,
+					cwd: spawnContext.cwd,
+					env: spawnContext.env,
+					toolCallId: request.toolCallId,
+					interactive: true,
+					...(request.input.timeout === undefined ? {} : { timeoutMs: request.input.timeout * 1000 }),
+				});
+				if (request.signal.aborted) {
+					await options.backgroundService.wait(task.id, { maxMs: 0, signal: request.signal });
+				}
+				return {
+					content: [
+						{
+							type: "text",
+							text: prependPathCorrectionNotes(
+								`Interactive command task ID: ${task.id} (status: ${task.status}).\n` +
+									`Transport: pipe, not a PTY. Output file: ${task.outputFile}\n` +
+									"Use task_input to send text or close_stdin for EOF; task_output to read; task_stop to terminate. " +
+									"The task survives turns in this session only and is stopped when the session closes. " +
+									"Input is limited to 64 KiB per call; output to 16 MiB per interactive task.",
+								pathCorrections,
+							),
+						},
+					],
+					details: {
+						backgroundTaskId: task.id,
+						fullOutputPath: task.outputFile,
+						interactive: true,
+						transport: "pipe",
+					} satisfies BackgroundCommandToolDetails,
+				};
+			}
 
 			if (request.input.run_in_background) {
 				const task = options.backgroundService.spawn({
@@ -198,6 +236,7 @@ function createCompletedBackgroundResult(
 	}
 
 	outputText = prependPathCorrectionNotes(outputText, pathCorrections);
+	if (task.failureReason) throw new Error(`${outputText}\n\n${task.failureReason}`);
 	if (task.exitCode !== 0 && task.exitCode !== undefined) {
 		throw new Error(`${outputText}\n\nCommand exited with code ${task.exitCode}`);
 	}

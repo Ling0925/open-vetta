@@ -29,6 +29,7 @@ const builtInToolDescriptions: Record<string, string> = {
 	invoke_skill: "Invoke a skill by name to handle specialized tasks (e.g., PDF, DOCX processing)",
 	todo: "Plan and track progress on multi-step tasks with a todo list",
 	task_output: "Read incremental output of a background task started via bash/shell with run_in_background",
+	task_input: "Send authorized text or EOF to an interactive command owned by this session",
 	task_stop: "Terminate a running background task started via bash/shell with run_in_background",
 	current_time: "Get the current date and time (preferred over bash date/time commands)",
 	progress: "Announce readable milestones during substantive multi-step tool work",

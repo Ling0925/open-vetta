@@ -71,6 +71,7 @@ export function evaluatePlanModeToolCall(
 ): PlanModeToolVerdict {
 	if (READ_ONLY_TOOL_NAMES.has(toolName)) return ALLOWED;
 	if (COMMAND_TOOL_NAMES.has(toolName)) {
+		if (input.interactive === true) return deny(toolName, "interactive commands are not allowed");
 		if (input.run_in_background === true) return deny(toolName, "background commands are not allowed");
 		const verdict = classifyPlanModeCommand(typeof input.command === "string" ? input.command : "");
 		return verdict.allowed ? ALLOWED : deny(toolName, verdict.reason);

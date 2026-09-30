@@ -1,5 +1,13 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { setImmediate } from "node:timers";
 import { describe, expect, it } from "vitest";
-import { createNodeBackgroundCommandHost, createNodeForegroundCommandHost } from "../../src/coding/host/index.js";
+import {
+	createNodeBackgroundCommandHost,
+	createNodeForegroundCommandHost,
+	killNodeProcessTree,
+} from "../../src/coding/host/index.js";
 import { createBackgroundCommandService } from "../../src/coding/shared/background-command-lifecycle.js";
 
 const nodeShell = () => ({ executable: process.execPath, args: ["-e"] });
@@ -22,7 +30,7 @@ describe("Node local command host", () => {
 	it("settles when a daemon keeps inherited output pipes open after the command shell exits", async () => {
 		const host = createNodeForegroundCommandHost({ resolveShell: nodeShell });
 		const startedAt = Date.now();
-		const result = await host.operations.exec(createDaemonCommand(false), process.cwd(), {
+		const result = await host.operations.exec(createDaemonCommand(), process.cwd(), {
 			onData: () => {},
 			timeout: 10,
 		});
@@ -31,18 +39,70 @@ describe("Node local command host", () => {
 		expect(Date.now() - startedAt).toBeLessThan(2_500);
 	});
 
-	it("rejects at the deadline when a killed shell leaves daemon output pipes open", async () => {
-		const host = createNodeForegroundCommandHost({ resolveShell: nodeShell });
-		const startedAt = Date.now();
-
-		await expect(
-			host.operations.exec(createDaemonCommand(true), process.cwd(), {
-				onData: () => {},
-				timeout: 0.1,
-			}),
-		).rejects.toThrow("timeout:0.1");
-		expect(Date.now() - startedAt).toBeLessThan(2_500);
-	});
+	it.skipIf(process.platform === "win32")(
+		"waits for inherited daemon pipes to close before returning cancellation",
+		async () => {
+			const host = createNodeForegroundCommandHost({ resolveShell: nodeShell });
+			const cwd = mkdtempSync(join(tmpdir(), "vetta-foreground-close-"));
+			const controller = new AbortController();
+			// A failed readiness handshake must not leave a detached test process alive.
+			const daemonScript =
+				"setTimeout(() => process.exit(1), 15000);process.send('ready');process.disconnect();setInterval(() => {}, 1000)";
+			const command = [
+				"const { spawn } = require('node:child_process')",
+				`const daemon = spawn(process.execPath, ['-e', ${JSON.stringify(daemonScript)}], { detached: true, stdio: ['ignore', 'inherit', 'inherit', 'ipc'] })`,
+				"daemon.once('message', () => process.stdout.write('daemon:' + daemon.pid + '\\n'))",
+				"daemon.unref()",
+				"setInterval(() => {}, 1000)",
+			].join(";");
+			let daemonPid: number | undefined;
+			let reportReady!: () => void;
+			const ready = new Promise<void>((resolve) => {
+				reportReady = resolve;
+			});
+			let output = "";
+			let settled = false;
+			const execution = host.operations.exec(command, cwd, {
+				onData: (data) => {
+					output += Buffer.from(data).toString("utf8");
+					const match = /daemon:(\d+)\n/.exec(output);
+					if (match) {
+						daemonPid = Number(match[1]);
+						reportReady();
+					}
+				},
+				env: { HOME: cwd, TMPDIR: cwd },
+				signal: controller.signal,
+			});
+			void execution.then(
+				() => {
+					settled = true;
+				},
+				() => {
+					settled = true;
+				},
+			);
+			try {
+				await Promise.race([
+					ready,
+					execution.then(() => {
+						throw new Error("Command exited before daemon readiness.");
+					}),
+				]);
+				controller.abort();
+				await new Promise<void>((resolve) => setImmediate(resolve));
+				expect(settled).toBe(false);
+				if (daemonPid === undefined) throw new Error("Daemon did not report its process ID.");
+				killNodeProcessTree(daemonPid);
+				await expect(execution).rejects.toThrow("aborted");
+			} finally {
+				controller.abort();
+				if (daemonPid !== undefined) killNodeProcessTree(daemonPid);
+				await execution.catch(() => undefined);
+				rmSync(cwd, { recursive: true, force: true });
+			}
+		},
+	);
 
 	it("owns background process output and normalization", async () => {
 		const service = createBackgroundCommandService(
@@ -72,7 +132,7 @@ describe("Node local command host", () => {
 		try {
 			const startedAt = Date.now();
 			const task = service.spawn({
-				command: createDaemonCommand(false),
+				command: createDaemonCommand(),
 				cwd: process.cwd(),
 				env: { ...process.env },
 			});
@@ -87,12 +147,11 @@ describe("Node local command host", () => {
 	});
 });
 
-function createDaemonCommand(keepParentAlive: boolean): string {
+function createDaemonCommand(): string {
 	const daemonScript = "setTimeout(() => process.exit(0), 5000)";
 	return [
 		"const { spawn } = require('node:child_process')",
 		`const child = spawn(process.execPath, ['-e', ${JSON.stringify(daemonScript)}], { detached: true, stdio: ['ignore', 'inherit', 'inherit'] })`,
 		"child.unref()",
-		...(keepParentAlive ? ["setInterval(() => undefined, 1000)"] : []),
 	].join(";");
 }

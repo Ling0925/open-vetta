@@ -6,7 +6,19 @@ import { ALL_SCENARIOS } from "../src/profiles/index.js";
 
 const DEFAULT_TOOL_NAMES = {
 	win32: ["current_time", "dir_tree", "edit", "glob", "grep", "read", "shell", "task_output", "task_stop", "write"],
-	posix: ["bash", "current_time", "dir_tree", "edit", "glob", "grep", "read", "task_output", "task_stop", "write"],
+	posix: [
+		"bash",
+		"current_time",
+		"dir_tree",
+		"edit",
+		"glob",
+		"grep",
+		"read",
+		"task_input",
+		"task_output",
+		"task_stop",
+		"write",
+	],
 } as const;
 
 function modelCallContext(signal = new AbortController().signal) {

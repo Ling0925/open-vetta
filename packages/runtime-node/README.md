@@ -32,3 +32,36 @@ SSH shell 路径无法可靠区分缺失与读取权限失败时同样报告未�
 
 取消会阻止尚未派发的文件写入。已派发的 `write` 和 exact-text `edit` 等待底层写入结束后才返回
 取消结果，不能据此声称已回滚文件。受路径策略拒绝的 `write` 返回错误结果，且不尝试预读或写入。
+
+### Interactive command pipe
+
+The existing session-owned background command service also owns interactive stdin on
+local POSIX hosts. `bash` with `interactive: true` returns the same background task
+shape; the product-level `task_input` tool sends text or EOF in a later call or turn.
+There is no second process registry or agent loop. `task_output` and `task_stop`
+continue to use the existing task and output artifact.
+
+This is a pipe, not a PTY. Windows, SSH helper processes and sandbox command adapters
+currently reject interactive requests rather than falling back to an unrestricted
+local process. Windows requires a reliable process-tree owner before enabling this
+capability. The Linux process boundary is exercised by the tests; macOS behavior has
+not been run in this cloud workspace.
+
+Interactive task IDs include an owner nonce, so an old transcript cannot address a
+new session's process. Each `task_input` call passes through the native tool policy;
+starting a command does not bypass authorization for later input. Session shutdown
+joins process cleanup, while restoring history does not restart processes. Pending
+approval cancellation has no stdin effect; cancelling an active write or wait stops
+the owned process and waits for its termination.
+
+Limits: at most eight concurrent interactive tasks per owner, 64 KiB per port write
+(the product schema accepts at most 16,384 characters), sixteen queued writes,
+30-second write backpressure timeout, 16 MiB output per interactive task, and bounded
+incremental reads. An explicit positive `timeout` on interactive start is a hard
+process deadline. `wait_ms` on `task_input` is only a bounded completion wait.
+
+Cancellation and hard deadlines request termination immediately but settle only after
+confirmed cleanup. A detached descendant that escapes the process group and keeps
+output pipes open can leave cancellation pending; process groups are not a security
+sandbox for arbitrary full-access commands. Normal successful daemonizing foreground
+commands retain their existing exit fast path.

@@ -20,6 +20,7 @@ export interface ContextCompactionCommitInput {
 
 export interface ContextCompactionCommitOutput {
 	readonly version: number;
+	/** Best-effort read model refresh; its absence never undoes the durable append. */
 	readonly document?: ConversationDocument;
 }
 
@@ -58,8 +59,25 @@ export class ContextCompactionCommitter {
 		await this.notifyObserversSafely(input.snapshot, event, input.signal);
 		return {
 			version: result.version,
-			document: await this.conversationDocumentReader?.readDocument(input.sessionId),
+			document: await this.refreshDocumentSafely(event),
 		};
+	}
+
+	private async refreshDocumentSafely(event: StoredSessionEvent): Promise<ConversationDocument | undefined> {
+		try {
+			return await this.conversationDocumentReader?.readDocument(event.sessionId);
+		} catch (error) {
+			// Append owns commit success. A failed read must not invite compaction replay.
+			await this.publishSafely({
+				type: "observer.failed",
+				sessionId: event.sessionId,
+				...(event.turnId === undefined ? {} : { turnId: event.turnId }),
+				observerId: "context-compaction.document-refresh",
+				error: error instanceof Error ? error.message : String(error),
+				timestamp: this.clock.now(),
+			});
+			return undefined;
+		}
 	}
 
 	private async notifyObserversSafely(

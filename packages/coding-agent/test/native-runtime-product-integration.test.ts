@@ -16,10 +16,13 @@ import {
 	type RuntimeSnapshot,
 	type RuntimeToolDefinition,
 	StaticRuntimeSnapshotProvider,
+	type ToolPolicy,
 } from "@vetta/runtime-core/kernel";
-import { createWriteTool } from "@vetta/runtime-node/coding";
+import { createNodeHostSessionCommandEnvironment, createWriteTool } from "@vetta/runtime-node/coding";
 import { FileConversationRepository } from "@vetta/runtime-node/conversation";
+import type { BackgroundCommandService } from "@vetta/runtime-tools";
 import { describe, it } from "vitest";
+import { createCodingToolsRuntimeComposition } from "../src/composition/tool-surface/runtime-tools-composition.js";
 import { CodingAgentTodoRuntime } from "../src/features/todo/todo-runtime.js";
 import { createCodingAgentTodoRuntimeToolRegistration } from "../src/features/todo/todo-tool-feature.js";
 import {
@@ -32,12 +35,21 @@ import {
 
 const CONTEXT_MARKER = "Vetta model-call-only context";
 
-async function fixture(steps: readonly ResponsesStep[]) {
+interface FixtureOptions {
+	readonly commandTools?: boolean;
+	readonly authorize?: ToolPolicy["authorize"];
+}
+
+async function fixture(
+	steps: readonly ResponsesStep[] | ((root: string) => readonly ResponsesStep[]),
+	options: FixtureOptions = {},
+) {
 	const root = await mkdtemp(join(tmpdir(), "vetta-native-product-"));
-	const provider = await startScriptedResponsesServer(steps);
+	const provider = await startScriptedResponsesServer(typeof steps === "function" ? steps(root) : steps);
 	const repositories: FileConversationRepository[] = [];
 	const sessions: RuntimeSession[] = [];
 	const todoRuntimes: CodingAgentTodoRuntime[] = [];
+	const backgroundServices: BackgroundCommandService[] = [];
 	const events: SessionEvent[] = [];
 	const contextOrder: string[] = [];
 	const approvalRequested = deferred<AbortSignal>();
@@ -83,11 +95,27 @@ async function fixture(steps: readonly ResponsesStep[]) {
 					},
 				}),
 			];
+			const commandEnvironment = options.commandTools
+				? createNodeHostSessionCommandEnvironment({
+						cwd: root,
+						// A real Node child is sufficient to exercise pipe IO without relying on a user's shell setup.
+						resolveShell: () => ({ executable: process.execPath, args: ["-e"] }),
+					})
+				: undefined;
+			if (commandEnvironment) backgroundServices.push(commandEnvironment.backgroundService);
+			const commandComposition = commandEnvironment
+				? createCodingToolsRuntimeComposition({ cwd: root, environment: commandEnvironment })
+				: undefined;
+			const compiledCommands = await commandComposition?.compile();
 			const passthrough = new PassthroughContextStrategy();
 			const snapshot: RuntimeSnapshot = {
+				...compiledCommands?.snapshot,
 				id: "native-product",
 				instructions: [],
-				tools: new Map(tools.map((tool) => [tool.name, tool])),
+				tools: new Map([
+					...(compiledCommands?.snapshot.tools ?? []),
+					...tools.map((tool) => [tool.name, tool] as const),
+				]),
 				contextProviders: [],
 				observers: [],
 				tokenBudget: 28000,
@@ -115,6 +143,7 @@ async function fixture(steps: readonly ResponsesStep[]) {
 				},
 				toolPolicy: {
 					authorize: async (request, signal) => {
+						if (options.authorize) return options.authorize(request, signal);
 						if (request.toolName !== "write") return true;
 						approvalRequested.resolve(signal);
 						return decision.promise;
@@ -133,6 +162,11 @@ async function fixture(steps: readonly ResponsesStep[]) {
 					read: () => ({ contextPercent: 0, contextWindow: model.contextWindow, activeToolNames: [] }),
 				},
 				documentParticipants: [todo],
+				dispose: async () => {
+					await commandEnvironment?.backgroundService.shutdown();
+					await compiledCommands?.dispose();
+					commandComposition?.dispose();
+				},
 			};
 		},
 	});
@@ -148,6 +182,7 @@ async function fixture(steps: readonly ResponsesStep[]) {
 		provider,
 		repositories,
 		todoRuntimes,
+		backgroundServices,
 		events,
 		contextOrder,
 		approvalRequested,
@@ -287,6 +322,239 @@ describe("Native product workflow through the real Responses provider", () => {
 			assert.equal(session.readState().isStreaming, false);
 			assert.deepEqual(f.provider.failures, []);
 		} finally {
+			await f.close();
+		}
+	});
+});
+
+const COMMAND_TOOL = process.platform === "win32" ? "shell" : "bash";
+
+function interactiveCommand(root: string): string {
+	return [
+		"const fs = require('node:fs');",
+		"process.stdin.setEncoding('utf8');",
+		`process.stdin.on('data', text => { fs.appendFileSync(${JSON.stringify(join(root, "stdin-received.txt"))}, text); process.stdout.write('echo:' + text); });`,
+		"process.stdin.on('end', () => process.stdout.write('EOF\\n'));",
+	].join("\n");
+}
+
+function commandTaskId(session: RuntimeSession): string {
+	const result = session
+		.readMessages()
+		.find((message) => message.role === "toolResult" && message.toolName === COMMAND_TOOL);
+	assert.ok(result?.role === "toolResult" && result.details && typeof result.details === "object");
+	assert.ok("backgroundTaskId" in result.details && typeof result.details.backgroundTaskId === "string");
+	return result.details.backgroundTaskId;
+}
+
+describe.skipIf(process.platform === "win32")("Native interactive commands through the real Responses provider", () => {
+	it("waits for a real foreground command to exit before native cancellation completes", async () => {
+		const f = await fixture(
+			[
+				{
+					type: "tool",
+					name: COMMAND_TOOL,
+					arguments: {
+						command: "process.stdout.write('native-foreground-pid:' + process.pid); setInterval(() => {}, 1000)",
+						timeout: 15,
+					},
+				},
+			],
+			{ commandTools: true, authorize: async () => true },
+		);
+		try {
+			const session = await f.open();
+			const ready = deferred<number>();
+			const unsubscribe = session.subscribe((event) => {
+				if (event.type !== "tool.update" || event.toolName !== COMMAND_TOOL) return;
+				const match = JSON.stringify(event.partialResult).match(/native-foreground-pid:(\d+)/);
+				if (match) ready.resolve(Number(match[1]));
+			});
+			try {
+				const running = session.prompt({ text: "Run bounded work until I stop", inputId: "foreground-cancel" });
+				const pid = await ready.promise;
+				assert.doesNotThrow(() => process.kill(pid, 0));
+				assert.equal(
+					f.backgroundServices[0].list().length,
+					0,
+					"Explicit ordinary timeout must use the foreground port",
+				);
+				await session.abort("Stop foreground work");
+				assert.equal((await running).status, "cancelled");
+				assert.throws(() => process.kill(pid, 0));
+				assert.equal(session.readState().isStreaming, false);
+				assert.deepEqual(f.provider.failures, []);
+			} finally {
+				unsubscribe();
+			}
+		} finally {
+			await f.close();
+		}
+	});
+
+	it("keeps one owned process across turns and authorizes every stdin write before EOF and history restore", async () => {
+		let taskId = "";
+		const approved: string[] = [];
+		const f = await fixture(
+			(root) => [
+				{
+					type: "tool",
+					name: COMMAND_TOOL,
+					arguments: { command: interactiveCommand(root), interactive: true, timeout: 15 },
+				},
+				{ type: "text", text: "The command is waiting for input." },
+				{ type: "tool", name: "task_input", arguments: () => ({ task_id: taskId, input: "first\n", wait_ms: 0 }) },
+				{
+					type: "tool",
+					name: "task_input",
+					arguments: () => ({ task_id: taskId, input: "second\n", close_stdin: true, wait_ms: 5000 }),
+				},
+				{ type: "tool", name: "task_output", arguments: () => ({ task_id: taskId, from_start: true }) },
+				{ type: "text", text: "The command received both inputs and finished." },
+			],
+			{
+				commandTools: true,
+				authorize: async (request) => {
+					approved.push(request.toolName);
+					return true;
+				},
+			},
+		);
+		try {
+			const session = await f.open();
+			assert.equal(
+				(await session.prompt({ text: "Start the interactive command", inputId: "start-command" })).status,
+				"completed",
+			);
+			taskId = commandTaskId(session);
+			assert.equal(f.backgroundServices[0].get(taskId)?.status, "running");
+			assert.equal(session.readState().isStreaming, false);
+			assert.equal(
+				(await session.prompt({ text: "Send both lines and finish", inputId: "feed-command" })).status,
+				"completed",
+			);
+			assert.equal(await readFile(join(f.root, "stdin-received.txt"), "utf8"), "first\nsecond\n");
+			assert.equal(f.backgroundServices[0].get(taskId)?.status, "completed");
+			assert.deepEqual(approved, [COMMAND_TOOL, "task_input", "task_input", "task_output"]);
+			const toolResults = session.readMessages().filter((message) => message.role === "toolResult");
+			assert.equal(toolResults.length, 4);
+			assert.ok(toolResults.every((message) => !message.isError));
+			assert.ok(JSON.stringify(toolResults.at(-1)?.content).includes("EOF"));
+			const before = session.readMessages();
+			await session.dispose();
+			const restored = await f.open(true);
+			assert.deepEqual(restored.readMessages(), before);
+			assert.equal(
+				f.backgroundServices[1].list().length,
+				0,
+				"Restoring history must not restart or rebind a process",
+			);
+			assert.deepEqual(f.provider.failures, []);
+		} finally {
+			await f.close();
+		}
+	});
+
+	it("denies new stdin independently of the earlier command approval and joins process cleanup on session disposal", async () => {
+		let taskId = "";
+		const approved: string[] = [];
+		const f = await fixture(
+			(root) => [
+				{
+					type: "tool",
+					name: COMMAND_TOOL,
+					arguments: { command: interactiveCommand(root), interactive: true, timeout: 15 },
+				},
+				{ type: "text", text: "Ready for input." },
+				{
+					type: "tool",
+					name: "task_input",
+					arguments: () => ({ task_id: taskId, input: "must not execute\n", wait_ms: 0 }),
+				},
+				{ type: "text", text: "The input was denied." },
+			],
+			{
+				commandTools: true,
+				authorize: async (request) => {
+					approved.push(request.toolName);
+					return request.toolName !== "task_input";
+				},
+			},
+		);
+		try {
+			const session = await f.open();
+			assert.equal((await session.prompt({ text: "Start", inputId: "denied-start" })).status, "completed");
+			taskId = commandTaskId(session);
+			assert.equal(
+				(await session.prompt({ text: "Try to provide input", inputId: "denied-input" })).status,
+				"completed",
+			);
+			assert.deepEqual(approved, [COMMAND_TOOL, "task_input"]);
+			assert.ok(
+				session
+					.readMessages()
+					.some(
+						(message) => message.role === "toolResult" && message.toolName === "task_input" && message.isError,
+					),
+			);
+			await assert.rejects(readFile(join(f.root, "stdin-received.txt")), { code: "ENOENT" });
+			await session.dispose();
+			assert.equal(f.backgroundServices[0].get(taskId)?.status, "killed");
+			await assert.rejects(readFile(join(f.root, "stdin-received.txt")), { code: "ENOENT" });
+			assert.deepEqual(f.provider.failures, []);
+		} finally {
+			await f.close();
+		}
+	});
+
+	it("cancels pending stdin approval without writing when permission arrives late", async () => {
+		let taskId = "";
+		const inputRequested = deferred<AbortSignal>();
+		const inputDecision = deferred<boolean>();
+		const f = await fixture(
+			(root) => [
+				{
+					type: "tool",
+					name: COMMAND_TOOL,
+					arguments: { command: interactiveCommand(root), interactive: true, timeout: 15 },
+				},
+				{ type: "text", text: "Ready for input." },
+				{
+					type: "tool",
+					name: "task_input",
+					arguments: () => ({ task_id: taskId, input: "late input\n", wait_ms: 0 }),
+				},
+			],
+			{
+				commandTools: true,
+				authorize: async (request, signal) => {
+					if (request.toolName !== "task_input") return true;
+					inputRequested.resolve(signal);
+					return inputDecision.promise;
+				},
+			},
+		);
+		try {
+			const session = await f.open();
+			assert.equal((await session.prompt({ text: "Start", inputId: "cancel-input-start" })).status, "completed");
+			taskId = commandTaskId(session);
+			const pending = session.prompt({ text: "Provide input", inputId: "cancel-input" });
+			const signal = await inputRequested.promise;
+			await session.abort("Cancel input approval");
+			assert.equal(signal.aborted, true);
+			inputDecision.resolve(true);
+			assert.equal((await pending).status, "cancelled");
+			await assert.rejects(readFile(join(f.root, "stdin-received.txt")), { code: "ENOENT" });
+			assert.equal(
+				f.backgroundServices[0].get(taskId)?.status,
+				"running",
+				"A pending approval owns no input operation to cancel",
+			);
+			await session.dispose();
+			assert.equal(f.backgroundServices[0].get(taskId)?.status, "killed");
+			assert.deepEqual(f.provider.failures, []);
+		} finally {
+			inputDecision.resolve(false);
 			await f.close();
 		}
 	});

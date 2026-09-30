@@ -60,7 +60,15 @@ describe("plan mode tool policy", () => {
 		for (const name of ["read", "grep", "glob", "dir_tree", "bash", "shell", "spawn_agent", "exit_plan_mode"]) {
 			expect(isToolVisibleInPlanMode(name)).toBe(true);
 		}
-		for (const name of ["write", "edit", "doc_to_pdf", "kb_write_page", "dispatch_workflows", "mcp__github__push"]) {
+		for (const name of [
+			"write",
+			"edit",
+			"doc_to_pdf",
+			"kb_write_page",
+			"dispatch_workflows",
+			"mcp__github__push",
+			"task_input",
+		]) {
 			expect(isToolVisibleInPlanMode(name)).toBe(false);
 		}
 	});
@@ -68,6 +76,8 @@ describe("plan mode tool policy", () => {
 	it("gates command tools by their command and refuses background execution", () => {
 		expect(evaluatePlanModeToolCall("bash", { command: "git status" })).toEqual({ allowed: true });
 		expect(evaluatePlanModeToolCall("bash", { command: "git status", run_in_background: true }).allowed).toBe(false);
+		expect(evaluatePlanModeToolCall("bash", { command: "git status", interactive: true }).allowed).toBe(false);
+		expect(evaluatePlanModeToolCall("task_input", { task_id: "b1", input: "git status" }).allowed).toBe(false);
 		expect(evaluatePlanModeToolCall("shell", { command: "Remove-Item x" }).allowed).toBe(false);
 		expect(evaluatePlanModeToolCall("bash", {}).allowed).toBe(false);
 	});

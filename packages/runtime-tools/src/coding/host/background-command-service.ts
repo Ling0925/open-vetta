@@ -1,5 +1,5 @@
 export type BackgroundCommandStatus = "running" | "completed" | "failed" | "killed";
-export type BackgroundCommandStopReason = "caller" | "agent" | "dispose";
+export type BackgroundCommandStopReason = "caller" | "agent" | "dispose" | "timeout" | "output-limit";
 
 export interface BackgroundCommandSnapshot {
 	readonly id: string;
@@ -13,6 +13,7 @@ export interface BackgroundCommandSnapshot {
 	readonly toolCallId?: string;
 	readonly tail: string;
 	readonly endedBy?: BackgroundCommandStopReason;
+	readonly failureReason?: string;
 }
 
 export type BackgroundCommandEvent =
@@ -27,14 +28,28 @@ export interface SpawnBackgroundCommandOptions {
 	readonly env: Readonly<Record<string, string | undefined>>;
 	readonly toolCallId?: string;
 	readonly notifyOnlyIfPromoted?: boolean;
+	/** Keep pipe stdin open. This is not a PTY and never falls back to a different host. */
+	readonly interactive?: boolean;
+	readonly timeoutMs?: number;
 }
 
 export interface ReadBackgroundCommandOutputOptions {
 	readonly fromStart: boolean;
 	readonly advanceCursor: boolean;
+	/** Bounded read; the cursor advances only over returned bytes. */
+	readonly maxBytes?: number;
+}
+
+export interface WriteBackgroundCommandInputOptions {
+	readonly text: string;
+	readonly close?: boolean;
+	readonly signal?: AbortSignal;
 }
 
 export interface BackgroundCommandService {
+	readonly supportsInteractiveInput?: boolean;
+	/** Write to a session-owned interactive pipe, optionally sending EOF. */
+	writeInput?(taskId: string, options: WriteBackgroundCommandInputOptions): Promise<void>;
 	spawn(options: SpawnBackgroundCommandOptions): BackgroundCommandSnapshot;
 	subscribe(listener: (event: BackgroundCommandEvent) => void): () => void;
 	subscribeNotifications(listener: (task: BackgroundCommandSnapshot) => void): () => void;

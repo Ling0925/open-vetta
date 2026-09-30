@@ -6,4 +6,5 @@ export type {
 	BackgroundCommandStopReason,
 	ReadBackgroundCommandOutputOptions,
 	SpawnBackgroundCommandOptions,
+	WriteBackgroundCommandInputOptions,
 } from "@vetta/runtime-tools";

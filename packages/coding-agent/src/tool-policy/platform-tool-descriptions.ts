@@ -5,7 +5,7 @@ export function createCodingAgentCommandToolDescription(toolName: "bash" | "shel
 	const platformNote = toolName === "shell" ? "\n\nOn Windows, this tool uses PowerShell by default." : "";
 	return `Execute a ${toolName} command in the current working directory. Returns stdout and stderr. Output is truncated to the last 2000 lines or 50KB; full truncated output is saved to a temporary file.
 
-Default to foreground commands. Set \`run_in_background: true\` for servers, watchers, containers, tunnels, REPLs, or any process that runs until killed. Do not use shell backgrounding such as \`&\`, \`nohup\`, or manual disown. Use \`task_output\` and \`task_stop\` for background work.
+Default to foreground commands. Set \`run_in_background: true\` for servers, watchers, containers, tunnels, REPLs, or any process that runs until killed. Do not use shell backgrounding such as \`&\`, \`nohup\`, or manual disown. Use \`task_output\` and \`task_stop\` for background work. For a command that needs stdin, set \`interactive: true\` and use \`task_input\` to send text or EOF. This is pipe input, not a PTY; available only on supported local hosts in full-access mode.
 
 Use dedicated tools for file reads, edits, writes, path search, content search, directory listing, PDF extraction, image OCR, and skill invocation. Use ${toolName} for scripts, package managers, git, compilers, interpreters, pipelines, and operations without a dedicated tool.
 

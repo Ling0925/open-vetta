@@ -52,17 +52,18 @@ export function createTaskOutputTool(options: TaskOutputToolOptions): RuntimeToo
 			const statusLine =
 				task.status === "running"
 					? `Task ${task.id} is running (started ${new Date(task.startedAt).toISOString()})`
-					: `Task ${task.id} ${task.status}${task.exitCode !== undefined ? ` (exit code ${task.exitCode})` : ""}`;
+					: `Task ${task.id} ${task.status}${task.exitCode !== undefined ? ` (exit code ${task.exitCode})` : ""}${task.endedBy === "timeout" || task.endedBy === "output-limit" ? ` (${task.endedBy})` : ""}`;
+			const failureLine = task.failureReason ? `\n${task.failureReason}` : "";
 			let text: string;
 
 			if (chunk) {
 				const truncation = truncateBackgroundTaskOutputTail(chunk);
-				text = `${statusLine}\n\n${truncation.content}`;
+				text = `${statusLine}${failureLine}\n\n${truncation.content}`;
 				if (truncation.truncated) {
 					text += `\n\n[Output truncated. Full output: ${task.outputFile}]`;
 				}
 			} else {
-				text = `${statusLine}\n\n(no new output${fromStart ? "" : " since last read"})`;
+				text = `${statusLine}${failureLine}\n\n(no new output${fromStart ? "" : " since last read"})`;
 			}
 
 			return {

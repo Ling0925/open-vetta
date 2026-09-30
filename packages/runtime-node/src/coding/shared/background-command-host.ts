@@ -1,9 +1,11 @@
 export interface BackgroundCommandProcess {
 	stop(): void;
+	writeInput?(text: string, close: boolean, signal?: AbortSignal): Promise<void>;
 }
 
 export interface SpawnBackgroundCommandProcessOptions {
 	readonly command: string;
+	readonly interactive?: boolean;
 	readonly cwd: string;
 	readonly env: NodeJS.ProcessEnv;
 	readonly onOutput: (text: string) => void;
@@ -12,13 +14,14 @@ export interface SpawnBackgroundCommandProcessOptions {
 }
 
 export interface BackgroundCommandProcessOperations {
+	readonly supportsInteractiveInput?: boolean;
 	spawn(options: SpawnBackgroundCommandProcessOptions): BackgroundCommandProcess;
 }
 
 export interface BackgroundCommandOutput {
 	readonly path: string;
 	append(text: string): void;
-	read(offset: number): string;
+	read(offset: number, maxBytes?: number): string;
 	close(): void;
 }
 

@@ -119,6 +119,9 @@ export function wrapShellPermissionGuard<TInput extends object>(
 	return {
 		...tool,
 		async execute(request) {
+			if ("interactive" in request.input && request.input.interactive === true) {
+				throw new Error("Interactive pipe input is not available in sandbox mode.");
+			}
 			const command = extractCommandFromParams(request.input);
 			const permissionRequests = command
 				? options.toolSet.hostServices.collectShellWritePermissionRequests(command, options.cwd)

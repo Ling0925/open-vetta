@@ -11,10 +11,16 @@ export const CommandToolInputSchema = Type.Object({
 	command: Type.String({
 		description: "Bash command to execute.",
 	}),
+	interactive: Type.Optional(
+		Type.Boolean({
+			description:
+				"Keep pipe stdin open and return a session-owned task ID immediately. Use task_input to send text or EOF, task_output to read, task_stop to stop. No PTY, terminal control, or resize. Only available on supported local hosts in full-access mode.",
+		}),
+	),
 	timeout: Type.Optional(
 		Type.Number({
 			description:
-				"Hard timeout in seconds: kill the process when exceeded. Prefer for bounded work (builds, one-shot tests). Unrelated to auto-promote soft wait.",
+				"Hard timeout in seconds (also applies to interactive sessions): kill the process when exceeded. Prefer for bounded work (builds, one-shot tests). Unrelated to auto-promote soft wait.",
 		}),
 	),
 	run_in_background: Type.Optional(

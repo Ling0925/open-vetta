@@ -253,6 +253,10 @@ describe("Desktop RuntimeHost capabilities", () => {
 		expect(runtime.readSessionContextCompactionState(created.sessionId)).toEqual({
 			isCompacting: false,
 			autoCompactionEnabled: false,
+			policy: {
+				schemaVersion: 1,
+				compaction: { enabled: false, thresholdPercent: 80, reserveTokens: 20, keepRecentTokens: 1 },
+			},
 		});
 		const queued = runtime.queueSessionContextCompaction(created.sessionId, {
 			customInstructions: "preserve decisions",

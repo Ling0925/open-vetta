@@ -72,7 +72,16 @@ const BackgroundCommandSnapshotSchema = Type.Object(
 		endedAt: Type.Optional(Type.Number()),
 		toolCallId: Type.Optional(Type.String()),
 		tail: Type.String(),
-		endedBy: Type.Optional(Type.Union([Type.Literal("caller"), Type.Literal("agent"), Type.Literal("dispose")])),
+		failureReason: Type.Optional(Type.String()),
+		endedBy: Type.Optional(
+			Type.Union([
+				Type.Literal("caller"),
+				Type.Literal("agent"),
+				Type.Literal("dispose"),
+				Type.Literal("timeout"),
+				Type.Literal("output-limit"),
+			]),
+		),
 	},
 	{ additionalProperties: false },
 );

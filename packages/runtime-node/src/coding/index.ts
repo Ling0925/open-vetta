@@ -79,6 +79,7 @@ export type {
 	BackgroundCommandStopReason,
 	ReadBackgroundCommandOutputOptions,
 	SpawnBackgroundCommandOptions,
+	WriteBackgroundCommandInputOptions,
 } from "./shared/background-command-service.js";
 export {
 	type CommandToolExecutor,

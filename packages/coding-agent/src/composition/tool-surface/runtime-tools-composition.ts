@@ -19,6 +19,7 @@ import {
 	PRESERVE_CODING_TOOL_RESULT_POLICY,
 } from "@vetta/runtime-tools";
 import {
+	createTaskInputToolRegistration,
 	createTaskOutputToolRegistration,
 	createTaskStopToolRegistration,
 } from "../../features/background-tasks/index.js";
@@ -79,6 +80,9 @@ export function createCodingToolsRuntimeComposition(
 			? [
 					createTaskOutputToolRegistration({ backgroundService }),
 					createTaskStopToolRegistration({ backgroundService }),
+					...(backgroundService.supportsInteractiveInput
+						? [createTaskInputToolRegistration({ backgroundService })]
+						: []),
 				]
 			: []),
 	];
@@ -181,6 +185,7 @@ const CODING_AGENT_BASE_TOOL_ORDER: Readonly<Record<string, number>> = {
 	shell: CODING_AGENT_MODEL_TOOL_ORDER.command,
 	task_output: CODING_AGENT_MODEL_TOOL_ORDER.taskOutput,
 	task_stop: CODING_AGENT_MODEL_TOOL_ORDER.taskStop,
+	task_input: CODING_AGENT_MODEL_TOOL_ORDER.taskInput,
 	ls: CODING_AGENT_MODEL_TOOL_ORDER.ls,
 	glob: CODING_AGENT_MODEL_TOOL_ORDER.glob,
 	grep: CODING_AGENT_MODEL_TOOL_ORDER.grep,
@@ -189,7 +194,7 @@ const CODING_AGENT_BASE_TOOL_ORDER: Readonly<Record<string, number>> = {
 	write: CODING_AGENT_MODEL_TOOL_ORDER.write,
 };
 
-const CODING_AGENT_OWNED_BASE_TOOL_NAMES = new Set<string>(["current_time", "task_output", "task_stop"]);
+const CODING_AGENT_OWNED_BASE_TOOL_NAMES = new Set<string>(["current_time", "task_output", "task_stop", "task_input"]);
 
 function withCodingAgentModelOrder<T extends CodingAgentRuntimeToolRegistration>(registration: T): T {
 	const modelOrder = CODING_AGENT_BASE_TOOL_ORDER[registration.tool.name];

@@ -120,6 +120,85 @@ describe("CodingAgentSessionExecutionRuntime", () => {
 		}
 	});
 
+	it.skipIf(process.platform === "win32")(
+		"hides interactive input in sandbox and fences already advertised input and start tools",
+		async () => {
+			const fixture = createRuntimeFixture("session-input-mode");
+			const controller = fixture.runtime.createExecutionController({ state: "idle" } as unknown as AgentSession);
+			const input = fixture.runtime.readAvailableTools().get("task_input");
+			const command = fixture.runtime.readAvailableTools().get(commandToolName);
+			expect(input).toBeDefined();
+			expect(command).toBeDefined();
+			try {
+				await controller.reconfigure({ mode: "sandbox", sessionId: "session-input-mode" });
+				expect(fixture.runtime.readAvailableTools().has("task_input")).toBe(false);
+				const request = {
+					sessionId: "session-input-mode",
+					turnId: "turn-1",
+					toolCallId: "late-input",
+					signal: new AbortController().signal,
+				};
+				await expect(
+					input!.execute({ ...request, input: { task_id: "untrusted-id", input: "touch unsafe" } }),
+				).rejects.toThrow();
+				await expect(
+					command!.execute({ ...request, input: { command: "touch unsafe", interactive: true } }),
+				).rejects.toThrow();
+				expect(fixture.runtime.backgroundService.list()).toEqual([]);
+				await controller.reconfigure({ mode: "full-access", sessionId: "session-input-mode" });
+				const nextInput = fixture.runtime.readAvailableTools().get("task_input");
+				await expect(
+					nextInput!.execute({
+						...request,
+						sessionId: "different-session",
+						input: { task_id: "untrusted-id", input: "unsafe" },
+					}),
+				).rejects.toThrow("different session");
+			} finally {
+				await fixture.runtime.dispose();
+			}
+		},
+	);
+
+	it.skipIf(process.platform === "win32")(
+		"does not expose input when background work is disabled or its source is revoked",
+		async () => {
+			const disabled = createRuntimeFixture("session-disabled-input", undefined, false);
+			let revoked = false;
+			const current = createRuntimeFixture("session-revoked-input", (name) =>
+				createSourceToolEntry(name, name === "task_input" && revoked ? "revoked" : "active", "1"),
+			);
+			try {
+				expect(disabled.runtime.readAvailableTools().has("task_input")).toBe(false);
+				const request = {
+					sessionId: "session-disabled-input",
+					turnId: "turn-1",
+					toolCallId: "disabled",
+					signal: new AbortController().signal,
+				};
+				await expect(
+					disabled.runtime
+						.readAvailableTools()
+						.get(commandToolName)!
+						.execute({ ...request, input: { command: "unsafe", interactive: true } }),
+				).rejects.toThrow("current execution mode");
+				expect(disabled.runtime.backgroundService.list()).toEqual([]);
+				const input = current.runtime.readAvailableTools().get("task_input")!;
+				revoked = true;
+				expect(current.runtime.readAvailableTools().has("task_input")).toBe(false);
+				await expect(
+					input.execute({
+						...request,
+						sessionId: "session-revoked-input",
+						input: { task_id: "untrusted", input: "unsafe" },
+					}),
+				).rejects.toThrow("revoked");
+			} finally {
+				await Promise.all([disabled.runtime.dispose(), current.runtime.dispose()]);
+			}
+		},
+	);
+
 	it("isolates background tasks and publishes session observations plus model-visible notifications", async () => {
 		const first = createRuntimeFixture("session-first");
 		const second = createRuntimeFixture("session-second");
@@ -165,6 +244,7 @@ describe("CodingAgentSessionExecutionRuntime", () => {
 function createRuntimeFixture(
 	sessionId: string,
 	resolveToolEntry?: (toolName: string) => CodingToolCatalogEntry | undefined,
+	enableBackgroundTasks = true,
 ): {
 	readonly runtime: CodingAgentSessionExecutionRuntime;
 	readonly observations: RuntimeSessionObservationEvent[];
@@ -209,9 +289,10 @@ function createRuntimeFixture(
 		},
 		activation: {
 			mode: "explicit",
-			toolNames: ["bash", "shell", "read", "write", "edit", "task_output", "task_stop"],
+			toolNames: ["bash", "shell", "read", "write", "edit", "task_output", "task_stop", "task_input"],
 		},
 		readSessionId: () => sessionId,
+		enableBackgroundTasks,
 		resolveToolEntry,
 		resourceContext: {
 			operation: "create",

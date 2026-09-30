@@ -19,6 +19,7 @@ import {
 } from "@vetta/runtime-tools";
 import type { CodingAgentSessionExecutionEnvironment } from "../../composition/contracts/session-execution-environment.js";
 import {
+	createTaskInputToolRegistration,
 	createTaskOutputToolRegistration,
 	createTaskStopToolRegistration,
 } from "../../features/background-tasks/index.js";
@@ -60,6 +61,7 @@ export class CodingAgentSessionExecutionRuntime {
 	private readonly fullAccessRegistrations: readonly CodingAgentRuntimeToolRegistration[];
 	private readonly sourceBindings = new Map<string, CapabilityBinding | undefined>();
 	private mode: SessionExecutionMode;
+	private disposed = false;
 	private nextCatalogGeneration = 0;
 
 	constructor(private readonly options: CodingAgentSessionExecutionRuntimeOptions) {
@@ -71,7 +73,21 @@ export class CodingAgentSessionExecutionRuntime {
 			),
 			createTaskOutputToolRegistration({ backgroundService: this.backgroundService }),
 			createTaskStopToolRegistration({ backgroundService: this.backgroundService }),
-		].map((registration) => inheritModelOrder(registration, options.resolveToolEntry?.(registration.tool.name)));
+			...(this.backgroundService.supportsInteractiveInput
+				? [
+						createTaskInputToolRegistration({
+							backgroundService: this.backgroundService,
+							isInputAllowed: () =>
+								!this.disposed && this.mode === "full-access" && options.enableBackgroundTasks !== false,
+							readSessionId: options.readSessionId,
+						}),
+					]
+				: []),
+		].map((registration) =>
+			this.guardInteractiveStart(
+				inheritModelOrder(registration, options.resolveToolEntry?.(registration.tool.name)),
+			),
+		);
 		for (const toolName of SESSION_EXECUTION_TOOL_NAMES) {
 			this.sourceBindings.set(toolName, options.resolveToolEntry?.(toolName)?.binding);
 		}
@@ -193,12 +209,33 @@ export class CodingAgentSessionExecutionRuntime {
 	}
 
 	async dispose(): Promise<void> {
+		this.disposed = true;
 		this.unbindBackgroundTaskObservers();
 		try {
 			await this.backgroundService.shutdown();
 		} finally {
 			await this.options.environment.dispose();
 		}
+	}
+
+	private guardInteractiveStart(registration: CodingAgentRuntimeToolRegistration): CodingAgentRuntimeToolRegistration {
+		const tool = registration.tool;
+		if (tool.name !== "bash" && tool.name !== "shell") return registration;
+		return {
+			...registration,
+			tool: {
+				...tool,
+				execute: (request) => {
+					if (
+						request.input.interactive === true &&
+						(this.disposed || this.mode !== "full-access" || this.options.enableBackgroundTasks === false)
+					) {
+						throw new Error("Interactive commands are not available in the current execution mode.");
+					}
+					return tool.execute(request);
+				},
+			},
+		};
 	}
 
 	private resolveAvailabilityErrorCode(toolName: string): CodingToolAvailabilityErrorCode | undefined {
@@ -256,8 +293,17 @@ export class CodingAgentSessionExecutionRuntime {
 	}
 }
 
-const SESSION_EXECUTION_TOOL_NAMES = ["bash", "shell", "read", "write", "edit", "task_output", "task_stop"] as const;
-const BACKGROUND_TASK_TOOL_NAMES = new Set<string>(["task_output", "task_stop"]);
+const SESSION_EXECUTION_TOOL_NAMES = [
+	"bash",
+	"shell",
+	"read",
+	"write",
+	"edit",
+	"task_output",
+	"task_stop",
+	"task_input",
+] as const;
+const BACKGROUND_TASK_TOOL_NAMES = new Set<string>(["task_output", "task_stop", "task_input"]);
 
 /** Session execution owns these base tool names whenever its runtime is active. */
 export function isCodingAgentSessionExecutionToolName(toolName: string): boolean {
