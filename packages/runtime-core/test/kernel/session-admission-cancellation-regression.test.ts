@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
 import { describe, it } from "vitest";
 import { createAgentSession } from "../../src/kernel/agent-session.js";
-import type { SessionInput, TurnResult, TurnSessionIdentity } from "../../src/kernel/contracts.js";
+import type {
+	QueuedInputAdmission,
+	SessionInput,
+	TurnInputQueue,
+	TurnResult,
+	TurnSessionIdentity,
+} from "../../src/kernel/contracts.js";
 import { KERNEL_ERROR_CODES, KernelError } from "../../src/kernel/errors.js";
 import type { TurnPipeline } from "../../src/kernel/turn-pipeline.js";
 
@@ -32,13 +38,23 @@ function fixture() {
 	const waiting = new Map<number, ReturnType<typeof deferred<void>>>();
 	let active = 0;
 	let peak = 0;
-	const run = (_identity: TurnSessionIdentity, value: SessionInput | undefined, signal: AbortSignal) => {
+	const run = (
+		_identity: TurnSessionIdentity,
+		value: SessionInput | undefined,
+		signal: AbortSignal,
+		_queue?: TurnInputQueue,
+		admission?: QueuedInputAdmission,
+	) => {
+		admission?.assertPending();
+		admission?.commit();
 		const completion = deferred<TurnResult>();
 		active += 1;
 		peak = Math.max(peak, active);
 		calls.push({ input: value, signal, completion });
 		waiting.get(calls.length - 1)?.resolve();
-		return completion.promise.finally(() => { active -= 1; });
+		return completion.promise.finally(() => {
+			active -= 1;
+		});
 	};
 	const pipeline = {
 		createSession: async () => {},
@@ -49,8 +65,11 @@ function fixture() {
 		retry: (identity: TurnSessionIdentity, signal: AbortSignal) => run(identity, undefined, signal),
 	} as unknown as TurnPipeline;
 	return {
-		pipeline, calls,
-		get peak() { return peak; },
+		pipeline,
+		calls,
+		get peak() {
+			return peak;
+		},
 		async waitForCall(index: number) {
 			if (calls[index]) return;
 			const gate = deferred<void>();
@@ -76,17 +95,19 @@ describe("queued admission and cancellation regressions", () => {
 		assert.equal(f.peak, 1);
 		assert.equal(session.state, "running");
 		assert.equal(results.filter((result) => result.status === "rejected").length, 1);
-		assert.deepEqual(session.listQueue().entries.map((entry) => entry.id), [b.id]);
+		assert.deepEqual(
+			session.listQueue().entries.map((entry) => entry.id),
+			[b.id],
+		);
 		const first = results[0];
 		assert.equal(first.status, "fulfilled");
 		if (first.status !== "fulfilled" || first.value.status !== "started") throw new Error("Expected admission");
 		f.calls[0].completion.resolve(completed());
 		await first.value.turn;
-		assert.equal(session.state, "idle");
-		const resume = session.resumeQueue();
 		await f.waitForCall(1);
+		assert.equal(session.state, "running");
 		f.calls[1].completion.resolve(completed());
-		await resume;
+		await session.cancel("test complete");
 		assert.equal(f.peak, 1);
 		assert.equal(session.pendingMessageCount, 0);
 	});
@@ -101,7 +122,10 @@ describe("queued admission and cancellation regressions", () => {
 		await assert.rejects(immediate, hasCode(KERNEL_ERROR_CODES.SESSION_BUSY));
 		assert.equal(f.calls.length, 1);
 		assert.equal(f.calls[0].signal.aborted, false);
-		assert.deepEqual(session.listQueue().entries.map((entry) => entry.id), [queued.id]);
+		assert.deepEqual(
+			session.listQueue().entries.map((entry) => entry.id),
+			[queued.id],
+		);
 		f.calls[0].completion.resolve(completed());
 		await active;
 	});
@@ -115,7 +139,10 @@ describe("queued admission and cancellation regressions", () => {
 		assert.ok(queued.id);
 		const immediate = session.sendQueuedNow(queued.id);
 		assert.equal(f.calls[0].signal.aborted, true);
-		assert.deepEqual(session.listQueue().entries.map((entry) => entry.id), [queued.id]);
+		assert.deepEqual(
+			session.listQueue().entries.map((entry) => entry.id),
+			[queued.id],
+		);
 		f.calls[0].completion.resolve(completed());
 		await active;
 		const admitted = await immediate;
@@ -141,7 +168,10 @@ describe("queued admission and cancellation regressions", () => {
 		await Promise.all([active, stop, rejection]);
 		assert.equal(f.calls.length, 1);
 		assert.equal(session.listQueue().paused, true);
-		assert.deepEqual(session.listQueue().entries.map((entry) => entry.id), [queued.id]);
+		assert.deepEqual(
+			session.listQueue().entries.map((entry) => entry.id),
+			[queued.id],
+		);
 	});
 
 	it("closing wins against pending immediate admission", async () => {
@@ -170,7 +200,10 @@ describe("queued admission and cancellation regressions", () => {
 		f.calls[0].completion.reject(new KernelError(KERNEL_ERROR_CODES.TURN_PERSISTENCE, "persistence failure"));
 		await Promise.all([activeFailure, immediateFailure]);
 		assert.equal(session.state, "recovery_required");
-		assert.deepEqual(session.listQueue().entries.map((entry) => entry.id), [queued.id]);
+		assert.deepEqual(
+			session.listQueue().entries.map((entry) => entry.id),
+			[queued.id],
+		);
 	});
 
 	it("cancelled queued operations do not start the next message even if they ignore abort", async () => {
@@ -178,8 +211,12 @@ describe("queued admission and cancellation regressions", () => {
 		const operation = deferred<void>();
 		let signal: AbortSignal | undefined;
 		const session = await createAgentSession({
-			id: "session", pipeline: f.pipeline,
-			onQueueOperation: async (_operation, value) => { signal = value; await operation.promise; },
+			id: "session",
+			pipeline: f.pipeline,
+			onQueueOperation: async (_operation, value) => {
+				signal = value;
+				await operation.promise;
+			},
 		});
 		session.queueOperation({ type: "context.compact" });
 		const queued = session.followUp(input("later"));
@@ -190,7 +227,10 @@ describe("queued admission and cancellation regressions", () => {
 		assert.equal(f.calls.length, 0);
 		assert.equal(session.state, "idle");
 		assert.equal(session.listQueue().paused, true);
-		assert.deepEqual(session.listQueue().entries.map((entry) => entry.id), [queued.id]);
+		assert.deepEqual(
+			session.listQueue().entries.map((entry) => entry.id),
+			[queued.id],
+		);
 	});
 
 	it("failed queued operations pause the queue and report the failure", async () => {
@@ -198,9 +238,12 @@ describe("queued admission and cancellation regressions", () => {
 		const operation = deferred<void>();
 		const reported = deferred<unknown>();
 		const session = await createAgentSession({
-			id: "session", pipeline: f.pipeline,
+			id: "session",
+			pipeline: f.pipeline,
 			onQueueOperation: () => operation.promise,
-			onQueueOperationError: (_operation, error) => { reported.resolve(error); },
+			onQueueOperationError: (_operation, error) => {
+				reported.resolve(error);
+			},
 		});
 		session.queueOperation({ type: "context.compact" });
 		session.followUp(input("later"));
@@ -216,7 +259,9 @@ describe("queued admission and cancellation regressions", () => {
 		const f = fixture();
 		const operation = deferred<void>();
 		const session = await createAgentSession({
-			id: "session", pipeline: f.pipeline, onQueueOperation: () => operation.promise,
+			id: "session",
+			pipeline: f.pipeline,
+			onQueueOperation: () => operation.promise,
 		});
 		session.queueOperation({ type: "context.compact" });
 		session.followUp(input("later"));

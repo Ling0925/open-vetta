@@ -1,5 +1,6 @@
 import {
 	type AgentExecutionEvent,
+	type AgentRun,
 	type AgentRunResult,
 	type RuntimeToolDefinition as AgentRuntimeToolDefinition,
 	AgentToolExecutionError,
@@ -47,6 +48,7 @@ import type {
 import { KERNEL_ERROR_CODES, TurnExecutionError, turnProtocolError } from "./errors.js";
 import { withPromptCacheDiagnostics } from "./model-call-diagnostics.js";
 import { composeModelCallSystemPrompt, resolveModelCallFrame } from "./model-call-frame.js";
+import type { PreparedQueuedInputBatch } from "./queued-input-consumption.js";
 import { consumeQueuedInputBatch } from "./queued-input-consumption.js";
 import { RuntimeToolExecutionError } from "./tool-execution-error.js";
 
@@ -61,7 +63,9 @@ export class StatelessAgentCoreTurnEngine implements TurnEnginePort {
 		request.signal.throwIfAborted();
 		if (
 			!request.contextPlane &&
-			(request.checkpoint || request.snapshot.modelCallContextTransformer || request.snapshot.modelCallMessageFinalizer)
+			(request.checkpoint ||
+				request.snapshot.modelCallContextTransformer ||
+				request.snapshot.modelCallMessageFinalizer)
 		) {
 			throw turnProtocolError("Runtime-managed context requires a Turn-bound Context Plane");
 		}
@@ -69,6 +73,7 @@ export class StatelessAgentCoreTurnEngine implements TurnEnginePort {
 		if (!model) throw turnProtocolError("Agent Core turn requires a model binding");
 
 		const identities = new WeakMap<object, RuntimeMessageEnvelope>();
+		const durablyAdmittedMessages = new WeakSet<object>();
 		const messages = request.contextMessages
 			? hydrateMessages(request.contextMessages, identities)
 			: [...request.messages];
@@ -83,10 +88,50 @@ export class StatelessAgentCoreTurnEngine implements TurnEnginePort {
 			toolCount: (request.initialModelCallFrame?.tools ?? request.snapshot.tools).size,
 		});
 		const eventDelivery = new AgentEventDeliveryBarrier();
+		const controller = new AbortController();
+		const signal = AbortSignal.any([request.signal, controller.signal]);
+		const queuedCommits = new Set<Promise<void>>();
+		const trackQueuedCommit = (commit: () => Promise<void>): Promise<void> => {
+			signal.throwIfAborted();
+			const pending = Promise.resolve().then(() => {
+				signal.throwIfAborted();
+				return commit();
+			});
+			queuedCommits.add(pending);
+			void pending.then(
+				() => queuedCommits.delete(pending),
+				() => queuedCommits.delete(pending),
+			);
+			return pending;
+		};
+		const admitQueuedInputs = request.admitQueuedInputs;
+		const appendQueuedContext = request.appendQueuedContext;
+		const executionRequest: TurnEngineRequest = {
+			...request,
+			get sessionId() {
+				return request.sessionId;
+			},
+			signal,
+			...(admitQueuedInputs
+				? { admitQueuedInputs: (input, admission) => trackQueuedCommit(() => admitQueuedInputs(input, admission)) }
+				: {}),
+			...(appendQueuedContext
+				? { appendQueuedContext: (records) => trackQueuedCommit(() => appendQueuedContext(records)) }
+				: {}),
+		};
+		let run: AgentRun | undefined;
 		try {
-			const execution = this.createRequest(request, model, messages, identities, telemetry, eventDelivery);
-			const run = runAgentTurn(execution);
-			const projector = new AgentEventProjector(request.initialMessages ?? [], identities);
+			const execution = this.createRequest(
+				executionRequest,
+				model,
+				messages,
+				identities,
+				telemetry,
+				eventDelivery,
+				durablyAdmittedMessages,
+			);
+			run = runAgentTurn(execution);
+			const projector = new AgentEventProjector(request.initialMessages ?? [], identities, durablyAdmittedMessages);
 
 			for await (const event of run.events) {
 				telemetry.observe(event);
@@ -114,6 +159,14 @@ export class StatelessAgentCoreTurnEngine implements TurnEnginePort {
 		} catch (error) {
 			telemetry.fail(error);
 			throw error;
+		} finally {
+			// Returning the event iterator must not release the Session while an owned
+			// effect is still running. Abort also releases pending delivery barriers.
+			controller.abort("Turn event delivery ended");
+			await run?.result;
+			// Input collection may stop waiting on abort; durable admission cannot be
+			// detached from the Turn whose version and queue claim it still owns.
+			await Promise.allSettled(queuedCommits);
 		}
 	}
 
@@ -124,6 +177,7 @@ export class StatelessAgentCoreTurnEngine implements TurnEnginePort {
 		identities: WeakMap<object, RuntimeMessageEnvelope>,
 		telemetry: AgentEngineTelemetry,
 		eventDelivery: AgentEventDeliveryBarrier,
+		durablyAdmittedMessages: WeakSet<object>,
 	): AgentTurnRequest {
 		let initialFrame = request.initialModelCallFrame;
 		let currentFrame = initialFrame;
@@ -288,7 +342,7 @@ export class StatelessAgentCoreTurnEngine implements TurnEnginePort {
 						consumeQueuedInputBatch(
 							inputQueue,
 							"steer",
-							(inputs) => this.consumeQueuedInputs(inputs, request, identities),
+							(inputs) => this.prepareQueuedInputs(inputs, request, identities, durablyAdmittedMessages),
 							request.signal,
 						)
 				: undefined,
@@ -319,7 +373,7 @@ export class StatelessAgentCoreTurnEngine implements TurnEnginePort {
 							return consumeQueuedInputBatch(
 								inputQueue,
 								"followUp",
-								(inputs) => this.consumeQueuedInputs(inputs, request, identities),
+								(inputs) => this.prepareQueuedInputs(inputs, request, identities, durablyAdmittedMessages),
 								signal,
 							);
 						}
@@ -327,11 +381,12 @@ export class StatelessAgentCoreTurnEngine implements TurnEnginePort {
 		};
 	}
 
-	private async consumeQueuedInputs(
+	private async prepareQueuedInputs(
 		inputs: readonly QueuedSessionInput[],
 		request: TurnEngineRequest,
 		identities: WeakMap<object, RuntimeMessageEnvelope>,
-	): Promise<Message[]> {
+		durablyAdmittedMessages: WeakSet<object>,
+	): Promise<PreparedQueuedInputBatch> {
 		const admittedInputs: QueuedSessionInput[] = [];
 		const admissions: Array<{ inputId: string; disposition: "turn" | "handled" }> = [];
 		// Do not leave sibling preparations running after one request fails.
@@ -360,12 +415,8 @@ export class StatelessAgentCoreTurnEngine implements TurnEnginePort {
 			if (prepared.action === "continue") admittedInputs.push(prepared.input);
 		}
 		const context = admittedInputs.flatMap((input) => input.context ?? []);
-		if (request.admitQueuedInputs) {
-			await request.admitQueuedInputs({ admissions, context });
-		} else if (context.length > 0) {
-			await request.appendQueuedContext?.(context);
-		}
-		return admittedInputs.flatMap((input) => {
+		const userMessages = admittedInputs.flatMap((input) => (input.message ? [input.message] : []));
+		const messages = admittedInputs.flatMap((input) => {
 			const contextMessages = (input.context ?? []).map((record) => {
 				const message = contextRecordToUserMessage(record);
 				identities.set(message, { kind: "context", record, timestamp: message.timestamp });
@@ -373,6 +424,19 @@ export class StatelessAgentCoreTurnEngine implements TurnEnginePort {
 			});
 			return [...contextMessages, ...(input.message ? [input.message] : [])];
 		});
+		return {
+			messages,
+			commit: async (admission) => {
+				if (request.admitQueuedInputs) {
+					await request.admitQueuedInputs({ admissions, context, messages: userMessages }, admission);
+					for (const message of userMessages) durablyAdmittedMessages.add(message);
+				} else {
+					admission.assertPending();
+					if (context.length > 0) await request.appendQueuedContext?.(context);
+					admission.commit();
+				}
+			},
+		};
 	}
 }
 
@@ -388,6 +452,7 @@ class AgentEventProjector {
 	constructor(
 		private readonly initialMessages: readonly RuntimeMessageEnvelope[],
 		private readonly identities: WeakMap<object, RuntimeMessageEnvelope>,
+		private readonly durablyAdmittedMessages: WeakSet<object>,
 	) {}
 
 	project(event: AgentExecutionEvent): TurnEngineEvent[] {
@@ -439,7 +504,7 @@ class AgentEventProjector {
 				...(envelope ? messageLifecycle(envelope) : []),
 				// 排队输入随附的 context 记录已由 appendQueuedContext 以
 				// context.appended 落盘；此处再发 message 事件会双份持久化。
-				...(envelope.kind === "context"
+				...(envelope.kind === "context" || this.durablyAdmittedMessages.has(event.message)
 					? []
 					: [
 							{

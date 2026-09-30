@@ -1,4 +1,5 @@
 import type { Api, AssistantMessage, Message, Model, UserMessage } from "@vetta/ai";
+import { AssistantMessageEventStream } from "@vetta/ai";
 import { describe, expect, it } from "vitest";
 import {
 	type ConversationDocument,
@@ -17,12 +18,14 @@ import {
 	type EventSink,
 	type IdGenerator,
 	KERNEL_ERROR_CODES,
-	reconcileRuntimeInput,
 	type KernelEvent,
 	type PreparedContext,
 	type RuntimeSessionContextBuffer,
 	type RuntimeSnapshot,
 	type RuntimeTurnModelBindingProvider,
+	reconcileRuntimeInput,
+	type SessionContextRecord,
+	SessionInputQueue,
 	StaticRuntimeSnapshotProvider,
 	type StoredConversation,
 	type StoredSessionEvent,
@@ -32,6 +35,7 @@ import {
 	type TurnEngineRequest,
 	TurnPipeline,
 } from "../../src/kernel/index.js";
+import { StatelessAgentCoreTurnEngine } from "../../src/kernel/stateless-agent-core-turn-engine.js";
 
 class TestClock implements Clock {
 	private current = 100;
@@ -63,6 +67,8 @@ class InMemoryConversationRepository implements ConversationRepository {
 	private readonly conversations = new Map<string, StoredConversation>();
 	failTerminalAppend = false;
 	failCompactionAppend = false;
+	failAfterInputAdmission = false;
+	beforeAppend: ((events: readonly StoredSessionEvent[]) => Promise<void>) | undefined;
 
 	async create(input: CreateConversationInput): Promise<ConversationMetadata> {
 		if (this.conversations.has(input.sessionId)) {
@@ -90,7 +96,9 @@ class InMemoryConversationRepository implements ConversationRepository {
 		expectedVersion: number,
 		events: readonly StoredSessionEvent[],
 	): Promise<{ readonly version: number }> {
-		const conversation = await this.load(sessionId);
+		await this.beforeAppend?.(events);
+		const conversation = this.conversations.get(sessionId);
+		if (!conversation) throw new Error(`Conversation not found: ${sessionId}`);
 		if (
 			this.failTerminalAppend &&
 			events.some((event) => event.type === "turn.cancelled" || event.type === "turn.failed")
@@ -121,6 +129,9 @@ class InMemoryConversationRepository implements ConversationRepository {
 			messages,
 			events: [...conversation.events, ...events],
 		});
+		if (this.failAfterInputAdmission && events.some((event) => event.type === "turn.started")) {
+			throw new Error("append acknowledgement lost");
+		}
 		return { version };
 	}
 
@@ -277,6 +288,174 @@ async function createHarness(options?: {
 }
 
 describe("greenfield runtime kernel", () => {
+	it("cannot promote a queued message while its durable admission is in flight", async () => {
+		const harness = await createHarness();
+		let entered!: () => void;
+		let release!: () => void;
+		const appending = new Promise<void>((resolve) => {
+			entered = resolve;
+		});
+		const gate = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		harness.repository.beforeAppend = async (events) => {
+			if (!events.some((event) => event.type === "turn.started")) return;
+			entered();
+			await gate;
+		};
+		const queued = harness.session.followUp({ message: userMessage("send once") });
+		if (!queued.id) throw new Error("Missing queue identity");
+		const running = harness.session.resumeQueue();
+		await appending;
+		expect(harness.session.promoteQueuedToSteering(queued.id)).toBe(false);
+		expect(harness.session.pendingMessageCount).toBe(1);
+		release();
+		await expect(running).resolves.toMatchObject({ status: "completed" });
+		expect(harness.session.listQueue().entries).toEqual([]);
+		const conversation = await harness.repository.load("session-1");
+		expect(conversation.messages.filter((message) => message.role === "user")).toEqual([userMessage("send once")]);
+	});
+
+	it.each([false, true])(
+		"persists queued user content exactly once with durable admission (cancel: %s)",
+		async (cancel) => {
+			const controller = new AbortController();
+			const queue = new SessionInputQueue();
+			let queueCountAtDurableObservation: number | undefined;
+			queue.enqueueRequestWithId("followUp", {
+				inputId: "queued-input",
+				displayText: "queued request",
+				payload: {},
+			});
+			const harness = await createHarness({
+				runtimeSnapshot: snapshot(new RecordingContextStrategy(), {
+					inputRequestPreparer: {
+						async prepare(request) {
+							return { action: "continue", input: { message: userMessage(request.displayText) } };
+						},
+					},
+				}),
+				turnEngine: new StatelessAgentCoreTurnEngine({
+					model: TEST_MODEL,
+					streamFn: () => {
+						const stream = new AssistantMessageEventStream();
+						queueMicrotask(() =>
+							stream.push({ type: "done", reason: "stop", message: assistantMessage("done") }),
+						);
+						return stream;
+					},
+				}),
+				eventSink: {
+					async publish(event) {
+						if (event.type === "context.appended" && event.record.type === "runtime.input.identity") {
+							queueCountAtDurableObservation = queue.pendingCount;
+							if (cancel) controller.abort("stop after durable queued admission");
+							await Promise.resolve();
+						}
+					},
+				},
+			});
+
+			await expect(
+				harness.pipeline.run("session-1", { message: userMessage("initial") }, controller.signal, queue),
+			).resolves.toMatchObject({ status: cancel ? "cancelled" : "completed" });
+			const conversation = await harness.repository.load("session-1");
+			expect(reconcileRuntimeInput(conversation, "queued-input").status).toBe(cancel ? "cancelled" : "completed");
+			expect(queueCountAtDurableObservation).toBe(0);
+			expect(conversation.messages.filter((message) => message.role === "user")).toEqual([
+				userMessage("initial"),
+				userMessage("queued request"),
+			]);
+			expect(queue.pendingCount).toBe(0);
+		},
+	);
+
+	it("does not replay a queued input when the durable append acknowledgement is lost", async () => {
+		const engine = new CompletingTurnEngine(assistantMessage("unused"));
+		const harness = await createHarness({
+			turnEngine: engine,
+			runtimeSnapshot: snapshot(new RecordingContextStrategy(), {
+				inputRequestPreparer: {
+					async prepare(request) {
+						return { action: "continue", input: { message: userMessage(request.displayText) } };
+					},
+				},
+			}),
+		});
+		harness.repository.failAfterInputAdmission = true;
+		harness.session.restoreQueue({
+			paused: true,
+			entries: [
+				{
+					id: "queued-entry",
+					behavior: "followUp",
+					input: {
+						request: { inputId: "queued-input", displayText: "recoverable task", payload: {} },
+					},
+				},
+			],
+		});
+
+		await expect(harness.session.resumeQueue()).rejects.toMatchObject({
+			code: KERNEL_ERROR_CODES.INPUT_ALREADY_ADMITTED,
+		});
+		expect(harness.session.listQueue()).toMatchObject({ paused: true, entries: [{ id: "queued-entry" }] });
+		const conversation = await harness.repository.load("session-1");
+		expect(reconcileRuntimeInput(conversation, "queued-input").status).toBe("active");
+		expect(conversation.messages).toEqual([userMessage("recoverable task")]);
+		await expect(harness.session.resumeQueue()).rejects.toMatchObject({
+			code: KERNEL_ERROR_CODES.INPUT_ALREADY_ADMITTED,
+		});
+		expect(engine.requests).toHaveLength(0);
+	});
+
+	it.each(["resume", "send-now"] as const)(
+		"retains a queued request after %s preparation fails and admits it once when retried",
+		async (action) => {
+			let rejectPreparation = true;
+			const harness = await createHarness({
+				runtimeSnapshot: snapshot(new RecordingContextStrategy(), {
+					inputRequestPreparer: {
+						async prepare(request) {
+							if (rejectPreparation) throw new Error("queued preparation unavailable");
+							return { action: "continue", input: { message: userMessage(request.displayText) } };
+						},
+					},
+				}),
+			});
+			harness.session.restoreQueue({
+				paused: true,
+				entries: [
+					{
+						id: "queued-entry",
+						behavior: "followUp",
+						input: { request: { inputId: "queued-input", displayText: "queued request", payload: {} } },
+					},
+				],
+			});
+			const send = async () => {
+				if (action === "resume") return harness.session.resumeQueue();
+				const result = await harness.session.sendQueuedNow("queued-entry");
+				return result.status === "started" ? result.turn : undefined;
+			};
+
+			await expect(send()).rejects.toThrow("queued preparation unavailable");
+			expect(harness.session.listQueue().entries.map(({ id }) => id)).toEqual(["queued-entry"]);
+			expect(reconcileRuntimeInput(await harness.repository.load("session-1"), "queued-input").status).toBe(
+				"missing",
+			);
+
+			rejectPreparation = false;
+			await expect(send()).resolves.toMatchObject({ status: "completed" });
+			expect(harness.session.pendingMessageCount).toBe(0);
+			const conversation = await harness.repository.load("session-1");
+			expect(conversation.messages.filter((message) => message.role === "user")).toEqual([
+				userMessage("queued request"),
+			]);
+			expect(reconcileRuntimeInput(conversation, "queued-input").status).toBe("completed");
+		},
+	);
+
 	it("runs the typed pipeline in its fixed order and persists canonical events", async () => {
 		const harness = await createHarness();
 		const result = await harness.session.send({
@@ -323,7 +502,11 @@ describe("greenfield runtime kernel", () => {
 		const engine = new CompletingTurnEngine(assistantMessage("unused"));
 		const harness = await createHarness({ turnEngine: engine });
 		const request = { payload: { text: "ping" }, displayText: "ping", inputId: "input-handled" };
-		const preparer = { async prepare() { return { action: "handled" as const }; } };
+		const preparer = {
+			async prepare() {
+				return { action: "handled" as const };
+			},
+		};
 
 		await expect(
 			harness.pipeline.runRequest("session-1", request, new AbortController().signal, undefined, preparer),
@@ -377,13 +560,7 @@ describe("greenfield runtime kernel", () => {
 			record: { modelVisible: false, display: false, metadata: { inputId: "input-123" } },
 		});
 		await expect(
-			harness.pipeline.runRequest(
-				"session-1",
-				request,
-				new AbortController().signal,
-				undefined,
-				preparer,
-			),
+			harness.pipeline.runRequest("session-1", request, new AbortController().signal, undefined, preparer),
 		).rejects.toMatchObject({ code: KERNEL_ERROR_CODES.INPUT_ALREADY_ADMITTED });
 		expect(engine.requests).toHaveLength(1);
 	});
@@ -429,9 +606,7 @@ describe("greenfield runtime kernel", () => {
 		const results = await Promise.allSettled([first, second]);
 
 		expect(results.filter(({ status }) => status === "fulfilled")).toHaveLength(1);
-		const rejected = results.find(
-			(result): result is PromiseRejectedResult => result.status === "rejected",
-		);
+		const rejected = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
 		expect(rejected?.reason).toMatchObject({ code: KERNEL_ERROR_CODES.INPUT_ALREADY_ADMITTED });
 		expect(engine.requests).toHaveLength(1);
 		const conversation = await harness.repository.load("session-1");
@@ -467,7 +642,10 @@ describe("greenfield runtime kernel", () => {
 			(event) =>
 				event.type === "context.appended" &&
 				event.record.type === "runtime.input.identity" &&
-				event.record.metadata?.inputId === "queued-input",
+				event.record.metadata !== null &&
+				typeof event.record.metadata === "object" &&
+				"inputId" in event.record.metadata &&
+				event.record.metadata.inputId === "queued-input",
 		);
 		expect(identity).toMatchObject({
 			type: "context.appended",

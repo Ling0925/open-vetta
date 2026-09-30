@@ -95,13 +95,7 @@ async function executeValidatedTool(
 	phases: AgentToolPhase[],
 ): Promise<ToolResultMessage> {
 	try {
-		await request.policy.authorize({
-			call,
-			tool,
-			modelCallIndex: request.modelCallIndex,
-			messages: request.messages,
-			signal: request.signal,
-		});
+		await authorizeTool(call, tool, request);
 		// Authorization may outlive cancellation; never launch a new side effect afterwards.
 		request.signal.throwIfAborted();
 		const executed = await tool.execute(input, {
@@ -135,6 +129,38 @@ async function executeValidatedTool(
 			"AGENT_TOOL_EXECUTION_FAILED",
 			error instanceof AgentToolExecutionError ? error.details : undefined,
 		);
+	}
+}
+
+async function authorizeTool(
+	call: ToolCall,
+	tool: RuntimeToolDefinition,
+	request: ExecuteToolCallsRequest,
+): Promise<void> {
+	const { signal } = request;
+	signal.throwIfAborted();
+	let onAbort: () => void = () => {};
+	try {
+		await new Promise<void>((resolve, reject) => {
+			onAbort = () => reject(signal.reason);
+			signal.addEventListener("abort", onAbort, { once: true });
+			// The approval may never settle after dismissal. Observe its eventual rejection,
+			// but never let it hold cancellation or start an effect after the abort won.
+			void Promise.resolve()
+				.then(() => {
+					signal.throwIfAborted();
+					return request.policy.authorize({
+						call,
+						tool,
+						modelCallIndex: request.modelCallIndex,
+						messages: request.messages,
+						signal,
+					});
+				})
+				.then(resolve, reject);
+		});
+	} finally {
+		signal.removeEventListener("abort", onAbort);
 	}
 }
 

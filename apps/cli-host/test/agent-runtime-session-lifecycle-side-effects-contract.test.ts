@@ -12,6 +12,7 @@ import {
 	readSessionId,
 	startAgentRpc,
 } from "./support/agent-rpc-test-process.js";
+import { nodeHookCommand } from "./support/node-hook-command.js";
 import { startOpenAiResponsesTestServer, textResponseEvents } from "./support/openai-responses-test-server.js";
 
 let executable: AgentRpcExecutable;
@@ -273,7 +274,7 @@ async function writeLifecycleExtension(
 }
 
 async function writeProjectHookConfigs(fixture: AgentRpcFixture, auditPath: string): Promise<void> {
-	const hookScriptPath = join(fixture.workspace, ".vetta", "lifecycle-hook.cjs");
+	const hookScriptPath = join(fixture.workspace, ".vetta", "lifecycle hook's audit.cjs");
 	const codexDirectory = join(fixture.workspace, ".vetta", ".codex");
 	const claudeDirectory = join(fixture.workspace, ".vetta", ".claude");
 	await Promise.all([mkdir(codexDirectory, { recursive: true }), mkdir(claudeDirectory, { recursive: true })]);
@@ -292,7 +293,7 @@ async function writeProjectHookConfigs(fixture: AgentRpcFixture, auditPath: stri
 		`,
 		"utf8",
 	);
-	const command = "bun .vetta/lifecycle-hook.cjs";
+	const command = nodeHookCommand(hookScriptPath);
 	await Promise.all([
 		writeFile(
 			join(codexDirectory, "hooks.json"),
@@ -304,7 +305,9 @@ async function writeProjectHookConfigs(fixture: AgentRpcFixture, auditPath: stri
 		writeFile(
 			join(claudeDirectory, "settings.json"),
 			JSON.stringify({
-				hooks: { SessionEnd: [{ hooks: [{ type: "command", command }] }] },
+				hooks: {
+					SessionEnd: [{ hooks: [{ type: "command", command: process.execPath, args: [hookScriptPath] }] }],
+				},
 			}),
 			"utf8",
 		),

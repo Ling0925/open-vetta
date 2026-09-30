@@ -138,6 +138,17 @@ describe("SessionInputQueue 条目管理（ADR-0060）", () => {
 });
 
 describe("AgentSession 队列生命周期（ADR-0060）", () => {
+	it("resumeQueue 跳过仅上下文条目启动后续用户输入，并保留上下文供执行引擎消费", async () => {
+		const fixture = createFixture();
+		const session = await createAgentSession({ id: "s", pipeline: fixture.pipeline });
+		session.queueContext("followUp", [{ type: "note", content: "context", modelVisible: true }]);
+		session.followUp({ message: userMessage("after context") });
+
+		await expect(session.resumeQueue()).resolves.toMatchObject({ status: "completed" });
+		expect(fixture.runTurn.mock.calls[0]?.[1]?.message.content).toBe("after context");
+		expect(session.listQueue().entries).toMatchObject([{ input: { context: [{ content: "context" }] } }]);
+	});
+
 	it("空闲时入队压缩会立即执行，且连续点击只执行一次", async () => {
 		const fixture = createFixture();
 		let finishOperation = () => {};
@@ -330,7 +341,7 @@ describe("AgentSession 队列生命周期（ADR-0060）", () => {
 		expect(fixture.runTurn.mock.calls[1]?.[1]?.message.content).toBe("direct steer after compaction");
 	});
 
-	it("压缩失败会报告错误并继续处理后续排队消息", async () => {
+	it("压缩失败会报告错误并暂停后续排队消息，显式恢复后继续", async () => {
 		const fixture = createFixture({ blockRun: true });
 		const failure = new Error("too little context");
 		const reportError = vi.fn();
@@ -349,8 +360,12 @@ describe("AgentSession 队列生命周期（ADR-0060）", () => {
 
 		fixture.completeRun();
 		await active;
-		await vi.waitFor(() => expect(fixture.runTurn).toHaveBeenCalledTimes(2));
+		await vi.waitFor(() => expect(session.state).toBe("idle"));
 		expect(reportError).toHaveBeenCalledWith({ type: "context.compact" }, failure);
+		expect(session.listQueue().paused).toBe(true);
+		expect(fixture.runTurn).toHaveBeenCalledOnce();
+		await session.resumeQueue();
+		expect(fixture.runTurn).toHaveBeenCalledTimes(2);
 		expect(fixture.runTurn.mock.calls[1]?.[1]?.message.content).toBe("still send");
 	});
 
@@ -420,19 +435,19 @@ describe("AgentSession 队列生命周期（ADR-0060）", () => {
 		expect(snapshot.entries).toHaveLength(0);
 	});
 
-	it("sendQueuedNow 在 running 时打断当前 turn，并立刻以该条目开新 turn；其余条目保持可消费", async () => {
+	it("sendQueuedNow 打断当前 turn 并先发送选定条目，完成后自动消费其余条目", async () => {
 		const runs: Array<{ input: unknown; signal: AbortSignal }> = [];
-		const runTurn = vi.fn(
-			(_identity: unknown, input: { message?: { content?: unknown } } | undefined, signal: AbortSignal) => {
-				runs.push({ input, signal });
-				if (runs.length === 1) {
-					return new Promise<TurnResult>((resolve) => {
-						signal.addEventListener("abort", () => resolve(cancelledTurn("turn-1")));
-					});
-				}
-				return Promise.resolve(completedTurn("turn-2"));
-			},
-		);
+		const runTurn = vi.fn<TurnPipeline["run"]>((_identity, input, signal, _queue, admission) => {
+			admission?.assertPending();
+			admission?.commit();
+			runs.push({ input, signal });
+			if (runs.length === 1) {
+				return new Promise<TurnResult>((resolve) => {
+					signal.addEventListener("abort", () => resolve(cancelledTurn("turn-1")));
+				});
+			}
+			return Promise.resolve(completedTurn("turn-2"));
+		});
 		const pipeline = {
 			createSession: vi.fn(async (): Promise<StoredConversation> => conversation()),
 			run: runTurn,
@@ -454,12 +469,13 @@ describe("AgentSession 队列生命周期（ADR-0060）", () => {
 		if (result.status === "started") {
 			await expect(result.turn).resolves.toMatchObject({ status: "completed" });
 		}
-		expect(runTurn).toHaveBeenCalledTimes(2);
+		await vi.waitFor(() => expect(runTurn).toHaveBeenCalledTimes(3));
 		const secondInput = runs[1]?.input as { message?: { content?: unknown } };
 		expect(secondInput.message?.content).toBe("jump the queue");
 		const snapshot = session.listQueue();
 		expect(snapshot.paused).toBe(false);
-		expect(snapshot.entries.map((entry) => entry.input.message?.content)).toEqual(["stay queued"]);
+		expect(runTurn.mock.calls[2]?.[1]?.message.content).toBe("stay queued");
+		expect(snapshot.entries).toEqual([]);
 	});
 
 	it("自然完成的 turn 不触发暂停，队列保持可消费", async () => {
@@ -484,7 +500,9 @@ function createFixture(options: { readonly blockRun?: boolean } = {}) {
 			})
 		: Promise.resolve(completedTurn("turn-run"));
 	let firstRun = true;
-	const runTurn = vi.fn<TurnPipeline["run"]>(() => {
+	const runTurn = vi.fn<TurnPipeline["run"]>((_session, _input, _signal, _queue, admission) => {
+		admission?.assertPending();
+		admission?.commit();
 		if (firstRun) {
 			firstRun = false;
 			return runResult;

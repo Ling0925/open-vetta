@@ -76,6 +76,10 @@ export class ConversationRuntimeBackendSelection {
 					if (!request.contextPlane) throw new RuntimeBackendError("CONTEXT_PLANE_REQUIRED");
 					return binding.engine.execute({
 						...request,
+						// Compaction continuation can rebind identity while preparing context.
+						get sessionId() {
+							return request.sessionId;
+						},
 						// The external loop receives only execution-loop capabilities.
 						// Durable context hooks remain captured by request.contextPlane.
 						snapshot: codexExecutionSnapshot(request.snapshot),

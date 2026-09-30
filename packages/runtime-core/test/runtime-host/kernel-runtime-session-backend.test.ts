@@ -585,6 +585,29 @@ describe("KernelRuntimeSessionBackend", () => {
 		await running;
 	});
 
+	it("prefers durable admission over a retained queue snapshot after an uncertain write", async () => {
+		const { backend } = createBackend(new CompletingTurnEngine());
+		const session = await backend.create({ id: "session-1" });
+		await session.prompt({ text: "once", inputId: "input-once" });
+		const queue = session.createCoreAssembly().queueController;
+		queue.restoreQueue({
+			paused: true,
+			entries: [
+				{
+					id: "stale-queued-entry",
+					behavior: "followUp",
+					input: {
+						request: { inputId: "input-once", displayText: "once", payload: { text: "once" } },
+					},
+				},
+			],
+		});
+
+		expect(queue.readPendingMessageCount()).toBe(1);
+		expect(await session.reconcileInput("input-once")).toMatchObject({ status: "completed", inputId: "input-once" });
+		expect(session.readMessages().filter((message) => message.role === "user")).toHaveLength(1);
+	});
+
 	it("continues from persisted context without adding a user message", async () => {
 		const { backend } = createBackend(new CompletingTurnEngine());
 		const session = await backend.create({ id: "session-1" });

@@ -171,10 +171,10 @@ describe("Codex in the original conversation pipeline", () => {
 					order.push("context-plane");
 					assert.equal(input.reason, "model_call");
 					assert.equal(input.modelCallIndex, 0);
-					assert.deepEqual(input.messages.map((message) => message.content), [
-						"large old history",
-						"Current request",
-					]);
+					assert.deepEqual(
+						input.messages.map((message) => message.content),
+						["large old history", "Current request"],
+					);
 					return { messages: [user("compacted summary"), current, user("final Vetta context")] };
 				},
 			},
@@ -203,6 +203,35 @@ describe("Codex in the original conversation pipeline", () => {
 			});
 			assert.equal(f.transport.requests("turn/start").length, 0);
 			assert.equal(f.closed(), 0);
+		} finally {
+			await f.connection.session.close();
+		}
+	});
+
+	it("keeps the current request after Context Plane cloning and text-block normalization", async () => {
+		const f = await fixture();
+		const current = user("Answer this request, not the trailing context");
+		const value: TurnEngineRequest = {
+			...request(),
+			messages: [user("Earlier request"), current, user("Prepared background context")],
+			input: { message: current },
+			contextPlane: {
+				prepareModelCall: async (input) => ({
+					messages: structuredClone(input.messages).map((message) =>
+						message.role === "user" && typeof message.content === "string"
+							? { ...message, content: [{ type: "text" as const, text: message.content }] }
+							: message,
+					),
+				}),
+			},
+		};
+		try {
+			const events = await collect(new CodexConversationTurnEngine(async () => f.connection), value);
+			const context = JSON.parse(f.input().split("\n\n").at(-1)!);
+			assert.equal(context.currentRequestIndex, 1);
+			assert.deepEqual(context.conversation[1].content, [{ type: "text", text: current.content }]);
+			assert.equal(context.conversation.length, 3);
+			assert.equal(events.at(-1)?.type, "completed");
 		} finally {
 			await f.connection.session.close();
 		}

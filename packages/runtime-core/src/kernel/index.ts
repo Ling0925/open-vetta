@@ -98,6 +98,7 @@ export type {
 	ModelCallMessageFinalizer,
 	ObserverFailedEvent,
 	PreparedContext,
+	QueuedInputAdmission,
 	QueuedSessionInput,
 	QueuedSessionInputResult,
 	QueueSessionInputIfRunningResult,
@@ -190,21 +191,21 @@ export {
 export { FeatureCompiler, type FeatureCompilerOptions } from "./feature-compiler.js";
 export {
 	lookupRuntimeInputAdmission,
-	reconcileRuntimeInput,
 	RUNTIME_INPUT_IDENTITY_CONTEXT_TYPE,
 	type RuntimeInputAdmissionLookup,
 	type RuntimeInputReconciliation,
 	type RuntimeInputTerminalState,
+	reconcileRuntimeInput,
 } from "./input-admission.js";
 export {
 	createRuntimeTurnContextPlane,
 	finalizeRuntimeModelCallMessages,
+	prepareRuntimeModelCallCheckpoint,
 	prepareRuntimeModelCallContext,
 	type RuntimeModelCallCheckpointInput,
 	type RuntimeModelCallContextInput,
 	type RuntimeModelCallFinalizationInput,
 	type RuntimeTurnContextPlaneOptions,
-	prepareRuntimeModelCallCheckpoint,
 } from "./model-call-context.js";
 export { composeModelCallSystemPrompt, resolveModelCallFrame } from "./model-call-frame.js";
 export {

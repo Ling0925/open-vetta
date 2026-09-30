@@ -8,8 +8,9 @@ import {
 	stripAnchorPrefixes,
 	validateAnchor,
 } from "../../shared/anchors.js";
+import { generateDiffString } from "../../shared/file-diff.js";
 import type { EditToolDetails } from "./edit-contracts.js";
-import { detectLineEnding, generateDiffString, normalizeToLF, restoreLineEndings, stripBom } from "./edit-text.js";
+import { detectLineEnding, normalizeToLF, restoreLineEndings, stripBom } from "./edit-text.js";
 import type { AnchorEditInput } from "./schema.js";
 
 const CLOSING_LINE_PATTERNS = {

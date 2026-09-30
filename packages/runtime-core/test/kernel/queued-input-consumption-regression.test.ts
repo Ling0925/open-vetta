@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { describe, it } from "vitest";
 import type { Message } from "@vetta/ai";
+import { describe, it } from "vitest";
 import type { QueuedSessionInput, TurnInputQueue } from "../../src/kernel/contracts.js";
 import { consumeQueuedInputBatch } from "../../src/kernel/queued-input-consumption.js";
 import { SessionInputQueue } from "../../src/kernel/session-input-queue.js";
@@ -8,24 +8,111 @@ import { SessionInputQueue } from "../../src/kernel/session-input-queue.js";
 function deferred<T>() {
 	let resolve!: (value: T) => void;
 	let reject!: (error: unknown) => void;
-	const promise = new Promise<T>((accept, decline) => { resolve = accept; reject = decline; });
+	const promise = new Promise<T>((accept, decline) => {
+		resolve = accept;
+		reject = decline;
+	});
 	return { promise, resolve, reject };
 }
 function messages(inputs: readonly QueuedSessionInput[]): Promise<Message[]> {
-	return Promise.resolve(inputs.flatMap((input) => input.message ? [input.message] : []));
+	return Promise.resolve(inputs.flatMap((input) => (input.message ? [input.message] : [])));
 }
 function add(queue: SessionInputQueue, text: string) {
 	return queue.enqueueWithId("followUp", { message: { role: "user", content: text, timestamp: 1 } });
 }
 
 describe("queued input reservation regressions", () => {
+	it("never starts durable admission for an input removed during preparation", async () => {
+		const queue = new SessionInputQueue();
+		const entry = add(queue, "removed");
+		let durableCommits = 0;
+		await assert.rejects(
+			consumeQueuedInputBatch(
+				queue,
+				"followUp",
+				async () => {
+					queue.remove(entry.id);
+					return {
+						messages: [],
+						commit: async () => {
+							durableCommits += 1;
+						},
+					};
+				},
+				new AbortController().signal,
+			),
+			/changed during preparation/,
+		);
+		assert.equal(durableCommits, 0);
+	});
+
+	it("retains the claim during an in-flight durable append and commits despite a late abort", async () => {
+		const queue = new SessionInputQueue();
+		const entry = add(queue, "durable");
+		const committing = deferred<void>();
+		const persisted = deferred<void>();
+		const controller = new AbortController();
+		const work = consumeQueuedInputBatch(
+			queue,
+			"followUp",
+			async (inputs) => ({
+				messages: await messages(inputs),
+				commit: async (admission) => {
+					admission.assertPending();
+					committing.resolve();
+					await persisted.promise;
+					admission.commit();
+				},
+			}),
+			controller.signal,
+		);
+		await committing.promise;
+		controller.abort("late stop");
+		assert.equal(queue.pendingCount, 1);
+		assert.equal(queue.reserveById(entry.id), undefined);
+		persisted.resolve();
+		assert.equal((await work)[0].content, "durable");
+		assert.equal(queue.pendingCount, 0);
+	});
+
+	it("retains original identities when durable admission fails", async () => {
+		const queue = new SessionInputQueue();
+		add(queue, "retry");
+		const before = queue.list();
+		await assert.rejects(
+			consumeQueuedInputBatch(
+				queue,
+				"followUp",
+				async (inputs) => ({
+					messages: await messages(inputs),
+					commit: async () => {
+						throw new Error("durable write failed");
+					},
+				}),
+				new AbortController().signal,
+			),
+			/durable write failed/,
+		);
+		assert.deepEqual(queue.list(), before);
+		assert.equal(queue.takeFollowUpInputs().length, 1);
+	});
+
 	it("retains the whole batch with original IDs when preparation fails", async () => {
 		const queue = new SessionInputQueue({ followUpMode: "all" });
-		add(queue, "a"); add(queue, "b");
+		add(queue, "a");
+		add(queue, "b");
 		const before = queue.list();
-		await assert.rejects(consumeQueuedInputBatch(queue, "followUp", async () => {
-			throw new Error("input preparation failed");
-		}, new AbortController().signal), /input preparation failed/);
+		await assert.rejects(
+			consumeQueuedInputBatch(
+				queue,
+				"followUp",
+				async () => {
+					throw new Error("input preparation failed");
+				},
+				new AbortController().signal,
+			),
+			/input preparation failed/,
+		);
 		assert.deepEqual(queue.list(), before);
 		assert.equal(queue.takeFollowUpInputs().length, 2);
 	});
@@ -35,7 +122,10 @@ describe("queued input reservation regressions", () => {
 		const a = add(queue, "a");
 		const gate = deferred<Message[]>();
 		const work = consumeQueuedInputBatch(queue, "followUp", () => gate.promise, new AbortController().signal);
-		assert.deepEqual(queue.list().entries.map((entry) => entry.id), [a.id]);
+		assert.deepEqual(
+			queue.list().entries.map((entry) => entry.id),
+			[a.id],
+		);
 		assert.deepEqual(queue.takeFollowUpInputs(), []);
 		assert.equal(queue.takeById(a.id), undefined);
 		gate.resolve([{ role: "user", content: "a", timestamp: 1 }]);
@@ -56,7 +146,10 @@ describe("queued input reservation regressions", () => {
 		reservation.release();
 		gate.resolve([]);
 		await failure;
-		assert.deepEqual(queue.list().entries.map((entry) => entry.id), [a.id]);
+		assert.deepEqual(
+			queue.list().entries.map((entry) => entry.id),
+			[a.id],
+		);
 	});
 
 	it("does not resurrect a message explicitly removed while being prepared", async () => {
@@ -88,13 +181,19 @@ describe("queued input reservation regressions", () => {
 		queue.pause();
 		assert.deepEqual(await consumeQueuedInputBatch(queue, "followUp", messages, new AbortController().signal), []);
 		queue.resume();
-		assert.equal((await consumeQueuedInputBatch(queue, "followUp", messages, new AbortController().signal)).length, 1);
+		assert.equal(
+			(await consumeQueuedInputBatch(queue, "followUp", messages, new AbortController().signal)).length,
+			1,
+		);
 		assert.equal(queue.reserveById(after.id), undefined);
 		assert.deepEqual(await consumeQueuedInputBatch(queue, "followUp", messages, new AbortController().signal), []);
 		assert.ok(queue.takeFollowUpOperationHead());
 		queue.setFollowUpMode("one-at-a-time");
 		add(queue, "last");
-		assert.equal((await consumeQueuedInputBatch(queue, "followUp", messages, new AbortController().signal)).length, 1);
+		assert.equal(
+			(await consumeQueuedInputBatch(queue, "followUp", messages, new AbortController().signal)).length,
+			1,
+		);
 		assert.equal(queue.pendingCount, 1);
 	});
 

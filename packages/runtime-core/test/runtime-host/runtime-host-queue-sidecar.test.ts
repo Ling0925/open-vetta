@@ -11,9 +11,14 @@ describe("RuntimeHostQueueSidecar", () => {
 			releaseFirst = resolve;
 		});
 		const calls: string[] = [];
+		let markStarted!: () => void;
+		const started = new Promise<void>((resolve) => {
+			markStarted = resolve;
+		});
 		const store = createStore({
 			write: async (_path, snapshot) => {
 				calls.push(String(snapshot));
+				markStarted();
 				if (snapshot === "first") await firstWrite;
 			},
 		});
@@ -24,11 +29,12 @@ describe("RuntimeHostQueueSidecar", () => {
 
 		sidecar.persist("C:/Session.jsonl", event("first"));
 		sidecar.persist("c:/session.jsonl", event("second"));
-		await Promise.resolve();
+		await started;
 		expect(calls).toEqual(["first"]);
 
 		releaseFirst();
-		await vi.waitFor(() => expect(calls).toEqual(["first", "second"]));
+		await sidecar.flush();
+		expect(calls).toEqual(["first", "second"]);
 	});
 
 	it("reports persistence failures and makes flush fail closed", async () => {
@@ -51,10 +57,15 @@ describe("RuntimeHostQueueSidecar", () => {
 			release = resolve;
 		});
 		const writes: string[] = [];
+		let markStarted!: () => void;
+		const started = new Promise<void>((resolve) => {
+			markStarted = resolve;
+		});
 		const sidecar = new RuntimeHostQueueSidecar({
 			store: createStore({
 				write: async (_path, snapshot) => {
 					writes.push(String(snapshot));
+					markStarted();
 					await gate;
 				},
 			}),
@@ -66,7 +77,7 @@ describe("RuntimeHostQueueSidecar", () => {
 		const pending = sidecar.flush("c:/session.jsonl").then(() => {
 			flushed = true;
 		});
-		await Promise.resolve();
+		await started;
 		expect(writes).toEqual(["accepted"]);
 		expect(flushed).toBe(false);
 
@@ -113,9 +124,7 @@ describe("RuntimeHostQueueSidecar", () => {
 		const sidecar = new RuntimeHostQueueSidecar({ store: createStore({ read: async () => snapshot }) });
 
 		await sidecar.restore(queueController, "session.jsonl", async (inputId) =>
-			inputId === "input-done"
-				? { status: "completed" }
-				: { status: "missing" },
+			inputId === "input-done" ? { status: "completed" } : { status: "missing" },
 		);
 
 		expect(restoreQueue).toHaveBeenCalledWith({

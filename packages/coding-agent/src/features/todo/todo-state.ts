@@ -1,4 +1,12 @@
-import type { TodoItem, TodoLockSource, TodoSnapshot, TodoSnapshotEnvelope, TodoUpdateListener } from "./contracts.js";
+import type {
+	TodoItem,
+	TodoLockSource,
+	TodoPlanItem,
+	TodoPlanUpdate,
+	TodoSnapshot,
+	TodoSnapshotEnvelope,
+	TodoUpdateListener,
+} from "./contracts.js";
 
 export class TodoState {
 	private items: TodoItem[] = [];
@@ -44,6 +52,39 @@ export class TodoState {
 		item.status = status;
 		this.afterMutation();
 		return item;
+	}
+
+	/** Validate the complete plan before publishing one state/persistence update. */
+	replacePlan(plan: readonly TodoPlanItem[]): TodoPlanUpdate {
+		if (plan.some((item) => item.content.trim().length === 0))
+			return { ok: false, error: "Plan steps must have non-empty descriptions." };
+		if (plan.filter((item) => item.status === "in_progress").length > 1)
+			return { ok: false, error: "A plan may have at most one in-progress step." };
+		if (this.isLocked()) {
+			if (
+				plan.length !== this.items.length ||
+				plan.some((item, index) => item.content !== this.items[index].content)
+			)
+				return { ok: false, error: "The scene-owned plan is locked; its steps and order cannot be replaced." };
+			let unfinished = false;
+			for (const item of plan) {
+				if (unfinished && item.status !== "pending")
+					return {
+						ok: false,
+						error: "The scene-owned plan must be completed in order; earlier items are not done.",
+					};
+				if (item.status !== "done") unfinished = true;
+			}
+		}
+		const available = [...this.items];
+		const items = plan.map((item) => {
+			const index = available.findIndex((existing) => existing.content === item.content);
+			const id = index >= 0 ? available.splice(index, 1)[0].id : this.nextId++;
+			return { id, content: item.content, status: item.status };
+		});
+		this.items = items;
+		this.afterMutation();
+		return { ok: true, items };
 	}
 
 	clear(): void {

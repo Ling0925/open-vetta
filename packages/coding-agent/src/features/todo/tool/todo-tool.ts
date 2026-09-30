@@ -1,14 +1,24 @@
 import { type Static, Type } from "@sinclair/typebox";
 import type { RuntimeToolDefinition } from "@vetta/runtime-core/kernel";
 import { ToolCallDescriptionSchema } from "@vetta/runtime-tools/coding";
+import type { TodoPlanItem, TodoPlanUpdate } from "../contracts.js";
 import { TODO_TOOL_DESCRIPTION } from "./description.js";
 
 export const TodoToolInputSchema = Type.Object({
 	description: ToolCallDescriptionSchema,
-	action: Type.Union([Type.Literal("create"), Type.Literal("update"), Type.Literal("list"), Type.Literal("clear")], {
-		description:
-			'Action to perform: "create" (add items), "update" (change status), "list" (show all), or "clear" (abandon the current plan — only allowed for ad-hoc, non-locked lists)',
-	}),
+	action: Type.Union(
+		[
+			Type.Literal("create"),
+			Type.Literal("update"),
+			Type.Literal("replace"),
+			Type.Literal("list"),
+			Type.Literal("clear"),
+		],
+		{
+			description:
+				'Action to perform: "create" (add items), "update" (change one status), "replace" (atomically update the complete plan), "list" (show all), or "clear" (abandon an ad-hoc, non-locked plan)',
+		},
+	),
 	items: Type.Optional(
 		Type.Array(Type.String(), { description: 'For action="create": array of step descriptions to add' }),
 	),
@@ -17,6 +27,15 @@ export const TodoToolInputSchema = Type.Object({
 		Type.Union([Type.Literal("pending"), Type.Literal("in_progress"), Type.Literal("done")], {
 			description: 'For action="update": new status',
 		}),
+	),
+	plan: Type.Optional(
+		Type.Array(
+			Type.Object({
+				content: Type.String({ minLength: 1 }),
+				status: Type.Union([Type.Literal("pending"), Type.Literal("in_progress"), Type.Literal("done")]),
+			}),
+			{ description: 'For action="replace": the complete execution plan and current step statuses' },
+		),
 	),
 });
 
@@ -35,6 +54,7 @@ export interface TodoToolStore {
 	getLockSource(): string | null;
 	createMany(contents: string[]): readonly TodoToolItem[];
 	update(id: number, status: TodoToolStatus): TodoToolItem | undefined;
+	replacePlan(plan: readonly TodoPlanItem[]): TodoPlanUpdate;
 	clear(): void;
 }
 
@@ -52,9 +72,17 @@ export function createTodoTool(options: TodoToolOptions): RuntimeToolDefinition<
 		label: "todo",
 		description: TODO_TOOL_DESCRIPTION,
 		inputSchema: TodoToolInputSchema,
-		async execute({ input: { action, items, id, status } }) {
+		async execute({ input: { action, items, id, status, plan }, signal }) {
+			signal.throwIfAborted();
 			const store = options.getTodoStore();
 			switch (action) {
+				case "replace": {
+					if (!plan) return result(action, 'Error: action="replace" requires a "plan" array.');
+					const update = store.replacePlan(plan);
+					return update.ok
+						? result(action, `Updated the complete plan atomically.\n\n${formatItems(store)}`)
+						: result(action, `REJECTED: ${update.error}\n\n${formatItems(store)}`);
+				}
 				case "create": {
 					if (!items || items.length === 0)
 						return result(action, 'Error: action="create" requires a non-empty "items" array.');

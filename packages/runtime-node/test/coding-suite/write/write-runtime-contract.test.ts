@@ -63,19 +63,19 @@ describe("runtime write tool", () => {
 		});
 	});
 
-	it("preserves local parent creation, verbatim UTF-8 content, result text, and undefined details", async () => {
+	it("preserves local parent creation and verbatim UTF-8 content with accurate review details", async () => {
 		const runtimeDirectory = createTemporaryDirectory("local");
 		const relativePath = "nested/deep/output.txt";
 		const content = 'héllo🙂\nconst path = "招标文件 - 发布稿.docx";\n';
 		const runtime = createWriteTool(runtimeDirectory, { pathPolicy: permissivePathPolicy });
 
 		const runtimeResult = await runtime.execute(runtimeRequest({ path: relativePath, content }));
-		expect(runtimeResult.content[0]).toMatchObject({ text: expect.stringContaining("Successfully wrote 40 bytes") });
+		expect(runtimeResult.content[0]).toMatchObject({ text: expect.stringContaining("Successfully wrote 57 bytes") });
 		expect(readFileSync(join(runtimeDirectory, relativePath), "utf-8")).toBe(content);
-		expect(runtimeResult.details).toBeUndefined();
+		expect(runtimeResult.details).toMatchObject({ bytesWritten: 57, changeKind: "created", diffStatus: "available" });
 	});
 
-	it("preserves custom operation order and content.length success accounting", async () => {
+	it("preserves custom operation order with UTF-8 byte accounting", async () => {
 		const cwd = createTemporaryDirectory("operations");
 		const runtimeCalls: string[] = [];
 		const runtime = createWriteTool(cwd, {
@@ -86,7 +86,7 @@ describe("runtime write tool", () => {
 
 		const runtimeResult = await runtime.execute(runtimeRequest(input));
 		expect(runtimeCalls.map((call) => call.split(":", 1)[0])).toEqual(["mkdir", "write"]);
-		expect(runtimeResult.content[0]).toMatchObject({ text: expect.stringContaining("Successfully wrote 2 bytes") });
+		expect(runtimeResult.content[0]).toMatchObject({ text: expect.stringContaining("Successfully wrote 4 bytes") });
 	});
 
 	it("preserves fuzzy output-path retargeting and its notice", async () => {
@@ -146,12 +146,17 @@ describe("runtime write tool", () => {
 		const cwd = createTemporaryDirectory("mkdir-abort");
 		const runtimeController = new AbortController();
 		let resolveRuntimeMkdir: (() => void) | undefined;
+		let notifyMkdirStarted!: () => void;
+		const mkdirStarted = new Promise<void>((resolve) => {
+			notifyMkdirStarted = resolve;
+		});
 		const runtimeWrites: string[] = [];
 		const runtime = createWriteTool(cwd, {
 			operations: {
 				mkdir: () =>
 					new Promise<void>((resolve) => {
 						resolveRuntimeMkdir = resolve;
+						notifyMkdirStarted();
 					}),
 				writeFile: async (path) => {
 					runtimeWrites.push(path);
@@ -161,10 +166,11 @@ describe("runtime write tool", () => {
 		});
 		const input = { path: "output.txt", content: "blocked" };
 		const runtimePromise = runtime.execute(runtimeRequest(input, runtimeController.signal));
+		const rejected = expect(runtimePromise).rejects.toThrow("Operation aborted");
+		await mkdirStarted;
 		runtimeController.abort();
-		await expect(runtimePromise).rejects.toThrow("Operation aborted");
 		resolveRuntimeMkdir?.();
-		await Promise.resolve();
+		await rejected;
 		expect(runtimeWrites).toEqual([]);
 	});
 

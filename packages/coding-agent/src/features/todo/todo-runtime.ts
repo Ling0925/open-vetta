@@ -5,6 +5,7 @@ import type {
 	CodingAgentTodoRuntime as CodingAgentTodoRuntimePort,
 	TodoItem,
 	TodoLockSource,
+	TodoPlanItem,
 	TodoSnapshot,
 	TodoSnapshotEnvelope,
 	TodoUpdateListener,
@@ -61,6 +62,10 @@ export class CodingAgentTodoRuntime implements CodingAgentTodoRuntimePort {
 
 	update(id: number, status: "pending" | "in_progress" | "done") {
 		return this.state.update(id, status);
+	}
+
+	replacePlan(plan: readonly TodoPlanItem[]) {
+		return this.state.replacePlan(plan);
 	}
 
 	subscribe(listener: TodoUpdateListener): () => void {

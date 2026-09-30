@@ -179,7 +179,11 @@ function ToolSpecificContent({
 	if (block.toolName === "write") {
 		return (
 			<>
-				<WriteContentView block={block} />
+				{block.status === "success" && !block.isError && block.uiDetails?.diff ? (
+					<EditDiffView block={block} />
+				) : (
+					<WriteContentView block={block} />
+				)}
 				<ToolErrorResult block={block} />
 			</>
 		);

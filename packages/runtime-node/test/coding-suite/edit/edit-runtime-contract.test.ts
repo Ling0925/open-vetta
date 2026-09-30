@@ -1,6 +1,7 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { setImmediate } from "node:timers/promises";
 import { afterEach, describe, expect, it } from "vitest";
 import {
 	createEditTool,
@@ -356,5 +357,52 @@ describe("runtime edit tool", () => {
 			),
 		).rejects.toThrow("Operation aborted");
 		expect(calls).toEqual(["access", "read"]);
+	});
+
+	it("waits for an already-dispatched exact-text write before reporting cancellation", async () => {
+		const cwd = createTemporaryDirectory("exact-inflight-abort");
+		const controller = new AbortController();
+		let notifyStarted!: () => void;
+		let releaseWrite!: () => void;
+		const started = new Promise<void>((resolve) => {
+			notifyStarted = resolve;
+		});
+		const released = new Promise<void>((resolve) => {
+			releaseWrite = resolve;
+		});
+		let written = "";
+		let settled = false;
+		const runtime = createEditTool(cwd, {
+			pathPolicy: permissivePathPolicy,
+			operations: {
+				access: async () => {},
+				readFile: async () => Buffer.from("old"),
+				writeFile: async (_path, content) => {
+					notifyStarted();
+					await released;
+					written = content;
+				},
+			},
+		});
+		const work = runtime.execute(
+			runtimeRequest({ path: "file.txt", oldText: "old", newText: "new" }, controller.signal),
+		);
+		void work.then(
+			() => {
+				settled = true;
+			},
+			() => {
+				settled = true;
+			},
+		);
+		const rejected = expect(work).rejects.toThrow("Operation aborted");
+		await started;
+		controller.abort();
+		await setImmediate();
+		const settledBeforeWrite = settled;
+		releaseWrite();
+		await rejected;
+		expect(settledBeforeWrite).toBe(false);
+		expect(written).toBe("new");
 	});
 });

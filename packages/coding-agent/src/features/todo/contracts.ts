@@ -4,6 +4,11 @@ export interface TodoItem {
 	status: "pending" | "in_progress" | "done";
 }
 
+export type TodoPlanItem = Pick<TodoItem, "content" | "status">;
+export type TodoPlanUpdate =
+	| { readonly ok: true; readonly items: readonly TodoItem[] }
+	| { readonly ok: false; readonly error: string };
+
 export type TodoLockSource = "scene";
 
 export interface TodoSnapshotEnvelope {
@@ -31,6 +36,7 @@ export interface CodingAgentTodoRuntime extends RuntimeDocumentParticipant {
 	getLockSource(): TodoLockSource | null;
 	createMany(contents: string[]): TodoItem[];
 	update(id: number, status: TodoItem["status"]): TodoItem | undefined;
+	replacePlan(plan: readonly TodoPlanItem[]): TodoPlanUpdate;
 	clear(): boolean;
 	/** 订阅 Todo 变更，供宿主把状态实时广播给 UI。返回退订函数。 */
 	subscribe(listener: TodoUpdateListener): () => void;

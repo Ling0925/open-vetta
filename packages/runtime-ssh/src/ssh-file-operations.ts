@@ -80,6 +80,18 @@ export function createSshReadOperations(
 export function createSshWriteOperations(connection: SshConnection): WriteOperations {
 	const expand: Expand = (path) => connection.expandRemotePath(path);
 	return {
+		readForDiff: async (absolutePath, maxBytes, signal) => {
+			try {
+				return {
+					kind: "content",
+					bytes: await connection.readFileHead(await expand(absolutePath), maxBytes + 1, signal),
+				};
+			} catch (error) {
+				// Only the helper's structured ENOENT proves absence. Shell/stat failures may be permissions.
+				if (error instanceof SshHelperError && error.code === "ENOENT") return { kind: "missing" };
+				throw error;
+			}
+		},
 		writeFile: async (absolutePath, content) => {
 			await connection.writeFile(await expand(absolutePath), new TextEncoder().encode(content));
 		},

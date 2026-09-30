@@ -1,13 +1,20 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { type Static, Type } from "@sinclair/typebox";
 import type { RuntimeToolDefinition } from "@vetta/runtime-core/kernel";
-import {
-	localToolPathHost,
-	resolveToCwd,
-	resolveWritablePath,
-	type ToolPathHost,
-} from "../../shared/path-resolution.js";
+import { localToolPathHost, resolveToCwd, resolveWritablePath } from "../../shared/path-resolution.js";
 import { WRITE_TOOL_DESCRIPTION } from "./description.js";
+import type { WriteOperations, WriteToolDetails, WriteToolOptions } from "./write-contracts.js";
+import { captureWriteChange, readLocalFileForDiff } from "./write-diff.js";
+
+export type {
+	WriteDiffStatus,
+	WriteDiffUnavailableReason,
+	WriteFileSnapshot,
+	WriteOperations,
+	WritePathPolicy,
+	WriteToolDetails,
+	WriteToolOptions,
+} from "./write-contracts.js";
 
 export const WriteToolInputSchema = Type.Object({
 	description: Type.Optional(
@@ -22,25 +29,10 @@ export const WriteToolInputSchema = Type.Object({
 
 export type WriteToolInput = Static<typeof WriteToolInputSchema>;
 
-export interface WriteOperations {
-	readonly writeFile: (absolutePath: string, content: string) => Promise<void>;
-	readonly mkdir: (directory: string) => Promise<void>;
-}
-
-export interface WritePathPolicy {
-	readonly getRejectionReason: (absolutePath: string) => string | undefined;
-}
-
-export interface WriteToolOptions {
-	readonly operations?: WriteOperations;
-	readonly pathPolicy: WritePathPolicy;
-	/** 路径在哪台机器上解析；缺省为本机。远端项目必须换掉，见 {@link ToolPathHost}。 */
-	readonly pathHost?: ToolPathHost;
-}
-
 const defaultWriteOperations: WriteOperations = {
 	writeFile: (path, content) => writeFile(path, content, "utf-8"),
 	mkdir: (directory) => mkdir(directory, { recursive: true }).then(() => {}),
+	readForDiff: readLocalFileForDiff,
 };
 
 export function createWriteTool(cwd: string, options: WriteToolOptions): RuntimeToolDefinition<WriteToolInput> {
@@ -66,6 +58,7 @@ export function createWriteTool(cwd: string, options: WriteToolOptions): Runtime
 						},
 					],
 					details: undefined,
+					isError: true,
 				};
 			}
 
@@ -93,44 +86,31 @@ interface ExecuteWriteOptions {
 	readonly signal: AbortSignal;
 }
 
-function executeWrite(options: ExecuteWriteOptions): Promise<{
+async function executeWrite(options: ExecuteWriteOptions): Promise<{
 	readonly content: readonly [{ readonly type: "text"; readonly text: string }];
-	readonly details: undefined;
+	readonly details: WriteToolDetails;
 }> {
-	return new Promise((resolve, reject) => {
-		if (options.signal.aborted) {
-			reject(new Error("Operation aborted"));
-			return;
-		}
-		let aborted = false;
-		const onAbort = (): void => {
-			aborted = true;
-			reject(new Error("Operation aborted"));
-		};
-		options.signal.addEventListener("abort", onAbort, { once: true });
-
-		void (async () => {
-			try {
-				await options.operations.mkdir(options.directory);
-				if (aborted) return;
-				await options.operations.writeFile(options.absolutePath, options.content);
-				if (aborted) return;
-				options.signal.removeEventListener("abort", onAbort);
-				resolve({
-					content: [
-						{
-							type: "text",
-							text:
-								`${options.notes.join("\n")}${options.notes.length > 0 ? "\n" : ""}` +
-								`Successfully wrote ${options.content.length} bytes to ${options.absolutePath}`,
-						},
-					],
-					details: undefined,
-				});
-			} catch (error: unknown) {
-				options.signal.removeEventListener("abort", onAbort);
-				if (!aborted) reject(error);
-			}
-		})();
-	});
+	const assertActive = () => {
+		if (options.signal.aborted) throw new Error("Operation aborted");
+	};
+	assertActive();
+	const change = await captureWriteChange(options.operations, options.absolutePath, options.content, options.signal);
+	assertActive();
+	await options.operations.mkdir(options.directory);
+	assertActive();
+	// Once dispatched, wait for the owned write to settle. Cancellation cannot undo its filesystem effects.
+	await options.operations.writeFile(options.absolutePath, options.content);
+	assertActive();
+	const bytesWritten = Buffer.byteLength(options.content, "utf8");
+	return {
+		content: [
+			{
+				type: "text",
+				text:
+					`${options.notes.join("\n")}${options.notes.length > 0 ? "\n" : ""}` +
+					`Successfully wrote ${bytesWritten} bytes to ${options.absolutePath}`,
+			},
+		],
+		details: { path: options.absolutePath, bytesWritten, ...change },
+	};
 }

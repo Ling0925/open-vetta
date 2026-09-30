@@ -32,7 +32,8 @@ export function projectToolCallBlock(block: ToolCallBlock, exportMode = false) {
 	const hasResult = block.result !== undefined;
 	const hasMeta = block.startedAt !== undefined;
 	const hasToolSpecificResult =
-		(block.toolName === "write" && getStringArg(block.args, "content") !== null) ||
+		(block.toolName === "write" &&
+			(getStringArg(block.args, "content") !== null || block.uiDetails?.diff !== undefined)) ||
 		(block.toolName === "edit" &&
 			(block.uiDetails?.diff !== undefined ||
 				getStringArg(block.args, "oldText") !== null ||

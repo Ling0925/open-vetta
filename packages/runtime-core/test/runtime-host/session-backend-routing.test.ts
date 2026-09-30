@@ -4,9 +4,9 @@ import {
 	RuntimeHost,
 	type RuntimeHostSessionAssembly,
 	type RuntimeHostSessionBackend,
-	type SessionEvent,
 	type RuntimeSessionCatalog,
 	type RuntimeSessionCreateRequest,
+	type SessionEvent,
 } from "../../src/index.js";
 import type { SessionContextRecord } from "../../src/kernel/index.js";
 
@@ -183,7 +183,7 @@ describe("CatalogRoutedRuntimeHostSessionBackend", () => {
 			turnIds: [],
 			reason: "queue_persistence_failed",
 		});
-		await expect(runtime.close()).rejects.toThrow("disk unavailable");
+		await expect(runtime.close()).rejects.toMatchObject({ name: "AggregateError", cause: failure });
 	});
 
 	it("uses the explicit default backend only for new sessions", async () => {

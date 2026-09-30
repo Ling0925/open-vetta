@@ -11,9 +11,9 @@ import { describe, expect, it } from "vitest";
 import type { ContextCompositionReport } from "../../src/context-composition/index.js";
 import {
 	AgentCoreTurnEngine,
-	createRuntimeTurnContextPlane,
 	type ContextCompositionPublisher,
 	type ContinuationPolicy,
+	createRuntimeTurnContextPlane,
 	type ModelCallContextTransformer,
 	type ModelCallFrameComposer,
 	type ModelCallMessageFinalizer,
@@ -842,10 +842,9 @@ describe("AgentCoreTurnEngine", () => {
 				{ kind: "opaque", identity: { type: "hidden" }, timestamp: 2 },
 			],
 			signal: new AbortController().signal,
-			contextPlane: contextPlane(
-				runtimeSnapshot,
-				async (checkpointRequest) => ({ messages: checkpointRequest.messages }),
-			),
+			contextPlane: contextPlane(runtimeSnapshot, async (checkpointRequest) => ({
+				messages: checkpointRequest.messages,
+			})),
 		})) {
 			// Exhaust the engine stream.
 		}
@@ -1042,6 +1041,7 @@ describe("AgentCoreTurnEngine", () => {
 
 	it("forwards the request cancellation signal and rejects the turn", async () => {
 		const controller = new AbortController();
+		let executionSignal: AbortSignal | undefined;
 		let markStarted: (() => void) | undefined;
 		const started = new Promise<void>((resolve) => {
 			markStarted = resolve;
@@ -1049,7 +1049,8 @@ describe("AgentCoreTurnEngine", () => {
 		const engine = new AgentCoreTurnEngine({
 			model: model(),
 			streamFn: (_model, _context, options) => {
-				expect(options?.signal).toBe(controller.signal);
+				executionSignal = options?.signal;
+				expect(executionSignal?.aborted).toBe(false);
 				const stream = new ManualAssistantStream();
 				options?.signal?.addEventListener(
 					"abort",
@@ -1072,6 +1073,8 @@ describe("AgentCoreTurnEngine", () => {
 		controller.abort("cancelled by test");
 
 		await expect(result).rejects.toMatchObject({ name: "AbortError" });
+		expect(executionSignal?.aborted).toBe(true);
+		expect(executionSignal?.reason).toBe("cancelled by test");
 	});
 
 	it("delivers steering before follow-up input and emits delivered user messages", async () => {

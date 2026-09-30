@@ -19,6 +19,7 @@ import {
 	type TurnEngineEvent,
 	type TurnEnginePort,
 } from "../../src/kernel/index.js";
+import { createRuntimeTurnContextPlane } from "../../src/kernel/model-call-context.js";
 import { StatelessAgentCoreTurnEngine } from "../../src/kernel/stateless-agent-core-turn-engine.js";
 
 describe("StatelessAgentCoreTurnEngine", () => {
@@ -149,13 +150,20 @@ describe("StatelessAgentCoreTurnEngine", () => {
 			snapshot: snapshot([tool]),
 			messages: [user("initial")],
 			signal: new AbortController().signal,
-			checkpoint: async ({ reason, messages, modelCallIndex }) => {
-				if (reason !== "model_call") return { messages };
-				if (modelCallIndex === undefined) throw new Error("Missing model call index");
-				modelCallIndexes.push(modelCallIndex);
-				modelCheckpoints += 1;
-				return modelCheckpoints === 1 ? { messages: [user("provider")], contextMessages: [durable] } : { messages };
-			},
+			contextPlane: createRuntimeTurnContextPlane({
+				getSessionId: () => "session-1",
+				turnId: "turn-1",
+				snapshot: snapshot([tool]),
+				checkpoint: async ({ reason, messages, modelCallIndex }) => {
+					if (reason !== "model_call") return { messages };
+					if (modelCallIndex === undefined) throw new Error("Missing model call index");
+					modelCallIndexes.push(modelCallIndex);
+					modelCheckpoints += 1;
+					return modelCheckpoints === 1
+						? { messages: [user("provider")], contextMessages: [durable] }
+						: { messages };
+				},
+			}),
 		})) {
 			events.push(event);
 		}
@@ -204,10 +212,7 @@ describe("StatelessAgentCoreTurnEngine", () => {
 				},
 			},
 		};
-		const responses = [
-			assistant([{ type: "text", text: "first" }]),
-			assistant([{ type: "text", text: "second" }]),
-		];
+		const responses = [assistant([{ type: "text", text: "first" }]), assistant([{ type: "text", text: "second" }])];
 		let responseIndex = 0;
 		const engine = new StatelessAgentCoreTurnEngine({
 			model: model(),
@@ -235,7 +240,11 @@ describe("StatelessAgentCoreTurnEngine", () => {
 			// Exhaust the loop.
 		}
 		expect(admissions).toEqual([
-			{ admissions: [{ inputId: "input-queued", disposition: "turn" }], context: [record] },
+			{
+				admissions: [{ inputId: "input-queued", disposition: "turn" }],
+				context: [record],
+				messages: [user("queued")],
+			},
 		]);
 		expect(queue.pendingCount).toBe(0);
 	});
@@ -278,6 +287,7 @@ describe("StatelessAgentCoreTurnEngine", () => {
 		expect(admissions).toContainEqual({
 			admissions: [{ inputId: "input-handled", disposition: "handled" }],
 			context: [],
+			messages: [],
 		});
 		expect(queue.pendingCount).toBe(0);
 	});

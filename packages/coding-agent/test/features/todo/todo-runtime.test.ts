@@ -8,6 +8,50 @@ import { CodingAgentTodoRuntime } from "../../../src/features/todo/todo-runtime.
 import { createCodingAgentTodoRuntimeToolRegistration } from "../../../src/features/todo/todo-tool-feature.js";
 
 describe("CodingAgentTodoRuntime", () => {
+	it("persists one complete plan revision and restores it without an empty intermediate state", async () => {
+		let document = createEmptyConversationDocument({ sessionId: "plan-session", createdAt: 1 });
+		let entryIndex = 0;
+		const runtime = new CodingAgentTodoRuntime({ createEntryId: () => `plan-${++entryIndex}`, now: () => 1 });
+		runtime.initialize(document, {
+			appendCustomEntry: async (entry) => {
+				document = applyConversationDocumentCommand(document, { type: "custom.append", ...entry }).document;
+				runtime.onDocumentChanged(document);
+			},
+		});
+		const tool = createCodingAgentTodoRuntimeToolRegistration(runtime).tool;
+		const replace = (plan: { content: string; status: "pending" | "in_progress" | "done" }[]) =>
+			tool.execute({
+				sessionId: "plan-session",
+				turnId: "turn-1",
+				toolCallId: `plan-call-${entryIndex}`,
+				input: { description: "Update the execution plan", action: "replace", plan },
+				signal: new AbortController().signal,
+			});
+		try {
+			await replace([
+				{ content: "Read", status: "in_progress" },
+				{ content: "Test", status: "pending" },
+			]);
+			await replace([
+				{ content: "Read", status: "done" },
+				{ content: "Test", status: "in_progress" },
+			]);
+			expect(document.entries.filter((entry) => entry.type === "custom")).toHaveLength(2);
+			const restored = new CodingAgentTodoRuntime();
+			try {
+				restored.initialize(document, { appendCustomEntry: async () => undefined });
+				expect(restored.readItems()).toEqual([
+					{ id: 1, content: "Read", status: "done" },
+					{ id: 2, content: "Test", status: "in_progress" },
+				]);
+			} finally {
+				await restored.dispose();
+			}
+		} finally {
+			await runtime.dispose();
+		}
+	});
+
 	it("shares one store across Runtime Tool, persistence and Controller", async () => {
 		let document = createEmptyConversationDocument({ sessionId: "session-1", createdAt: 1 });
 		let entryIndex = 0;

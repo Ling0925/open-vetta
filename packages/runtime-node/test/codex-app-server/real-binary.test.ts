@@ -4,7 +4,7 @@ import { networkInterfaces, tmpdir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import type { Message } from "@vetta/ai";
 import { RuntimeHost } from "@vetta/runtime-core";
-import type { TurnEngineRequest } from "@vetta/runtime-core/kernel";
+import { createRuntimeTurnContextPlane, type TurnEngineRequest } from "@vetta/runtime-core/kernel";
 import {
 	CodexConversationTurnEngine,
 	CodexRuntimeHostBackend,
@@ -225,7 +225,14 @@ describe.skipIf(!executable || !entry)("pinned real Codex with an isolated local
 					signal: new AbortController().signal,
 				};
 				let finished = false;
-				for await (const event of engine.execute(request)) {
+				for await (const event of engine.execute({
+					...request,
+					contextPlane: createRuntimeTurnContextPlane({
+						getSessionId: () => request.sessionId,
+						turnId: request.turnId,
+						snapshot: request.snapshot,
+					}),
+				})) {
 					if (event.type === "message") messages.push(event.message);
 					if (event.type === "completed") finished = true;
 				}

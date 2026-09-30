@@ -11,7 +11,6 @@ import {
 	isConversationDocumentEntryEvent,
 } from "../conversation/index.js";
 import { createRuntimeId } from "../id-generator.js";
-import { reconcileRuntimeInput, type RuntimeInputReconciliation } from "../kernel/input-admission.js";
 import type { AgentSession } from "../kernel/agent-session.js";
 import type {
 	AgentSessionState,
@@ -28,6 +27,7 @@ import type {
 	TurnResult,
 } from "../kernel/contracts.js";
 import { isInputAlreadyAdmittedError, sessionBusyError, sessionClosedError } from "../kernel/errors.js";
+import { type RuntimeInputReconciliation, reconcileRuntimeInput } from "../kernel/input-admission.js";
 import type { SessionInputQueueEntry, SessionInputQueueSnapshot } from "../kernel/session-input-queue.js";
 import type { SessionContextState } from "../session-context-state.js";
 import type { SessionExtensionEndpointToken } from "../session-extensions/contracts.js";
@@ -395,9 +395,10 @@ export class RuntimeSession {
 		if (!normalized || normalized.length > 256 || /[\x00-\x1f\x7f]/.test(normalized)) {
 			throw new Error("Invalid input identity");
 		}
-		const queued = this.session
-			.listQueue()
-			.entries.find((entry) => entry.input.request?.inputId === normalized);
+		const conversation = await this.repository.load(this.session.id);
+		const durable = reconcileRuntimeInput(conversation, normalized, this.projection.readDocument());
+		if (durable.status !== "missing") return durable;
+		const queued = this.session.listQueue().entries.find((entry) => entry.input.request?.inputId === normalized);
 		if (queued) {
 			return {
 				status: "queued",
@@ -406,8 +407,7 @@ export class RuntimeSession {
 				behavior: queued.behavior,
 			};
 		}
-		const conversation = await this.repository.load(this.session.id);
-		return reconcileRuntimeInput(conversation, normalized, this.projection.readDocument());
+		return durable;
 	}
 
 	async navigateForEdit(entryId: string): Promise<{ text: string; cancelled: boolean }> {

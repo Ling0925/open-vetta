@@ -1,6 +1,7 @@
 import type {
 	AgentSessionState,
-	QueuedSessionInput,
+	QueuedInputAdmission,
+	QueuedSessionInputReservation,
 	QueuedSessionInputResult,
 	QueueSessionInputIfRunningResult,
 	RuntimeInputRequestPreparer,
@@ -376,13 +377,13 @@ export class AgentSession {
 			this.assertIdleForAdmission();
 			if (this.cancellationVersion !== cancellationVersion) throw continuationCancelledError();
 			if (!reservation.isValid()) return { status: "missing" };
-			const input = reservation.inputs[0];
-			if (!input) return { status: "missing" };
-			const turn = this.startQueuedInput(input);
-			reservation.commit();
+			const turn = this.startQueuedInput(reservation);
 			return { status: "started", turn };
-		} finally {
+		} catch (error) {
 			reservation.release();
+			throw error;
+		} finally {
+			if (!this.activeTurn) reservation.release();
 			this.immediateSendPending = false;
 			if (!this.inputQueue.paused && !this.startQueuedOperationIfHead()) this.scheduleRequestedContinuations();
 		}
@@ -404,7 +405,7 @@ export class AgentSession {
 		// 已在跑就把消费交给该 turn 的自然停止点。
 		if (this.currentState !== "idle") return undefined;
 		if (this.startQueuedOperationIfHead()) return undefined;
-		const head = this.inputQueue.takeFollowUpHead();
+		const head = this.inputQueue.reserveFollowUpHead();
 		if (!head) return undefined;
 		return this.startQueuedInput(head);
 	}
@@ -482,6 +483,7 @@ export class AgentSession {
 		input?: SessionInput,
 		continuationContext: readonly SessionContextRecord[] = [],
 		retrying = false,
+		queuedAdmission?: QueuedInputAdmission,
 	): Promise<TurnResult> {
 		this.assertIdleForAdmission();
 		this.currentState = "running";
@@ -489,7 +491,7 @@ export class AgentSession {
 		this.activeController = controller;
 		try {
 			const turn = input
-				? this.pipeline.run(this.identity, input, controller.signal, this.inputQueue)
+				? this.pipeline.run(this.identity, input, controller.signal, this.inputQueue, queuedAdmission)
 				: retrying
 					? this.pipeline.retry(this.identity, controller.signal, this.inputQueue)
 					: this.pipeline.continue(this.identity, controller.signal, this.inputQueue, continuationContext);
@@ -516,6 +518,7 @@ export class AgentSession {
 		request: SessionInputRequest,
 		preparer?: RuntimeInputRequestPreparer,
 		signal?: AbortSignal,
+		queuedAdmission?: QueuedInputAdmission,
 	): Promise<SessionSendResult> {
 		signal?.throwIfAborted();
 		this.assertIdleForAdmission();
@@ -531,7 +534,14 @@ export class AgentSession {
 		signal?.addEventListener("abort", abort, { once: true });
 		if (signal?.aborted) abort();
 		try {
-			const turn = this.pipeline.runRequest(this.identity, request, controller.signal, this.inputQueue, preparer);
+			const turn = this.pipeline.runRequest(
+				this.identity,
+				request,
+				controller.signal,
+				this.inputQueue,
+				preparer,
+				queuedAdmission,
+			);
 			this.activeTurn = turn;
 			const result = await turn;
 			if (
@@ -558,11 +568,29 @@ export class AgentSession {
 		if (inputId && inputId === this.activeInputId) throw inputAlreadyAdmittedError();
 	}
 
-	private startQueuedInput(input: QueuedSessionInput): Promise<SessionSendResult> {
+	private startQueuedInput(reservation: QueuedSessionInputReservation): Promise<SessionSendResult> {
 		this.assertIdleForAdmission();
-		if (input.request) return this.startRequest(input.request, this.inputRequestPreparer);
-		if (input.message) return this.startTurn(input as SessionInput);
-		throw new Error("Queued input does not contain a message or request");
+		const input = reservation.inputs[0];
+		const admission: QueuedInputAdmission = {
+			assertPending: () => {
+				if (!reservation.isValid()) throw continuationCancelledError();
+			},
+			commit: () => {
+				if (!reservation.commit()) throw continuationCancelledError();
+			},
+		};
+		try {
+			admission.assertPending();
+			const turn = input?.request
+				? this.startRequest(input.request, this.inputRequestPreparer, undefined, admission)
+				: input?.message
+					? this.startTurn(input as SessionInput, [], false, admission)
+					: Promise.reject(new Error("Queued input does not contain a message or request"));
+			return turn.finally(() => reservation.release());
+		} catch (error) {
+			reservation.release();
+			throw error;
+		}
 	}
 
 	private startQueuedOperation(entry: {
@@ -628,13 +656,14 @@ export class AgentSession {
 				this.cancellationVersion !== cancellationVersion ||
 				this.currentState !== "idle" ||
 				this.inputQueue.paused
-			) return;
+			)
+				return;
 			const entry = this.inputQueue.takeFollowUpOperationHead();
 			if (entry) {
 				void this.startQueuedOperation(entry);
 				return;
 			}
-			const input = this.inputQueue.takeFollowUpHead();
+			const input = this.inputQueue.reserveFollowUpHead();
 			if (!input) {
 				this.scheduleRequestedContinuations();
 				return;
@@ -680,7 +709,7 @@ export class AgentSession {
 					? "recovery_required"
 					: "idle";
 		const operationStarted = this.startQueuedOperationIfHead();
-		if (!deferContinuations && !operationStarted) this.scheduleRequestedContinuations();
+		if (!deferContinuations && !operationStarted) this.scheduleQueueAfterOperation();
 	}
 
 	private scheduleRequestedContinuations(): void {

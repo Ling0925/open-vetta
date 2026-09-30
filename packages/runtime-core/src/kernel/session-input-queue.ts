@@ -1,5 +1,4 @@
 import { createRuntimeId } from "../id-generator.js";
-import { inputAlreadyAdmittedError } from "./errors.js";
 import type {
 	QueuedSessionInput,
 	QueuedSessionInputReservation,
@@ -11,6 +10,7 @@ import type {
 	SessionStreamingBehavior,
 	TurnInputQueue,
 } from "./contracts.js";
+import { inputAlreadyAdmittedError } from "./errors.js";
 
 export interface SessionInputQueueOptions {
 	readonly steeringMode?: SessionInputQueueMode;
@@ -187,6 +187,8 @@ export class SessionInputQueue implements TurnInputQueue {
 	promoteToSteering(id: string): boolean {
 		const index = this.followUpQueue.findIndex((slot) => slot.id === id);
 		if (index < 0) return false;
+		const candidate = this.followUpQueue[index];
+		if (candidate && this.reserved.has(candidate)) return false;
 		const [slot] = this.followUpQueue.splice(index, 1);
 		this.steeringQueue.push(slot);
 		this.notifyChange();
@@ -304,7 +306,9 @@ export class SessionInputQueue implements TurnInputQueue {
 	/** 按 id 显式取出一条完整输入（「立即发送」在空闲态直接开 turn 用）；无视 paused。 */
 	takeById(id: string): QueuedSessionInput | undefined {
 		for (const queue of [this.steeringQueue, this.followUpQueue]) {
-			const operationIndex = queue.findIndex((slot) => slot.input.operation !== undefined || this.reserved.has(slot));
+			const operationIndex = queue.findIndex(
+				(slot) => slot.input.operation !== undefined || this.reserved.has(slot),
+			);
 			const index = queue.findIndex(
 				(slot, candidateIndex) =>
 					slot.id === id &&
@@ -322,17 +326,27 @@ export class SessionInputQueue implements TurnInputQueue {
 
 	/** 显式取出 followUp 队首一条完整输入（resumeQueue 以队首开启新 turn 用）。 */
 	takeFollowUpHead(): QueuedSessionInput | undefined {
-		const operationIndex = this.followUpQueue.findIndex(
-			(slot) => slot.input.operation !== undefined || this.reserved.has(slot),
-		);
-		const index = this.followUpQueue.findIndex(
-			(slot, candidateIndex) =>
-				(operationIndex < 0 || candidateIndex < operationIndex) && isExecutableInput(slot.input),
-		);
+		const index = this.findFollowUpHeadIndex();
 		if (index < 0) return undefined;
 		const [slot] = this.followUpQueue.splice(index, 1);
 		this.notifyChange();
 		return slot.input;
+	}
+
+	reserveFollowUpHead(): QueuedSessionInputReservation | undefined {
+		const index = this.findFollowUpHeadIndex();
+		const slot = this.followUpQueue[index];
+		return slot ? this.reserveSlots(this.followUpQueue, [slot]) : undefined;
+	}
+
+	private findFollowUpHeadIndex(): number {
+		const operationIndex = this.followUpQueue.findIndex(
+			(slot) => slot.input.operation !== undefined || this.reserved.has(slot),
+		);
+		return this.followUpQueue.findIndex(
+			(slot, candidateIndex) =>
+				(operationIndex < 0 || candidateIndex < operationIndex) && isExecutableInput(slot.input),
+		);
 	}
 
 	peekFollowUpOperation(): { readonly id: string; readonly operation: SessionQueueOperation } | undefined {

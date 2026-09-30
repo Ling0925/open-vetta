@@ -23,10 +23,7 @@ import type {
 	RuntimeMessageEnvelope,
 	RuntimeMessageOrigin,
 } from "../runtime-execution-observation.js";
-import type {
-	ContextCompactionEligibility,
-	RuntimeContextPolicySnapshot,
-} from "../session-context-state.js";
+import type { ContextCompactionEligibility, RuntimeContextPolicySnapshot } from "../session-context-state.js";
 import type { RuntimeSessionObservationEvent } from "../session-observation.js";
 
 export type AgentSessionState = "idle" | "running" | "cancelling" | "closing" | "recovery_required" | "closed";
@@ -99,6 +96,12 @@ export interface QueuedSessionInputReservation {
 	isValid(): boolean;
 	commit(): boolean;
 	release(): void;
+}
+
+/** Keeps a queued input recoverable until its complete admission is durable. */
+export interface QueuedInputAdmission {
+	assertPending(): void;
+	commit(): void;
 }
 
 export interface TurnInputQueue {
@@ -991,13 +994,18 @@ export interface TurnEngineRequest {
 	 * Execution loops must hand queued request identities and context back to the Pipeline
 	 * before the queue reservation becomes consumable/model-visible.
 	 */
-	admitQueuedInputs?(input: {
-		readonly admissions: readonly {
-			readonly inputId: string;
-			readonly disposition: "turn" | "handled";
-		}[];
-		readonly context: readonly SessionContextRecord[];
-	}): Promise<void>;
+	admitQueuedInputs?(
+		input: {
+			readonly admissions: readonly {
+				readonly inputId: string;
+				readonly disposition: "turn" | "handled";
+			}[];
+			readonly context: readonly SessionContextRecord[];
+			/** User content committed atomically with identity and context before dequeue. */
+			readonly messages?: readonly UserMessage[];
+		},
+		queuedAdmission?: QueuedInputAdmission,
+	): Promise<void>;
 	/** Legacy context-only persistence port for older TurnEngine implementations. */
 	appendQueuedContext?(records: readonly SessionContextRecord[]): Promise<void>;
 	/** Pipeline-internal durable checkpoint source used to bind contextPlane; execution loops must not consume it directly. */

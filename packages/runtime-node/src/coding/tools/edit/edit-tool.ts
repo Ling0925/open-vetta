@@ -1,11 +1,12 @@
 import { constants } from "node:fs";
 import { access, readFile, writeFile } from "node:fs/promises";
 import type { RuntimeToolDefinition } from "@vetta/runtime-core/kernel";
+import { generateDiffString } from "../../shared/file-diff.js";
 import { resolveExistingPath } from "../../shared/path-resolution.js";
 import { formatStrippedPrefixNotice, prepareAnchorEdits } from "./anchor-edit.js";
 import { EDIT_TOOL_DESCRIPTION } from "./description.js";
 import type { EditOperations, EditToolDetails, EditToolOptions } from "./edit-contracts.js";
-import { generateDiffString, prepareExactTextEdit } from "./edit-text.js";
+import { prepareExactTextEdit } from "./edit-text.js";
 import { type EditToolInput, EditToolInputSchema } from "./schema.js";
 
 const defaultEditOperations: EditOperations = {
@@ -43,7 +44,7 @@ async function executeAnchorMode(
 	};
 }
 
-function executeExactTextMode(
+async function executeExactTextMode(
 	operations: EditOperations,
 	absolutePath: string,
 	displayPath: string,
@@ -51,54 +52,34 @@ function executeExactTextMode(
 	newText: string,
 	signal: AbortSignal,
 ): Promise<EditToolResult> {
-	return new Promise((resolve, reject) => {
-		if (signal.aborted) {
-			reject(new Error("Operation aborted"));
-			return;
-		}
-
-		let aborted = false;
-		const onAbort = (): void => {
-			aborted = true;
-			reject(new Error("Operation aborted"));
-		};
-		signal.addEventListener("abort", onAbort, { once: true });
-
-		void (async () => {
-			try {
-				try {
-					await operations.access(absolutePath);
-				} catch {
-					signal.removeEventListener("abort", onAbort);
-					reject(new Error(`File not found: ${displayPath}`));
-					return;
-				}
-				if (aborted) return;
-				const rawContent = (await operations.readFile(absolutePath)).toString("utf-8");
-				if (aborted) return;
-				const edit = prepareExactTextEdit(rawContent, oldText, newText, displayPath);
-				if (aborted) return;
-				await operations.writeFile(absolutePath, edit.content);
-				if (aborted) return;
-				signal.removeEventListener("abort", onAbort);
-				const diff = generateDiffString(edit.baseContent, edit.newContent);
-				resolve({
-					content: [
-						{
-							type: "text",
-							text:
-								`Successfully replaced text in ${displayPath}.` +
-								formatStrippedPrefixNotice(edit.strippedPrefixCount),
-						},
-					],
-					details: { diff: diff.diff, firstChangedLine: diff.firstChangedLine },
-				});
-			} catch (error: unknown) {
-				signal.removeEventListener("abort", onAbort);
-				if (!aborted) reject(error);
-			}
-		})();
-	});
+	const assertActive = () => {
+		if (signal.aborted) throw new Error("Operation aborted");
+	};
+	assertActive();
+	try {
+		await operations.access(absolutePath);
+	} catch {
+		assertActive();
+		throw new Error(`File not found: ${displayPath}`);
+	}
+	assertActive();
+	const rawContent = (await operations.readFile(absolutePath)).toString("utf-8");
+	assertActive();
+	const edit = prepareExactTextEdit(rawContent, oldText, newText, displayPath);
+	assertActive();
+	// An in-flight filesystem write cannot be rolled back by rejecting its enclosing promise.
+	await operations.writeFile(absolutePath, edit.content);
+	assertActive();
+	const diff = generateDiffString(edit.baseContent, edit.newContent);
+	return {
+		content: [
+			{
+				type: "text",
+				text: `Successfully replaced text in ${displayPath}.${formatStrippedPrefixNotice(edit.strippedPrefixCount)}`,
+			},
+		],
+		details: { diff: diff.diff, firstChangedLine: diff.firstChangedLine },
+	};
 }
 
 export function createEditTool(cwd: string, options: EditToolOptions): RuntimeToolDefinition<EditToolInput> {

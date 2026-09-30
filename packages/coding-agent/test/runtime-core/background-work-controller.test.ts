@@ -70,5 +70,8 @@ function subagentRuntime(clearFinished: () => number): CodingAgentSubagentWorkRu
 		list: () => [],
 		interrupt: () => undefined,
 		interruptAll: () => [],
+		followUp: async () => {
+			throw new Error("Not used");
+		},
 	};
 }

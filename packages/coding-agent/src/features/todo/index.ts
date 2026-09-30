@@ -4,6 +4,8 @@ export type {
 	TodoContinuationState,
 	TodoItem,
 	TodoLockSource,
+	TodoPlanItem,
+	TodoPlanUpdate,
 	TodoSnapshot,
 	TodoSnapshotEnvelope,
 	TodoUpdateListener,

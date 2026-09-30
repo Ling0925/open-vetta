@@ -21,6 +21,7 @@ import type {
 	KernelEvent,
 	MessageAppendedEvent,
 	ModelCallFrame,
+	QueuedInputAdmission,
 	RuntimeInputRequestPreparer,
 	RuntimeSnapshot,
 	RuntimeSnapshotAcquireContext,
@@ -183,8 +184,19 @@ export class TurnPipeline {
 		input: SessionInput,
 		signal: AbortSignal,
 		inputQueue?: TurnInputQueue,
+		queuedAdmission?: QueuedInputAdmission,
 	): Promise<TurnResult> {
-		const result = await this.runTurn(sessionIdentity, input, signal, inputQueue);
+		const result = await this.runTurn(
+			sessionIdentity,
+			input,
+			signal,
+			inputQueue,
+			[],
+			false,
+			undefined,
+			undefined,
+			queuedAdmission,
+		);
 		return assertTurnResult(result);
 	}
 
@@ -194,8 +206,19 @@ export class TurnPipeline {
 		signal: AbortSignal,
 		inputQueue?: TurnInputQueue,
 		fallbackPreparer?: RuntimeInputRequestPreparer,
+		queuedAdmission?: QueuedInputAdmission,
 	): Promise<TurnResult | HandledSessionInputResult> {
-		return this.runTurn(sessionIdentity, undefined, signal, inputQueue, [], false, request, fallbackPreparer);
+		return this.runTurn(
+			sessionIdentity,
+			undefined,
+			signal,
+			inputQueue,
+			[],
+			false,
+			request,
+			fallbackPreparer,
+			queuedAdmission,
+		);
 	}
 
 	async continue(
@@ -226,6 +249,7 @@ export class TurnPipeline {
 		retrying = false,
 		request?: SessionInputRequest,
 		fallbackPreparer?: RuntimeInputRequestPreparer,
+		queuedAdmission?: QueuedInputAdmission,
 	): Promise<TurnResult | HandledSessionInputResult> {
 		const identity = normalizeSessionIdentity(sessionIdentity);
 		const inputId = normalizeInputId(request?.inputId);
@@ -285,7 +309,11 @@ export class TurnPipeline {
 				});
 				signal.throwIfAborted();
 				if (preparedRequest.action === "handled") {
-					if (inputId) await this.recordHandledInputIdentity(state.sessionId, inputId);
+					if (inputId) await this.recordHandledInputIdentity(state.sessionId, inputId, signal, queuedAdmission);
+					else {
+						queuedAdmission?.assertPending();
+						queuedAdmission?.commit();
+					}
 					return { status: "handled", sessionId: state.sessionId };
 				}
 				input = preparedRequest.input;
@@ -361,7 +389,11 @@ export class TurnPipeline {
 				});
 			}
 			try {
-				await this.append(state, signal, startEvents);
+				queuedAdmission?.assertPending();
+				await this.append(state, signal, startEvents, () => {
+					state.started = true;
+					queuedAdmission?.commit();
+				});
 			} catch (error) {
 				if (inputId) {
 					// The optimistic repository version is the durable serialization point.
@@ -523,10 +555,7 @@ export class TurnPipeline {
 				instructionOverride = preparationResult?.instructionOverride;
 			}
 
-			const durableCheckpoint = async (
-				request: TurnEngineContextCheckpointRequest,
-				checkpointSignal: AbortSignal,
-			) =>
+			const durableCheckpoint = async (request: TurnEngineContextCheckpointRequest, checkpointSignal: AbortSignal) =>
 				await this.prepareContextCheckpoint({
 					turnId,
 					snapshot,
@@ -569,7 +598,7 @@ export class TurnPipeline {
 				inputQueue,
 				input,
 				contextPlane,
-				admitQueuedInputs: async ({ admissions, context }) => {
+				admitQueuedInputs: async ({ admissions, context, messages = [] }, queuedAdmission) => {
 					const normalizedAdmissions = admissions.map(({ inputId: value, disposition }) => ({
 						inputId: normalizeInputId(value) as string,
 						disposition,
@@ -614,9 +643,24 @@ export class TurnPipeline {
 									timestamp: record.timestamp ?? timestamp,
 								}) satisfies StoredSessionEvent,
 						),
+						...messages.map((message) => ({
+							type: "message.appended" as const,
+							sessionId: state.sessionId,
+							turnId,
+							message,
+							timestamp,
+						})),
 					];
-					if (events.length === 0) return;
-					await this.append(state, signal, events);
+					signal.throwIfAborted();
+					queuedAdmission?.assertPending();
+					if (events.length === 0) {
+						queuedAdmission?.commit();
+						return;
+					}
+					await this.append(state, signal, events, () => {
+						state.messages.push(...messages);
+						queuedAdmission?.commit();
+					});
 				},
 				appendQueuedContext: async (records) => {
 					const timestamp = this.clock.now();
@@ -1028,9 +1072,11 @@ export class TurnPipeline {
 		state: MutableTurnState,
 		signal: AbortSignal,
 		events: readonly StoredSessionEvent[],
+		onCommitted?: () => void,
 	): Promise<void> {
 		const result = await this.repository.append(state.sessionId, state.version, events);
 		state.version = result.version;
+		onCommitted?.();
 		for (const event of events) {
 			await this.publishSafely(event);
 			await this.notifyObserversSafely(state.snapshot, event, signal);
@@ -1200,7 +1246,12 @@ export class TurnPipeline {
 		}
 	}
 
-	private async recordHandledInputIdentity(sessionId: string, inputId: string): Promise<void> {
+	private async recordHandledInputIdentity(
+		sessionId: string,
+		inputId: string,
+		signal: AbortSignal,
+		queuedAdmission?: QueuedInputAdmission,
+	): Promise<void> {
 		for (let attempt = 0; attempt < 2; attempt += 1) {
 			const conversation = await this.repository.load(sessionId);
 			const document = await this.conversationDocumentReader?.readDocument(sessionId);
@@ -1212,7 +1263,10 @@ export class TurnPipeline {
 				timestamp: this.clock.now(),
 			};
 			try {
+				signal.throwIfAborted();
+				queuedAdmission?.assertPending();
 				await this.repository.append(sessionId, conversation.version, [event]);
+				queuedAdmission?.commit();
 				await this.publishSafely(event);
 				return;
 			} catch (error) {

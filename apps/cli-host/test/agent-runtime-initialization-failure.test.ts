@@ -12,6 +12,7 @@ import {
 	startAgentRpc,
 	waitForRpcProcessPid,
 } from "./support/agent-rpc-test-process.js";
+import { nodeHookCommand } from "./support/node-hook-command.js";
 
 let executable: AgentRpcExecutable;
 
@@ -115,7 +116,7 @@ async function writeFailingExtension(fixture: AgentRpcFixture, auditPath: string
 }
 
 async function writeProjectHookConfigs(fixture: AgentRpcFixture, auditPath: string): Promise<void> {
-	const hookScriptPath = join(fixture.workspace, ".vetta", "initialization-hook.cjs");
+	const hookScriptPath = join(fixture.workspace, ".vetta", "initialization hook's audit.cjs");
 	const codexDirectory = join(fixture.workspace, ".vetta", ".codex");
 	const claudeDirectory = join(fixture.workspace, ".vetta", ".claude");
 	await Promise.all([mkdir(codexDirectory, { recursive: true }), mkdir(claudeDirectory, { recursive: true })]);
@@ -126,7 +127,7 @@ async function writeProjectHookConfigs(fixture: AgentRpcFixture, auditPath: stri
 		appendFileSync(${JSON.stringify(auditPath)}, JSON.stringify({ owner: "hook", event: input.hook_event_name }) + "\\n", "utf8");`,
 		"utf8",
 	);
-	const command = "bun .vetta/initialization-hook.cjs";
+	const command = nodeHookCommand(hookScriptPath);
 	await Promise.all([
 		writeFile(
 			join(codexDirectory, "hooks.json"),
@@ -137,7 +138,11 @@ async function writeProjectHookConfigs(fixture: AgentRpcFixture, auditPath: stri
 		),
 		writeFile(
 			join(claudeDirectory, "settings.json"),
-			JSON.stringify({ hooks: { SessionEnd: [{ hooks: [{ type: "command", command }] }] } }),
+			JSON.stringify({
+				hooks: {
+					SessionEnd: [{ hooks: [{ type: "command", command: process.execPath, args: [hookScriptPath] }] }],
+				},
+			}),
 			"utf8",
 		),
 	]);

@@ -197,19 +197,18 @@ async function executeRun(
 			}
 			state.toolCalls += toolCalls.length;
 			state.consecutiveRecoveryAttempts = 0;
-			const batch = await interruptible(
-				executeRuntimeToolCalls({
-					calls: toolCalls,
-					tools,
-					messages: [...state.messages],
-					modelCallIndex,
-					signal,
-					policy: request.toolPolicy,
-					emit,
-					takeSteeringMessages: request.takeSteeringMessages,
-				}),
+			// Started effects retain Turn ownership until they settle or finish abort cleanup.
+			// Only the pre-execution authorization wait may be detached on cancellation.
+			const batch = await executeRuntimeToolCalls({
+				calls: toolCalls,
+				tools,
+				messages: [...state.messages],
+				modelCallIndex,
 				signal,
-			);
+				policy: request.toolPolicy,
+				emit,
+				takeSteeringMessages: request.takeSteeringMessages,
+			});
 			state.messages.push(...batch.results);
 			if (batch.steeringMessages && batch.steeringMessages.length > 0) {
 				pendingInput = { kind: "steering", messages: batch.steeringMessages };

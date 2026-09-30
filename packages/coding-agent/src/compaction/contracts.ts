@@ -1,5 +1,4 @@
 import type { AgentMessage } from "@vetta/agent-core";
-import type { RuntimeContextCompactionPolicy } from "@vetta/runtime-core";
 import type { ImageContent, TextContent } from "@vetta/ai";
 
 export interface CompactionHistoryEntryBase {
@@ -75,7 +74,7 @@ export interface CompactionSettings {
 }
 
 /** Compatibility projection from Coding Agent settings into Vetta's neutral Context policy. */
-export function toRuntimeContextCompactionPolicy(settings: CompactionSettings): RuntimeContextCompactionPolicy {
+export function toRuntimeContextCompactionPolicy(settings: CompactionSettings) {
 	return Object.freeze({
 		enabled: settings.enabled,
 		thresholdPercent: 100 - settings.minFreePercent,

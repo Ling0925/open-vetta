@@ -49,7 +49,7 @@ describe("ModelSelectorView", () => {
 			/>,
 		);
 		const trigger = screen.getByRole("button", { name: "Alpha" });
-		expect(trigger).toBeDisabled();
+		expect(trigger.hasAttribute("disabled")).toBe(true);
 		await user.click(trigger);
 		expect(screen.queryByRole("searchbox", { name: "Search models" })).toBeNull();
 	});

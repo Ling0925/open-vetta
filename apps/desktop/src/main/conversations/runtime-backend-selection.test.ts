@@ -13,7 +13,7 @@ function latch() {
 	});
 	return { promise, resolve };
 }
-function fixture(validate: () => Promise<void> = async () => {}) {
+function fixture(validate: () => Promise<void> = async () => {}, codexEngine?: TurnEnginePort) {
 	let document = { entries: [], revision: 0 } as unknown as ConversationDocument;
 	let busy = false;
 	let dispatched = 0;
@@ -29,7 +29,7 @@ function fixture(validate: () => Promise<void> = async () => {}) {
 		},
 	});
 	const native = engine("native");
-	const codex = engine("codex");
+	const codex = codexEngine ?? engine("codex");
 	const selection = new ConversationRuntimeBackendSelection({ codex, validateCodex: validate, assertReusable() {} });
 	const original = {
 		lifecycle: {
@@ -104,6 +104,54 @@ async function open(f: ReturnType<typeof fixture>) {
 }
 
 describe("same-conversation backend ownership", () => {
+	it("preserves a Context Plane continuation's rebound session identity at external dispatch", async () => {
+		let sessionId = "same-session";
+		let receivedSessionId: string | undefined;
+		const f = fixture(undefined, {
+			async *execute(request) {
+				await request.contextPlane!.prepareModelCall(
+					{ reason: "model_call", messages: request.messages, recoveryAttempt: 0 },
+					request.signal,
+				);
+				receivedSessionId = request.sessionId;
+				yield { type: "completed", stopReason: "stop" };
+			},
+		});
+		const session = await open(f);
+		await f.selection.select(sessionId, "codex", "default");
+		const composition = f.compose();
+		const signal = new AbortController().signal;
+		const lease = await composition.snapshotProvider.acquire({
+			sessionId,
+			operationId: "turn-rebound",
+			reason: "turn",
+			signal,
+		});
+		try {
+			for await (const _event of composition.turnEngine.execute({
+				get sessionId() {
+					return sessionId;
+				},
+				turnId: "turn-rebound",
+				signal,
+				messages: [],
+				snapshot: lease.snapshot,
+				contextPlane: {
+					prepareModelCall: async () => {
+						sessionId = "continued-session";
+						return { messages: [] };
+					},
+				},
+			})) {
+				/* Drain the selected execution path. */
+			}
+			assert.equal(receivedSessionId, "continued-session");
+		} finally {
+			await lease.release();
+			await session.lifecycle.dispose();
+		}
+	});
+
 	it("preserves an absent optional queue capability instead of installing an unusable method", async () => {
 		const f = fixture();
 		const session = await open(f);
@@ -183,7 +231,11 @@ describe("same-conversation backend ownership", () => {
 			prepare: async (input) => ({ messages: input.messages, estimatedTokens: 1 }),
 		};
 		const contextProvider = { id: "shared-context", provide: async () => [] };
-		const manualCompactionStrategy = { compactManual: async () => { throw new Error("not executed"); } };
+		const manualCompactionStrategy = {
+			compactManual: async () => {
+				throw new Error("not executed");
+			},
+		};
 		const contextSummaryStrategy = { summarizeContext: async () => ({ summary: "fixture", tokensBefore: 1 }) };
 		const transformer: NonNullable<RuntimeSnapshot["modelCallContextTransformer"]> = {
 			transform: async (input) => input.messages,
@@ -258,10 +310,9 @@ describe("same-conversation backend ownership", () => {
 			assert.equal(delivered?.request.snapshot.contextSummaryStrategy, undefined);
 			assert.equal(delivered?.request.snapshot.modelCallContextTransformer, undefined);
 			assert.equal(delivered?.request.snapshot.modelCallMessageFinalizer, undefined);
-			await assert.rejects(
-				delivered!.request.snapshot.contextStrategy.prepare({} as never, signal),
-				{ code: "CONTEXT_PLANE_REQUIRED" },
-			);
+			await assert.rejects(delivered!.request.snapshot.contextStrategy.prepare({} as never, signal), {
+				code: "CONTEXT_PLANE_REQUIRED",
+			});
 		} finally {
 			await turnLease.release();
 			await session.lifecycle.dispose();

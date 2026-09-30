@@ -271,7 +271,10 @@ describe("RuntimeHost running-changed reason", () => {
 		);
 		expect(JSON.stringify(failures)).not.toContain("secret");
 		expect(JSON.stringify(failures)).not.toContain("private prompt");
-		await host.close();
+		await expect(host.close()).rejects.toMatchObject({
+			name: "AggregateError",
+			cause: expect.objectContaining({ message: "secret queue failure" }),
+		});
 	});
 });
 
