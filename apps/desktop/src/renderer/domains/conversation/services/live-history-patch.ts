@@ -28,10 +28,36 @@ function withStableRenderKey<T extends ChatConversationItem>(item: T): T {
 	return { ...item, renderKey: item.id };
 }
 
+function containsCanonicalContent(
+	live: Extract<ChatConversationItem, { kind: "agent" }>,
+	canonical: Extract<ChatConversationItem, { kind: "agent" }>,
+): boolean {
+	// History joins model-call text with extra newlines, whereas the stream
+	// concatenates deltas. Compare block contents rather than message.text.
+	const containsText = (["text", "thinking"] as const).every((type) => {
+		const liveText = live.blocks.flatMap((block) => (block.type === type ? [block.text] : [])).join("");
+		const canonicalText = canonical.blocks.flatMap((block) => (block.type === type ? [block.text] : [])).join("");
+		return liveText.startsWith(canonicalText);
+	});
+	if (!containsText) return false;
+	const liveTools = new Map(
+		live.blocks.flatMap((block) => (block.type === "tool_call" ? [[block.toolCallId, block] as const] : [])),
+	);
+	return canonical.blocks.every((block) => {
+		if (block.type !== "tool_call") return true;
+		const current = liveTools.get(block.toolCallId);
+		if (!current) return false;
+		// History defaults calls without a durable result to success. Only an
+		// actual result can repair a missed tool.end, not that inferred status.
+		return block.result === undefined || (current.result === block.result && current.status === block.status);
+	});
+}
+
 /**
  * Copy durable identity onto the live timeline without replacing assistant
- * blocks. Returns null when the shapes diverge so the caller can fall back
- * to a full canonical replace.
+ * blocks only when they already contain canonical text, thinking and tool results.
+ * Final-only notifications and missing deltas must still be repaired by history.
+ * Returns null for mismatched identities or content so the caller can replace.
  */
 export function patchLiveMessagesWithCanonical(
 	live: readonly ChatConversationItem[],
@@ -43,6 +69,7 @@ export function patchLiveMessagesWithCanonical(
 		const liveItem = live[index];
 		const canonicalItem = canonical[index];
 		if (!liveItem || !canonicalItem || liveItem.kind !== canonicalItem.kind) return null;
+		if (liveItem.entryId && canonicalItem.entryId && liveItem.entryId !== canonicalItem.entryId) return null;
 
 		if (liveItem.kind === "event") {
 			if (canonicalItem.kind !== "event" || liveItem.event.kind !== canonicalItem.event.kind) return null;
@@ -55,7 +82,7 @@ export function patchLiveMessagesWithCanonical(
 		}
 
 		if (liveItem.kind === "user") {
-			if (canonicalItem.kind !== "user") return null;
+			if (canonicalItem.kind !== "user" || liveItem.text !== canonicalItem.text) return null;
 			const entryId = canonicalItem.entryId ?? liveItem.entryId;
 			const parentId = canonicalItem.parentId ?? liveItem.parentId;
 			const branch = canonicalItem.branch ?? liveItem.branch;
@@ -89,7 +116,7 @@ export function patchLiveMessagesWithCanonical(
 			continue;
 		}
 
-		if (canonicalItem.kind !== "agent") return null;
+		if (canonicalItem.kind !== "agent" || !containsCanonicalContent(liveItem, canonicalItem)) return null;
 		const entryId = canonicalItem.entryId ?? liveItem.entryId;
 		const startedAt = liveItem.startedAt ?? canonicalItem.startedAt;
 		const endedAt = liveItem.endedAt ?? canonicalItem.endedAt;

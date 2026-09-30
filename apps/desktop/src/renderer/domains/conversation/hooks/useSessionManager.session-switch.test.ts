@@ -509,6 +509,7 @@ it("已有会话先提交加载态，预览与 Runtime 并行恢复且快速切�
 	const secondViewer = deferred<{ history: ReturnType<typeof userHistory> }>();
 	const sessionApi = {
 		autoTitle: vi.fn(),
+		dispose: vi.fn(async () => undefined),
 		create: vi.fn((config: { sessionPath?: string }) =>
 			config.sessionPath === firstSessionPath ? firstCreate.promise : secondCreate.promise,
 		),
@@ -627,6 +628,7 @@ it("已有会话先提交加载态，预览与 Runtime 并行恢复且快速切�
 
 	expect(store.get(activeSessionAtom)?.runtimeId).toBe("runtime-second");
 	expect(store.get(chatMessagesAtom)).toBe(previewMessages);
+	expect(sessionApi.dispose).toHaveBeenCalledExactlyOnceWith("runtime-first");
 	expect(mocks.perfSessionSwitchComplete).toHaveBeenCalledWith("cancelled", "open-first");
 	expect(mocks.perfSessionSwitchComplete).toHaveBeenCalledWith("completed", "open-second");
 });
@@ -642,9 +644,10 @@ it("会话恢复期间立即接受发送并在订阅就绪后派发到目标 Run
 		frames.push(callback);
 		return frames.length;
 	});
+	const created = deferred<{ cwd: string; sessionId: string; sessionPath: string }>();
 	const sessionApi = {
 		autoTitle: vi.fn(),
-		create: vi.fn(async () => ({ cwd, sessionId: "runtime-second", sessionPath: secondSessionPath })),
+		create: vi.fn(() => created.promise),
 		getFullHistory: vi.fn(async () => userHistory("history", "history-user")),
 		getQueueState: vi.fn(async () => ({ paused: false, entries: [] })),
 		getSessionPath: vi.fn(async () => secondSessionPath),
@@ -702,6 +705,7 @@ it("会话恢复期间立即接受发送并在订阅就绪后派发到目标 Run
 	expect(mocks.prompt).not.toHaveBeenCalled();
 
 	await act(async () => {
+		created.resolve({ cwd, sessionId: "runtime-second", sessionPath: secondSessionPath });
 		frames.shift()?.(0);
 		frames.shift()?.(16);
 		await opening;
@@ -852,10 +856,7 @@ it("被新会话替代的迟到创建失败不会清空当前会话", { timeout:
 	});
 	expect(store.get(activeSessionAtom)?.runtimeId).toBe("runtime-second");
 	expect(visibleTexts(store.get(chatMessagesAtom))).not.toContain("late stale failure");
-	expect(mocks.perfSessionSwitchMark).toHaveBeenCalledWith(
-		"session-create-failed-superseded",
-		"open-first-stale",
-	);
+	expect(mocks.perfSessionSwitchMark).toHaveBeenCalledWith("session-create-failed-superseded", "open-first-stale");
 });
 
 it("已有会话创建失败时退出加载态并保留可诊断错误", { timeout: 10_000 }, async () => {

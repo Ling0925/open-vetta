@@ -1,0 +1,63 @@
+html,
+body,
+#root {
+	width: 100%;
+	height: 100%;
+	margin: 0;
+}
+.fixture-shell {
+	display: flex;
+	height: 100%;
+	background: var(--background);
+	color: var(--foreground);
+}
+.fixture-controls {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	width: 260px;
+	flex-shrink: 0;
+	padding: 18px;
+	border-right: 1px solid var(--border);
+	overflow: auto;
+	font-size: 12px;
+}
+.fixture-controls h1 {
+	font-size: 15px;
+	font-weight: 600;
+}
+.fixture-controls p,
+.fixture-controls output {
+	color: var(--muted-foreground);
+}
+.fixture-controls nav {
+	display: flex;
+	gap: 8px;
+}
+.fixture-status {
+	border-top: 1px solid var(--border);
+	padding-top: 12px;
+}
+.fixture-conversation {
+	min-width: 0;
+	flex: 1;
+	display: flex;
+	flex-direction: column;
+}
+.fixture-conversation > header {
+	display: flex;
+	justify-content: space-between;
+	flex-shrink: 0;
+	padding: 18px 24px;
+	border-bottom: 1px solid var(--border);
+}
+.fixture-conversation > header span {
+	color: var(--muted-foreground);
+	font-size: 13px;
+}
+.fixture-feed {
+	min-height: 0;
+	flex: 1;
+	display: flex;
+	flex-direction: column;
+}

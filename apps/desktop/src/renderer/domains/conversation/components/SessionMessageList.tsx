@@ -1,17 +1,16 @@
+import type { ConversationUserMessageViewModel } from "@shared/conversation";
 import { activeSessionAtom, isCompactingAtom, pendingScrollToEntryAtom } from "@shared/store/atoms";
 import { useAtom, useAtomValue } from "jotai";
 import { createContext, useCallback, useContext, useMemo } from "react";
-import { SessionSelection } from "./message-list/SessionSelection";
-import type { ConversationUserMessageViewModel } from "@shared/conversation";
 import { MessageList } from "./MessageList";
-import { MessageListFooter } from "./message-list/MessageListFooter";
-import { MessageRenderingDefaults, DefaultMessageRow } from "./message-list/MessageRendering";
-import type { MessageRowProps } from "./message-list/MessageRendering";
 import { ForkOriginBanner, resolveForkOriginPlacement } from "./message-list/ForkOriginBanner";
-import type { MessageRendering } from "./message-list/MessageRendering";
+import { MessageListFooter } from "./message-list/MessageListFooter";
+import type { MessageRendering, MessageRowProps } from "./message-list/MessageRendering";
+import { DefaultMessageRow, MessageRenderingDefaults } from "./message-list/MessageRendering";
+import { SessionSelection } from "./message-list/SessionSelection";
 import { SessionUserMessage } from "./message-list/SessionUserMessage";
-import { SuggestionBubbles } from "./SuggestionBubbles";
 import type { MessageListProps } from "./message-list/types";
+import { SuggestionBubbles } from "./SuggestionBubbles";
 
 const sessionRendering: MessageRendering = {
 	row: SessionMessageRow,
@@ -38,7 +37,11 @@ export function SessionMessageList(props: MessageListProps & { onSend?: (overrid
 	const session = useAtomValue(activeSessionAtom);
 	const isCompacting = useAtomValue(isCompactingAtom);
 	const [pendingTarget, setPendingTarget] = useAtom(pendingScrollToEntryAtom);
-	const clearPendingTarget = useCallback(() => setPendingTarget(null), [setPendingTarget]);
+	const ownTarget = pendingTarget?.sessionPath === props.sessionId ? pendingTarget : null;
+	const clearPendingTarget = useCallback(
+		() => setPendingTarget((current) => (current === ownTarget ? null : current)),
+		[ownTarget, setPendingTarget],
+	);
 	const fork = useMemo(() => {
 		const placement = resolveForkOriginPlacement(
 			props.messages,
@@ -57,7 +60,7 @@ export function SessionMessageList(props: MessageListProps & { onSend?: (overrid
 				<SessionSelection>
 					<MessageList
 						{...props}
-						initialTargetKey={pendingTarget?.entryId}
+						initialTargetKey={ownTarget?.entryId}
 						onInitialTargetHandled={clearPendingTarget}
 					>
 						<MessageListFooter

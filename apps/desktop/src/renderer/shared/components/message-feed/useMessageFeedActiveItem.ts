@@ -16,7 +16,7 @@ export function useMessageFeedActiveItem<T>({
 } {
 	const [activeIndex, setActiveIndex] = useState(initialIndex);
 	const initialIndexRef = useRef(initialIndex);
-	const renderedItemsRef = useRef<RenderedFeedItem[]>([]);
+	const renderedItemsRef = useRef<{ resetKey: typeof resetKey; items: RenderedFeedItem[] }>({ resetKey, items: [] });
 	initialIndexRef.current = initialIndex;
 
 	useEffect(() => {
@@ -25,10 +25,10 @@ export function useMessageFeedActiveItem<T>({
 	}, [resetKey]);
 
 	const syncActiveIndex = useCallback(() => {
-		if (!scrollerElement) return;
-		const index = findTopVisibleItemIndex(renderedItemsRef.current, scrollerElement.scrollTop);
+		if (!scrollerElement || renderedItemsRef.current.resetKey !== resetKey) return;
+		const index = findTopVisibleItemIndex(renderedItemsRef.current.items, scrollerElement.scrollTop);
 		if (index != null) setActiveIndex(index);
-	}, [scrollerElement]);
+	}, [resetKey, scrollerElement]);
 
 	/**
 	 * 读 `scrollTop` 是一次布局读取，必须折叠到每帧一次。
@@ -48,27 +48,25 @@ export function useMessageFeedActiveItem<T>({
 
 	const onItemsRendered = useCallback(
 		(items: ListItem<T>[]) => {
-			renderedItemsRef.current = items.map(({ index, offset, size }) => ({ index, offset, size }));
+			renderedItemsRef.current = {
+				resetKey,
+				items: items.map(({ index, offset, size }) => ({ index, offset, size })),
+			};
 			scheduleSync();
 		},
-		[scheduleSync],
+		[resetKey, scheduleSync],
 	);
 
 	useEffect(() => {
-		if (!scrollerElement) return;
-		scrollerElement.addEventListener("scroll", scheduleSync, { passive: true });
-		scheduleSync();
+		scrollerElement?.addEventListener("scroll", scheduleSync, { passive: true });
+		if (scrollerElement) scheduleSync();
 		return () => {
-			scrollerElement.removeEventListener("scroll", scheduleSync);
+			scrollerElement?.removeEventListener("scroll", scheduleSync);
+			// A queued read owns this viewport and feed, just like the scroll listener.
+			if (frameRef.current != null) cancelAnimationFrame(frameRef.current);
+			frameRef.current = null;
 		};
 	}, [scrollerElement, scheduleSync]);
-
-	useEffect(
-		() => () => {
-			if (frameRef.current != null) cancelAnimationFrame(frameRef.current);
-		},
-		[],
-	);
 
 	return { activeIndex, onItemsRendered };
 }

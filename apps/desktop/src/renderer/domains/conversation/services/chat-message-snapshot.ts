@@ -55,32 +55,49 @@ type AgentBlock = AgentMessage["blocks"][number];
 function mergeRunningAssistantBlocks(
 	persisted: AgentMessage["blocks"],
 	live: AgentMessage["blocks"],
+	restoredPreview: boolean,
 ): AgentMessage["blocks"] {
 	const blocks = [...persisted];
+	// A live draft without tool history continues the tail segment. Otherwise
+	// shared tool identities anchor each segment while we walk in display order.
+	let cursor = 0;
+	if (!restoredPreview && !live.some((block) => block.type === "tool_call")) {
+		for (const [index, block] of blocks.entries()) {
+			if (block.type === "tool_call") cursor = index + 1;
+		}
+	}
 	for (const block of live) {
 		if (block.type === "tool_call") {
 			const index = blocks.findIndex(
 				(candidate) => candidate.type === "tool_call" && candidate.toolCallId === block.toolCallId,
 			);
 			if (index >= 0) {
+				cursor = Math.max(cursor, index + 1);
 				const existing = blocks[index] as Extract<AgentBlock, { type: "tool_call" }>;
 				if (existing.status !== "pending" && block.status === "pending") continue;
 				blocks[index] = { ...existing, ...block, result: block.result ?? existing.result };
 				continue;
 			}
 		} else if (block.type === "text" || block.type === "thinking") {
-			let index = blocks.length - 1;
-			while (index >= 0 && blocks[index]?.type !== block.type) index -= 1;
-			const existing = blocks[index];
-			if (existing?.type === block.type) {
-				if (existing.text === block.text || existing.text.startsWith(block.text)) continue;
-				if (block.text.startsWith(existing.text)) {
-					blocks[index] = { ...existing, text: block.text };
-					continue;
+			let matched = false;
+			for (let index = cursor; index < blocks.length; index += 1) {
+				const existing = blocks[index];
+				if (existing.type === "tool_call") break;
+				if (existing.type !== block.type) continue;
+				const sameIdentity = block.id !== undefined && existing.id === block.id;
+				if (sameIdentity || existing.text.startsWith(block.text) || block.text.startsWith(existing.text)) {
+					if (!existing.text.startsWith(block.text)) {
+						blocks[index] = { ...existing, text: block.text };
+					}
+					cursor = index + 1;
+					matched = true;
+					break;
 				}
 			}
+			if (matched) continue;
 		}
 		blocks.push(block);
+		cursor = blocks.length;
 	}
 	return blocks;
 }
@@ -93,15 +110,51 @@ function lastUserId(messages: readonly ChatConversationItem[]): string | undefin
 	return undefined;
 }
 
+function mergeLiveAssistant(persisted: AgentMessage, live: AgentMessage): AgentMessage {
+	const blocks = mergeRunningAssistantBlocks(persisted.blocks, live.blocks, persisted.id === live.id);
+	return {
+		...persisted,
+		...live,
+		entryId: persisted.entryId ?? live.entryId,
+		timestamp: persisted.timestamp ?? live.timestamp,
+		blocks,
+		text: live.text
+			? blocks.flatMap((block) => (block.type === "text" ? [block.text] : [])).join("")
+			: persisted.text,
+		usages: live.usages ?? persisted.usages,
+	};
+}
+
 /**
- * Keeps renderer-only rows accepted after a Viewer snapshot was committed while
- * replacing that persisted base with Runtime-canonical history.
+ * Keeps rows and live updates accepted after a Viewer snapshot was committed
+ * while replacing that persisted base with Runtime-canonical history.
  */
 export function preserveMessagesAddedAfterSnapshot(
 	preview: readonly ChatConversationItem[],
 	canonical: readonly ChatConversationItem[],
 	current: readonly ChatConversationItem[],
 ): ChatConversationItem[] {
+	const previewById = new Map(preview.map((message) => [message.id, message]));
+	const currentById = new Map(current.map((message) => [message.id, message]));
+	let updatedCanonical: ChatConversationItem[] | undefined;
+	for (const [index, message] of canonical.entries()) {
+		const previewMessage = previewById.get(message.id);
+		const liveMessage = currentById.get(message.id);
+		// Restoring a running session adopts the durable preview row as the draft.
+		// Its ID stays unchanged as events arrive, so it is not an added row below.
+		if (
+			message.kind === "agent" &&
+			message.endedAt === undefined &&
+			previewMessage?.kind === "agent" &&
+			liveMessage?.kind === "agent" &&
+			liveMessage !== previewMessage &&
+			liveMessage.startedAt !== undefined
+		) {
+			updatedCanonical ??= [...canonical];
+			updatedCanonical[index] = mergeLiveAssistant(message, liveMessage);
+		}
+	}
+	const hydrated = updatedCanonical ?? (canonical as ChatConversationItem[]);
 	const persistedIds = new Set(canonical.map((message) => message.id));
 	const previewIds = new Set(preview.map((message) => message.id));
 	const additions = current.filter((message) => !persistedIds.has(message.id));
@@ -126,20 +179,9 @@ export function preserveMessagesAddedAfterSnapshot(
 				liveTail.startedAt !== undefined &&
 				persistedTail.timestamp >= liveTail.startedAt))
 	) {
-		const blocks = mergeRunningAssistantBlocks(persistedTail.blocks, liveTail.blocks);
 		// Keep the live ID: buffered assistant events and the legacy draft pointer still address it until turn end.
-		const merged: AgentMessage = {
-			...persistedTail,
-			...liveTail,
-			entryId: persistedTail.entryId,
-			timestamp: persistedTail.timestamp ?? liveTail.timestamp,
-			blocks,
-			text: liveTail.text
-				? blocks.flatMap((block) => (block.type === "text" ? [block.text] : [])).join("")
-				: persistedTail.text,
-			usages: liveTail.usages ?? persistedTail.usages,
-		};
-		return [...canonical.slice(0, -1), merged];
+		const merged = mergeLiveAssistant(persistedTail, liveTail);
+		return [...hydrated.slice(0, -1), merged];
 	}
-	return additions.length === 0 ? (canonical as ChatConversationItem[]) : [...canonical, ...additions];
+	return additions.length === 0 ? hydrated : [...hydrated, ...additions];
 }

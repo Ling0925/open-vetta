@@ -28,8 +28,8 @@ describe("patchLiveMessagesWithCanonical", () => {
 			createConversationAgentMessage({
 				id: "e-a1",
 				entryId: "e-a1",
-				text: "落盘里可能更短",
-				blocks: [textBlock("落盘里可能更短")],
+				text: "流式正文",
+				blocks: [textBlock("流式正文")],
 			}),
 		];
 
@@ -138,6 +138,83 @@ describe("patchLiveMessagesWithCanonical", () => {
 		const patched = patchLiveMessagesWithCanonical(live, live);
 		expect(patched?.[0]).toBe(live[0]);
 		expect(patched?.[1]).toBe(live[1]);
+	});
+
+	it("同形但不同用户输入不能沿用旧正文并贴上新身份", () => {
+		const live = [createConversationUserMessage({ id: "optimistic", text: "old question" })];
+		const canonical = [createConversationUserMessage({ id: "saved", entryId: "saved", text: "edited question" })];
+		expect(patchLiveMessagesWithCanonical(live, canonical)).toBeNull();
+	});
+
+	it("已经落盘的不同分支身份不能按位置互换", () => {
+		const live = [createConversationUserMessage({ id: "branch-a", entryId: "branch-a", text: "same question" })];
+		const canonical = [createConversationUserMessage({ id: "branch-b", entryId: "branch-b", text: "same question" })];
+		expect(patchLiveMessagesWithCanonical(live, canonical)).toBeNull();
+	});
+
+	it("最终历史补齐未送达的文本时使用完整内容", () => {
+		const live = [createConversationAgentMessage({ id: "live", text: "partial", blocks: [textBlock("partial")] })];
+		const canonical = [
+			createConversationAgentMessage({
+				id: "saved",
+				entryId: "saved",
+				text: "partial complete",
+				blocks: [textBlock("partial complete")],
+			}),
+		];
+		expect(applyAgentEndHistoryRefresh(live, canonical)[0]).toMatchObject({ text: "partial complete" });
+	});
+
+	it("最终历史补齐未送达的思考时不保留残缺的实时块", () => {
+		const live = [createConversationAgentMessage({ id: "live", text: "answer", blocks: [textBlock("answer")] })];
+		const canonical = [
+			createConversationAgentMessage({
+				id: "saved",
+				entryId: "saved",
+				text: "answer",
+				blocks: [{ type: "thinking", id: "thinking", text: "reason" }, textBlock("answer")],
+			}),
+		];
+		expect(applyAgentEndHistoryRefresh(live, canonical)[0]).toMatchObject({
+			blocks: [
+				{ type: "thinking", text: "reason" },
+				{ type: "text", text: "answer" },
+			],
+		});
+	});
+
+	it.each(["pending", "success"] as const)("工具内容对齐时保留%s实时块及阶段信息", (status) => {
+		const blocks = [
+			{
+				type: "tool_call" as const,
+				toolCallId: "call",
+				toolName: "read",
+				args: {},
+				status,
+				...(status === "success" ? { result: "contents" } : {}),
+				phases: [{ label: "read", atMs: 1 }],
+			},
+		];
+		const live = [createConversationAgentMessage({ id: "live", text: "", blocks })];
+		const canonical = [
+			createConversationAgentMessage({
+				id: "saved",
+				entryId: "saved",
+				text: "",
+				blocks: [
+					{
+						type: "tool_call",
+						toolCallId: "call",
+						toolName: "read",
+						args: {},
+						status: "success",
+						...(status === "success" ? { result: "contents" } : {}),
+					},
+				],
+			}),
+		];
+		const patched = patchLiveMessagesWithCanonical(live, canonical);
+		expect(patched?.[0].kind === "agent" && patched[0].blocks).toBe(blocks);
 	});
 
 	it("条数对不上时放弃补丁，交给完整历史路径", () => {

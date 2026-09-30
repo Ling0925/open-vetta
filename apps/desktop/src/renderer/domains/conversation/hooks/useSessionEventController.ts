@@ -104,8 +104,8 @@ export function useSessionEventController({ activeSessionRef }: SessionEventCont
 	const setPromptPredicting = useSetAtom(promptPredictingAtom);
 	const suggestionTokenRef = useRef<Map<string, number>>(new Map());
 	const turnStartDispatchSeqRef = useRef<Map<string, number>>(new Map());
-	const pendingTextDeltaRef = useRef("");
-	const pendingThinkingDeltaRef = useRef("");
+	const pendingDeltasRef = useRef<Array<{ type: "text" | "thinking"; delta: string }>>([]);
+	const historyRefreshGenerationRef = useRef(0);
 	const deltaTimerRef = useRef<number | null>(null);
 	const pendingDeltaSessionRef = useRef<string | null>(null);
 	const conversationProjectionRef = useRef(new ConversationProjection());
@@ -128,13 +128,28 @@ export function useSessionEventController({ activeSessionRef }: SessionEventCont
 		tokens.set(runtimeId, (tokens.get(runtimeId) ?? 0) + 1);
 	}, []);
 
+	const beginHistoryRefresh = useCallback(
+		(sessionId: string, dispatchSeq = getQueuedDispatchSeq(sessionId)) => {
+			const generation = ++historyRefreshGenerationRef.current;
+			const inputToken = suggestionTokenRef.current.get(sessionId) ?? 0;
+			return () =>
+				generation === historyRefreshGenerationRef.current &&
+				activeSessionRef.current?.runtimeId === sessionId &&
+				getChatStreamOwner() === sessionId &&
+				(suggestionTokenRef.current.get(sessionId) ?? 0) === inputToken &&
+				getQueuedDispatchSeq(sessionId) === dispatchSeq;
+		},
+		[activeSessionRef],
+	);
+
 	const resetEventBuffers = useCallback(() => {
+		// Revisiting the same runtime ID must not revive history from an older visit.
+		historyRefreshGenerationRef.current += 1;
 		if (deltaTimerRef.current !== null) {
 			window.clearTimeout(deltaTimerRef.current);
 			deltaTimerRef.current = null;
 		}
-		pendingTextDeltaRef.current = "";
-		pendingThinkingDeltaRef.current = "";
+		pendingDeltasRef.current = [];
 		pendingDeltaSessionRef.current = null;
 		conversationProjectionRef.current.reset();
 	}, []);
@@ -144,12 +159,10 @@ export function useSessionEventController({ activeSessionRef }: SessionEventCont
 			window.clearTimeout(deltaTimerRef.current);
 			deltaTimerRef.current = null;
 		}
-		const textDelta = pendingTextDeltaRef.current;
-		const thinkingDelta = pendingThinkingDeltaRef.current;
+		const deltas = pendingDeltasRef.current;
 		const owningSession = pendingDeltaSessionRef.current;
 		const hasAssistantEvents = conversationProjectionRef.current.hasPendingEvents();
-		pendingTextDeltaRef.current = "";
-		pendingThinkingDeltaRef.current = "";
+		pendingDeltasRef.current = [];
 		pendingDeltaSessionRef.current = null;
 
 		if (
@@ -157,12 +170,13 @@ export function useSessionEventController({ activeSessionRef }: SessionEventCont
 			(getChatStreamOwner() !== owningSession || activeSessionRef.current?.runtimeId !== owningSession)
 		)
 			return;
-		if (hasAssistantEvents || textDelta || thinkingDelta) {
+		if (hasAssistantEvents || deltas.length > 0) {
 			setChatMessages((previous) => {
 				if (hasAssistantEvents) return conversationProjectionRef.current.flush(previous);
 				let next = previous;
-				if (thinkingDelta) next = appendThinkingDelta(next, thinkingDelta);
-				if (textDelta) next = appendTextDelta(next, textDelta);
+				for (const { type, delta } of deltas) {
+					next = type === "thinking" ? appendThinkingDelta(next, delta) : appendTextDelta(next, delta);
+				}
 				return next;
 			});
 		}
@@ -173,6 +187,19 @@ export function useSessionEventController({ activeSessionRef }: SessionEventCont
 			deltaTimerRef.current = window.setTimeout(flushDeltas, DELTA_FLUSH_INTERVAL_MS);
 		}
 	}, [flushDeltas]);
+
+	const enqueueDelta = useCallback(
+		(sessionId: string, type: "text" | "thinking", delta: string) => {
+			if (!delta) return;
+			const previous = pendingDeltasRef.current.at(-1);
+			// Coalesce adjacent fragments only; text/thinking transitions carry order.
+			if (previous?.type === type) previous.delta += delta;
+			else pendingDeltasRef.current.push({ type, delta });
+			pendingDeltaSessionRef.current = sessionId;
+			scheduleDeltaFlush();
+		},
+		[scheduleDeltaFlush],
+	);
 
 	useEffect(() => resetEventBuffers, [resetEventBuffers]);
 
@@ -214,6 +241,7 @@ export function useSessionEventController({ activeSessionRef }: SessionEventCont
 				queueStore.set(setQueuePausedAtom, { runtimeId: sessionId, paused: event.paused });
 				const consumedEntries = diffConsumedQueueEntries(prevQueue, nextQueue);
 				if (consumedEntries.length > 0) {
+					historyRefreshGenerationRef.current += 1;
 					// 同一 turn 内接力消费：把上一段流先落定、并切断 assistant 草稿——
 					// 否则后续 delta 仍按 draftId 续写进用户气泡**之前**的旧回复气泡里，
 					// 第二条回复会显示在它自己的用户消息上方（ADR-0060）。
@@ -250,6 +278,7 @@ export function useSessionEventController({ activeSessionRef }: SessionEventCont
 			// ── Lifecycle ──
 			if (event.type === "session.lifecycle") {
 				if (event.phase === "agent_start") {
+					historyRefreshGenerationRef.current += 1;
 					// 新一轮开始：让上一轮的输入预测生成（若仍在飞）回填时作废。
 					bumpSuggestionToken(sessionId);
 					// 快照本轮起始时的队列派发序号，供本轮 agent_end 判定重拉是否已过期。
@@ -278,16 +307,16 @@ export function useSessionEventController({ activeSessionRef }: SessionEventCont
 					// Reload history identities so user bubbles get session entryId / branch siblings
 					// (optimistic messages use synthetic ids and cannot be edited until this).
 					// Matching timelines keep live assistant blocks; mismatched shapes still replace.
+					// Freeze the completed turn's generation and dispatch sequence now.
+					// agent_start may replace the per-session turn snapshot before I/O returns.
+					const isCurrentHistoryRefresh = beginHistoryRefresh(
+						sessionId,
+						turnStartDispatchSeqRef.current.get(sessionId) ?? 0,
+					);
 					void window.vetta.session
 						.getFullHistory(sessionId)
 						.then((history) => {
-							if (activeSessionRef.current?.runtimeId !== sessionId) return;
-							// 判活：本轮结束时/后若发生过队列派发（立即发送 / 自然出队），这次历史
-							// 回流已「跨到下一轮」——会冲掉下一轮的乐观用户气泡、令 draft 串台，或与
-							// 已抢先落盘的 mapped 重复。跳过，交由下一轮自己的 agent_end 安全重拉。
-							if (getQueuedDispatchSeq(sessionId) !== (turnStartDispatchSeqRef.current.get(sessionId) ?? 0)) {
-								return;
-							}
+							if (!isCurrentHistoryRefresh()) return;
 							const mapped = reconcileOptimisticUserMessages(
 								sessionId,
 								conversationProjectionRef.current.projectHistory(history),
@@ -377,18 +406,14 @@ export function useSessionEventController({ activeSessionRef }: SessionEventCont
 			// ── Thinking delta (streaming thinking text) ──
 			if (event.type === "thinking.delta") {
 				if (conversationProjectionRef.current.hasRawAssistantStream()) return;
-				pendingThinkingDeltaRef.current += event.delta;
-				pendingDeltaSessionRef.current = sessionId;
-				scheduleDeltaFlush();
+				enqueueDelta(sessionId, "thinking", event.delta);
 				return;
 			}
 
 			// ── Text delta (streaming assistant text) ──
 			if (event.type === "message.delta") {
 				if (conversationProjectionRef.current.hasRawAssistantStream()) return;
-				pendingTextDeltaRef.current += event.delta;
-				pendingDeltaSessionRef.current = sessionId;
-				scheduleDeltaFlush();
+				enqueueDelta(sessionId, "text", event.delta);
 				return;
 			}
 
@@ -507,6 +532,7 @@ export function useSessionEventController({ activeSessionRef }: SessionEventCont
 
 			// ── Compaction start ──
 			if (event.type === "compaction.start") {
+				historyRefreshGenerationRef.current += 1;
 				setIsCompacting(true);
 				return;
 			}
@@ -528,10 +554,11 @@ export function useSessionEventController({ activeSessionRef }: SessionEventCont
 						event.reason === "manual" &&
 						getQueueForSession(getDefaultStore().get(messageQueueBySessionAtom), sessionId).length === 0
 					) {
+						const isCurrentHistoryRefresh = beginHistoryRefresh(sessionId);
 						void window.vetta.session
 							.getFullHistory(sessionId)
 							.then((history) => {
-								if (activeSessionRef.current?.runtimeId !== sessionId) return;
+								if (!isCurrentHistoryRefresh()) return;
 								setChatMessages(
 									reconcileOptimisticUserMessages(
 										sessionId,
@@ -627,7 +654,9 @@ export function useSessionEventController({ activeSessionRef }: SessionEventCont
 		},
 		[
 			activeSessionRef,
+			beginHistoryRefresh,
 			bumpSuggestionToken,
+			enqueueDelta,
 			flushDeltas,
 			markPredicting,
 			scheduleDeltaFlush,

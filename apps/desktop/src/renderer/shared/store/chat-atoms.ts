@@ -118,6 +118,7 @@ export interface PendingSessionOpen {
 
 /** After opening a parent session from a fork banner, scroll to this entry. */
 export interface PendingScrollToEntry {
+	sessionPath: string;
 	entryId: string;
 }
 

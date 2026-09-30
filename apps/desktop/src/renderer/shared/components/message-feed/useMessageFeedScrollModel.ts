@@ -317,22 +317,22 @@ export function useMessageFeedScrollModel<T>({
 	useEffect(() => {
 		if (!initialTargetKey || !getItemKey || items.length === 0) return;
 		const index = items.findIndex((item) => getItemKey(item) === initialTargetKey);
-		onInitialTargetHandled?.();
-		if (index < 0) {
-			browsingHistoryRef.current = false;
-			lastUserScrollDirectionRef.current = null;
-			setShouldFollowBottom(true);
-			requestAnimationFrame(() => {
-				virtuosoRef.current?.scrollToIndex({ index: "LAST", align: "end", behavior: "auto" });
-			});
-			return;
-		}
-		setShouldFollowBottom(false);
+		// An initial tail preview is not the complete history. Keep the request
+		// until its row arrives instead of consuming it as a missing destination.
+		if (index < 0) return;
+		stopFollowingBottom();
 		skipNextLerpRef.current = true;
-		requestAnimationFrame(() => {
-			virtuosoRef.current?.scrollToIndex({ index, align: "center", behavior: "smooth" });
+		const frame = requestAnimationFrame(() => {
+			if (stateKeyRef.current !== resetKey) return;
+			const virtualizer = virtuosoRef.current;
+			if (!virtualizer) return;
+			virtualizer.scrollToIndex({ index, align: "center", behavior: "smooth" });
+			// Consume only the completed jump; clearing the request earlier detaches it
+			// from this effect's cancellation when the feed or destination changes.
+			onInitialTargetHandled?.();
 		});
-	}, [getItemKey, initialTargetKey, items, onInitialTargetHandled, setShouldFollowBottom]);
+		return () => cancelAnimationFrame(frame);
+	}, [getItemKey, initialTargetKey, items, onInitialTargetHandled, resetKey, stopFollowingBottom]);
 
 	useEffect(() => {
 		void items;

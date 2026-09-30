@@ -1,15 +1,16 @@
+import type { ConversationUserMessageViewModel } from "@shared/conversation";
 import {
 	activeSessionAtom,
 	conversationBucketCwd,
 	defaultConversationCwdAtom,
 	openSessionFnRef,
 	pendingScrollToEntryAtom,
+	pendingSessionOpenAtom,
 } from "@shared/store/atoms";
 import { ForkOriginBannerView } from "@vetta-org/theme-ui/chat";
 import { getDefaultStore, useAtomValue } from "jotai";
 import { useCallback, useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import type { ConversationUserMessageViewModel } from "@shared/conversation";
 import type { ChatConversationItem } from "./types";
 
 interface ForkOriginBannerProps {
@@ -36,28 +37,35 @@ export function ForkOriginBanner({ sourceMessage }: ForkOriginBannerProps): JSX.
 
 	const onClick = useCallback(() => {
 		if (!parentSessionPath || !activeSession) return;
-		const store = getDefaultStore();
-		if (parentEntryId) {
-			store.set(pendingScrollToEntryAtom, { entryId: parentEntryId });
-		}
 		const open = openSessionFnRef.current;
 		if (!open) return;
+		const store = getDefaultStore();
+		const target = parentEntryId ? { sessionPath: parentSessionPath, entryId: parentEntryId } : null;
+		store.set(pendingScrollToEntryAtom, target);
+		const clearOwnTarget = () =>
+			store.set(pendingScrollToEntryAtom, (current) => (current === target ? null : current));
 		const bucketCwd = conversationBucketCwd(activeSession.cwd, defaultConversationCwd);
-		void open(bucketCwd, parentSessionPath).catch((err) => {
-			console.warn("[ForkOriginBanner] open parent session failed", err);
-			store.set(pendingScrollToEntryAtom, null);
-		});
+		void open(bucketCwd, parentSessionPath)
+			.then(() => {
+				// Opening can resolve after a handled failure or a superseding navigation.
+				if (
+					store.get(activeSessionAtom)?.sessionPath !== parentSessionPath &&
+					store.get(pendingSessionOpenAtom)?.sessionPath !== parentSessionPath
+				) {
+					clearOwnTarget();
+				}
+			})
+			.catch((err) => {
+				console.warn("[ForkOriginBanner] open parent session failed", err);
+				clearOwnTarget();
+			});
 	}, [activeSession, defaultConversationCwd, parentEntryId, parentSessionPath]);
 
 	if (!parentSessionPath) return null;
 
-	const label = preview
-		? t("messageList.forkOrigin.labelWithPreview")
-		: t("messageList.forkOrigin.label");
+	const label = preview ? t("messageList.forkOrigin.labelWithPreview") : t("messageList.forkOrigin.label");
 
-	return (
-		<ForkOriginBannerView label={label} preview={preview || undefined} onClick={onClick} />
-	);
+	return <ForkOriginBannerView label={label} preview={preview || undefined} onClick={onClick} />;
 }
 
 export interface ForkOriginPlacement {

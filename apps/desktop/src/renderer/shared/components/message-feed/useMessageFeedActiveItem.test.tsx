@@ -31,6 +31,10 @@ function items(count: number): ListItem<unknown>[] {
 }
 
 describe("useMessageFeedActiveItem", () => {
+	afterEach(() => {
+		vi.unstubAllGlobals();
+	});
+
 	describe("布局读取折叠", () => {
 		let frames: Array<() => void>;
 		beforeEach(() => {
@@ -89,5 +93,63 @@ describe("useMessageFeedActiveItem", () => {
 
 		rerender({ initialIndex: 4, resetKey: "feed-b" });
 		expect(result.current.activeIndex).toBe(4);
+	});
+
+	it("uses the replacement viewport when a queued layout read crosses a conversation switch", () => {
+		const frames = new Map<number, FrameRequestCallback>();
+		let frameId = 0;
+		vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+			frames.set(++frameId, callback);
+			return frameId;
+		});
+		vi.stubGlobal("cancelAnimationFrame", (id: number) => frames.delete(id));
+		const previousElement = document.createElement("div");
+		const nextElement = document.createElement("div");
+		previousElement.scrollTop = 0;
+		nextElement.scrollTop = 250;
+		const { result, rerender, unmount } = renderHook(
+			({ element, resetKey }) =>
+				useMessageFeedActiveItem<unknown>({ scrollerElement: element, resetKey, initialIndex: 2 }),
+			{ initialProps: { element: previousElement, resetKey: "visible-a" } },
+		);
+		act(() => result.current.onItemsRendered(items(3)));
+
+		rerender({ element: nextElement, resetKey: "visible-b" });
+		act(() => result.current.onItemsRendered(items(3)));
+		act(() => {
+			for (const [id, callback] of [...frames]) {
+				if (frames.delete(id)) callback(0);
+			}
+		});
+
+		expect(result.current.activeIndex).toBe(2);
+		unmount();
+	});
+
+	it("does not project the previous conversation's rendered rows into an unmeasured new feed", () => {
+		const frames = new Map<number, FrameRequestCallback>();
+		let frameId = 0;
+		vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+			frames.set(++frameId, callback);
+			return frameId;
+		});
+		vi.stubGlobal("cancelAnimationFrame", (id: number) => frames.delete(id));
+		const element = document.createElement("div");
+		const { result, rerender, unmount } = renderHook(
+			({ initialIndex, resetKey }) =>
+				useMessageFeedActiveItem<unknown>({ scrollerElement: element, resetKey, initialIndex }),
+			{ initialProps: { initialIndex: 0, resetKey: "unmeasured-a" } },
+		);
+		act(() => result.current.onItemsRendered(items(3)));
+
+		rerender({ initialIndex: 8, resetKey: "unmeasured-b" });
+		act(() => {
+			for (const [id, callback] of [...frames]) {
+				if (frames.delete(id)) callback(0);
+			}
+		});
+
+		expect(result.current.activeIndex).toBe(8);
+		unmount();
 	});
 });
